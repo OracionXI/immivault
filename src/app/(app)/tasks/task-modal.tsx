@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -19,42 +22,47 @@ import {
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task, TaskStatus, Priority } from "@/lib/types";
-import { mockStaff, mockCases } from "@/lib/mock-data";
+
+type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
 interface TaskModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    task: Task | null;
-    onSave: (t: Task) => void;
+    task: ConvexTask | null;
 }
 
-export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) {
+export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
+    const createTask = useMutation(api.tasks.mutations.create);
+    const updateTask = useMutation(api.tasks.mutations.update);
+    const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const cases = useQuery(api.cases.queries.listAll) ?? [];
+
     const [form, setForm] = useState({
         title: "",
         description: "",
-        assignee: "",
-        priority: "Medium" as Priority,
-        status: "To Do" as TaskStatus,
+        assignedTo: "",
+        priority: "Medium" as "Low" | "Medium" | "High" | "Urgent",
+        status: "To Do" as "To Do" | "In Progress" | "In Review" | "Completed",
         dueDate: "",
         caseId: "",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [loading, setLoading] = useState(false);
     const [casePopoverOpen, setCasePopoverOpen] = useState(false);
 
     useEffect(() => {
         if (task) {
             setForm({
                 title: task.title,
-                description: task.description,
-                assignee: task.assignee,
+                description: task.description ?? "",
+                assignedTo: task.assignedTo,
                 priority: task.priority,
                 status: task.status,
-                dueDate: task.dueDate,
-                caseId: task.caseId || "",
+                dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "",
+                caseId: task.caseId ?? "",
             });
         } else {
-            setForm({ title: "", description: "", assignee: "", priority: "Medium", status: "To Do", dueDate: "", caseId: "" });
+            setForm({ title: "", description: "", assignedTo: "", priority: "Medium", status: "To Do", dueDate: "", caseId: "" });
         }
         setErrors({});
         setCasePopoverOpen(false);
@@ -63,25 +71,38 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
-        if (!form.assignee) errs.assignee = "Assignee is required";
+        if (!form.assignedTo) errs.assignedTo = "Assignee is required";
         if (!form.dueDate) errs.dueDate = "Due date is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!validate()) return;
-        const relatedCase = mockCases.find((c) => c.id === form.caseId);
-        onSave({
-            id: task?.id || "",
-            ...form,
-            caseName: relatedCase?.title,
-            createdAt: task?.createdAt || new Date().toISOString().split("T")[0],
-        });
+        setLoading(true);
+        try {
+            const payload = {
+                title: form.title,
+                description: form.description || undefined,
+                assignedTo: form.assignedTo as Id<"users">,
+                priority: form.priority,
+                status: form.status,
+                dueDate: form.dueDate ? new Date(form.dueDate).getTime() : undefined,
+                caseId: form.caseId ? (form.caseId as Id<"cases">) : undefined,
+            };
+            if (task) {
+                await updateTask({ id: task._id, ...payload });
+            } else {
+                await createTask(payload);
+            }
+            onOpenChange(false);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const selectedCaseTitle = form.caseId
-        ? mockCases.find((c) => c.id === form.caseId)?.title ?? "None"
+        ? (cases.find((c) => c._id === form.caseId)?.title ?? "None")
         : "None";
 
     return (
@@ -91,7 +112,6 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                     <DialogTitle>{task ? "Edit Task" : "New Task"}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                    {/* Title */}
                     <div className="grid gap-2">
                         <Label>Task Title *</Label>
                         <Input
@@ -102,7 +122,6 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                         {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
                     </div>
 
-                    {/* Description */}
                     <div className="grid gap-2">
                         <Label>Description</Label>
                         <Textarea
@@ -113,19 +132,18 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                         />
                     </div>
 
-                    {/* Assignee + Due Date */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Assignee *</Label>
-                            <Select value={form.assignee} onValueChange={(v) => setForm({ ...form, assignee: v })}>
+                            <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
-                                    {mockStaff.filter((s) => s.status === "active").map((s) => (
-                                        <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                                    {users.filter((u) => u.status === "active").map((u) => (
+                                        <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {errors.assignee && <p className="text-xs text-destructive">{errors.assignee}</p>}
+                            {errors.assignedTo && <p className="text-xs text-destructive">{errors.assignedTo}</p>}
                         </div>
                         <div className="grid gap-2">
                             <Label>Due Date *</Label>
@@ -138,11 +156,10 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                         </div>
                     </div>
 
-                    {/* Priority + Status */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Priority</Label>
-                            <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v as Priority })}>
+                            <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v as typeof form.priority })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     {["Low", "Medium", "High", "Urgent"].map((p) => (
@@ -153,10 +170,10 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                         </div>
                         <div className="grid gap-2">
                             <Label>Status</Label>
-                            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as TaskStatus })}>
+                            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {["To Do", "In Progress", "Review", "Done"].map((s) => (
+                                    {["To Do", "In Progress", "In Review", "Completed"].map((s) => (
                                         <SelectItem key={s} value={s}>{s}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -164,7 +181,6 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                         </div>
                     </div>
 
-                    {/* Related Case — searchable combobox, full width */}
                     <div className="grid gap-2">
                         <Label>Related Case</Label>
                         <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
@@ -187,24 +203,18 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                                         <CommandGroup>
                                             <CommandItem
                                                 value="none"
-                                                onSelect={() => {
-                                                    setForm({ ...form, caseId: "" });
-                                                    setCasePopoverOpen(false);
-                                                }}
+                                                onSelect={() => { setForm({ ...form, caseId: "" }); setCasePopoverOpen(false); }}
                                             >
                                                 <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === "" ? "opacity-100" : "opacity-0")} />
                                                 None
                                             </CommandItem>
-                                            {mockCases.map((c) => (
+                                            {cases.map((c) => (
                                                 <CommandItem
-                                                    key={c.id}
+                                                    key={c._id}
                                                     value={c.title}
-                                                    onSelect={() => {
-                                                        setForm({ ...form, caseId: c.id });
-                                                        setCasePopoverOpen(false);
-                                                    }}
+                                                    onSelect={() => { setForm({ ...form, caseId: c._id }); setCasePopoverOpen(false); }}
                                                 >
-                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c.id ? "opacity-100" : "opacity-0")} />
+                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c._id ? "opacity-100" : "opacity-0")} />
                                                     {c.title}
                                                 </CommandItem>
                                             ))}
@@ -217,7 +227,7 @@ export function TaskModal({ open, onOpenChange, task, onSave }: TaskModalProps) 
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit}>{task ? "Save Changes" : "Create Task"}</Button>
+                    <Button onClick={handleSubmit} disabled={loading}>{task ? "Save Changes" : "Create Task"}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

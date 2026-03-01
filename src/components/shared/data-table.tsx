@@ -98,10 +98,10 @@ export function DataTable<T extends Record<string, unknown>>({
     return (
         <div className="space-y-4">
             {/* Toolbar */}
-            <div className="flex items-center gap-3 w-full">
-                {/* Search — 50% width */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full">
+                {/* Search */}
                 {searchKey && (
-                    <div className="relative w-1/2">
+                    <div className="relative w-full sm:w-1/2">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                         <Input
                             placeholder={searchPlaceholder}
@@ -123,14 +123,14 @@ export function DataTable<T extends Record<string, unknown>>({
                     </div>
                 )}
 
-                {/* Filter dropdown + result count — right-aligned */}
-                <div className="ml-auto flex items-center gap-3">
+                {/* Filter dropdown + result count */}
+                <div className="sm:ml-auto flex w-full sm:w-auto items-center justify-between sm:justify-end gap-3">
                     {filterDropdown && (
                         <Select
                             value={activeFilter}
                             onValueChange={(v) => { setActiveFilter(v); setPage(0); }}
                         >
-                            <SelectTrigger className="w-44">
+                            <SelectTrigger className="w-[140px] sm:w-44">
                                 <SelectValue placeholder={filterDropdown.placeholder} />
                             </SelectTrigger>
                             <SelectContent>
@@ -154,87 +154,89 @@ export function DataTable<T extends Record<string, unknown>>({
 
             {/* Table */}
             <div className="rounded-lg border border-border overflow-hidden">
-                <Table className="table-fixed w-full">
-                    <TableHeader>
-                        <TableRow className="bg-muted/50 hover:bg-muted/50">
-                            {columns.map((col) => (
-                                <TableHead key={col.key} style={col.width ? { width: col.width } : undefined}>
-                                    {col.sortable ? (
-                                        <button
-                                            className="flex items-center gap-1.5 font-medium hover:text-foreground transition-colors"
-                                            onClick={() => handleSort(col.key)}
-                                        >
-                                            {col.label}
-                                            <ArrowUpDown className="h-3.5 w-3.5" />
-                                        </button>
-                                    ) : (
-                                        col.label
-                                    )}
-                                </TableHead>
-                            ))}
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {paged.length === 0 ? (
-                            <TableRow>
-                                <TableCell
-                                    colSpan={columns.length}
-                                    className="h-24 text-center text-muted-foreground"
-                                >
-                                    No results found.
-                                </TableCell>
+                <div className="w-full overflow-x-auto">
+                    <Table className="table-fixed min-w-[600px] w-full">
+                        <TableHeader>
+                            <TableRow className="bg-muted/50 hover:bg-muted/50">
+                                {columns.map((col) => (
+                                    <TableHead key={col.key} style={col.width ? { width: col.width } : undefined}>
+                                        {col.sortable ? (
+                                            <button
+                                                className="flex items-center gap-1.5 font-medium hover:text-foreground transition-colors"
+                                                onClick={() => handleSort(col.key)}
+                                            >
+                                                {col.label}
+                                                <ArrowUpDown className="h-3.5 w-3.5" />
+                                            </button>
+                                        ) : (
+                                            col.label
+                                        )}
+                                    </TableHead>
+                                ))}
                             </TableRow>
-                        ) : (
-                            paged.map((item, idx) => (
-                                <TableRow
-                                    key={idx}
-                                    className={onRowClick ? "cursor-pointer" : ""}
-                                    onClick={() => onRowClick?.(item)}
-                                >
-                                    {columns.map((col) => (
-                                        <TableCell key={col.key} className="max-w-0 truncate">
-                                            {col.render
-                                                ? col.render(item)
-                                                : String(item[col.key] ?? "")}
-                                        </TableCell>
-                                    ))}
+                        </TableHeader>
+                        <TableBody>
+                            {paged.length === 0 ? (
+                                <TableRow>
+                                    <TableCell
+                                        colSpan={columns.length}
+                                        className="h-24 text-center text-muted-foreground"
+                                    >
+                                        No results found.
+                                    </TableCell>
                                 </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <p>
-                        Showing {page * pageSize + 1}–
-                        {Math.min((page + 1) * pageSize, filtered.length)} of{" "}
-                        {filtered.length}
-                    </p>
-                    <div className="flex gap-1">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={page === 0}
-                            onClick={() => setPage((p) => p - 1)}
-                        >
-                            <ChevronLeft className="h-4 w-4 mr-1" />
-                            Prev
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={page >= totalPages - 1}
-                            onClick={() => setPage((p) => p + 1)}
-                        >
-                            Next
-                            <ChevronRight className="h-4 w-4 ml-1" />
-                        </Button>
-                    </div>
+                            ) : (
+                                paged.map((item, idx) => (
+                                    <TableRow
+                                        key={idx}
+                                        className={onRowClick ? "cursor-pointer" : ""}
+                                        onClick={() => onRowClick?.(item)}
+                                    >
+                                        {columns.map((col) => (
+                                            <TableCell key={col.key} className="max-w-0 truncate">
+                                                {col.render
+                                                    ? col.render(item)
+                                                    : String(item[col.key] ?? "")}
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
                 </div>
-            )}
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <p>
+                            Showing {page * pageSize + 1}–
+                            {Math.min((page + 1) * pageSize, filtered.length)} of{" "}
+                            {filtered.length}
+                        </p>
+                        <div className="flex gap-1">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={page === 0}
+                                onClick={() => setPage((p) => p - 1)}
+                            >
+                                <ChevronLeft className="h-4 w-4 mr-1" />
+                                Prev
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={page >= totalPages - 1}
+                                onClick={() => setPage((p) => p + 1)}
+                            >
+                                Next
+                                <ChevronRight className="h-4 w-4 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

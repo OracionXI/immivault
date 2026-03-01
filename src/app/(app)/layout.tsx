@@ -1,5 +1,10 @@
 import { AppLayout } from "@/components/layout/app-layout";
+import { InitGate } from "@/components/init-gate";
 
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
-    return <AppLayout>{children}</AppLayout>;
+    return (
+        <InitGate>
+            <AppLayout>{children}</AppLayout>
+        </InitGate>
+    );
 }

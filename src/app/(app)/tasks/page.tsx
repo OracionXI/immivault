@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
 import { KanbanBoard, type KanbanColumn, type KanbanItem } from "@/components/shared/kanban-board";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { mockTasks, mockStaff } from "@/lib/mock-data";
-import type { Task } from "@/lib/types";
 import { TaskModal } from "./task-modal";
 import { TaskDetailDialog } from "./task-detail-dialog";
 import { Input } from "@/components/ui/input";
@@ -14,86 +15,87 @@ import {
 } from "@/components/ui/select";
 import { Search, X } from "lucide-react";
 
-const taskColumns: KanbanColumn[] = [
-    { id: "To Do", title: "To Do", color: "#3b82f6" },
-    { id: "In Progress", title: "In Progress", color: "#f59e0b" },
-    { id: "Review", title: "Review", color: "#8b5cf6" },
-    { id: "Done", title: "Done", color: "#10b981" },
+type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
+
+const TASK_COLUMNS: KanbanColumn[] = [
+    { id: "To Do",       title: "To Do",       color: "border-blue-400" },
+    { id: "In Progress", title: "In Progress",  color: "border-amber-400" },
+    { id: "In Review",   title: "In Review",    color: "border-violet-400" },
+    { id: "Completed",   title: "Completed",    color: "border-emerald-400" },
 ];
 
 const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
-const activeStaff = mockStaff.filter((s) => s.status === "active");
 
 export default function TasksPage() {
-    const [tasks, setTasks] = useState<Task[]>(mockTasks);
+    const rawTasks = useQuery(api.tasks.queries.list) ?? [];
+    const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const updateStatus = useMutation(api.tasks.mutations.updateStatus);
+    const removeTask = useMutation(api.tasks.mutations.remove);
+
+    const userMap = useMemo(
+        () => new Map(users.map((u) => [u._id, u.fullName])),
+        [users]
+    );
+    const caseMap = useMemo(
+        () => new Map(cases.map((c) => [c._id, c.title])),
+        [cases]
+    );
+
     const [modalOpen, setModalOpen] = useState(false);
-    const [editingTask, setEditingTask] = useState<Task | null>(null);
-    const [viewTask, setViewTask] = useState<Task | null>(null);
-    const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: string | null }>({ open: false, id: null });
+    const [editingTask, setEditingTask] = useState<ConvexTask | null>(null);
+    const [viewTask, setViewTask] = useState<ConvexTask | null>(null);
+    const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: Id<"tasks"> | null }>({ open: false, id: null });
     const [search, setSearch] = useState("");
     const [assigneeFilter, setAssigneeFilter] = useState("all");
     const [priorityFilter, setPriorityFilter] = useState("all");
 
-    const allKanbanItems: KanbanItem[] = tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        subtitle: t.caseName || t.description,
-        status: t.status,
-        priority: t.priority,
-        assignee: t.assignee,
-        dueDate: t.dueDate,
-    }));
-
-    const kanbanItems = useMemo(() => {
-        let result = allKanbanItems;
+    const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();
-        if (q) {
-            result = result.filter(
-                (item) =>
-                    item.title.toLowerCase().includes(q) ||
-                    (item.subtitle?.toLowerCase() ?? "").includes(q)
-            );
-        }
-        if (assigneeFilter !== "all") {
-            result = result.filter((item) => item.assignee === assigneeFilter);
-        }
-        if (priorityFilter !== "all") {
-            result = result.filter((item) => item.priority === priorityFilter);
-        }
-        return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tasks, search, assigneeFilter, priorityFilter]);
+        return rawTasks
+            .map((t) => ({
+                id: t._id,
+                title: t.title,
+                subtitle: t.caseId ? (caseMap.get(t.caseId) ?? "—") : (t.description ?? ""),
+                status: t.status,
+                priority: t.priority,
+                assignee: userMap.get(t.assignedTo) ?? "—",
+                dueDate: t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : undefined,
+            }))
+            .filter((item) => {
+                if (q && !item.title.toLowerCase().includes(q) && !(item.subtitle?.toLowerCase() ?? "").includes(q)) return false;
+                if (assigneeFilter !== "all" && item.assignee !== assigneeFilter) return false;
+                if (priorityFilter !== "all" && item.priority !== priorityFilter) return false;
+                return true;
+            });
+    }, [rawTasks, userMap, caseMap, search, assigneeFilter, priorityFilter]);
 
     const isFiltering = search || assigneeFilter !== "all" || priorityFilter !== "all";
-
-    const handleSave = (t: Task) => {
-        if (editingTask) {
-            setTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)));
-        } else {
-            setTasks((prev) => [...prev, { ...t, id: `t${Date.now()}` }]);
-        }
-        setModalOpen(false);
-        setEditingTask(null);
-    };
+    const activeUsers = users.filter((u) => u.status === "active");
 
     const handleItemClick = (item: KanbanItem) => {
-        const t = tasks.find((x) => x.id === item.id);
+        const t = rawTasks.find((x) => x._id === item.id);
         if (t) setViewTask(t);
     };
 
     const handleItemEdit = (item: KanbanItem) => {
-        const t = tasks.find((x) => x.id === item.id);
+        const t = rawTasks.find((x) => x._id === item.id);
         if (t) { setEditingTask(t); setModalOpen(true); }
     };
 
     const handleItemDelete = (item: KanbanItem) => {
-        setDeleteDialog({ open: true, id: item.id });
+        setDeleteDialog({ open: true, id: item.id as Id<"tasks"> });
     };
 
-    const handleItemMove = (itemId: string, newStatus: string) => {
-        setTasks((prev) =>
-            prev.map((t) => (t.id === itemId ? { ...t, status: newStatus as Task["status"] } : t))
-        );
+    const handleItemMove = async (itemId: string, newStatus: string) => {
+        await updateStatus({ id: itemId as Id<"tasks">, status: newStatus as ConvexTask["status"] });
+    };
+
+    const handleDelete = async () => {
+        if (deleteDialog.id) {
+            await removeTask({ id: deleteDialog.id });
+            setDeleteDialog({ open: false, id: null });
+        }
     };
 
     return (
@@ -105,9 +107,7 @@ export default function TasksPage() {
                 onAction={() => { setEditingTask(null); setModalOpen(true); }}
             />
 
-            {/* Toolbar */}
             <div className="flex items-center gap-3 w-full">
-                {/* Search — 50% width */}
                 <div className="relative w-1/2">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                     <Input
@@ -126,22 +126,19 @@ export default function TasksPage() {
                     )}
                 </div>
 
-                {/* Filters — right-aligned */}
                 <div className="ml-auto flex items-center gap-2">
-                    {/* Assignee dropdown */}
                     <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                         <SelectTrigger className="w-44">
                             <SelectValue placeholder="All Assignees" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Assignees</SelectItem>
-                            {activeStaff.map((s) => (
-                                <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                            {activeUsers.map((u) => (
+                                <SelectItem key={u._id} value={u.fullName}>{u.fullName}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
 
-                    {/* Status dropdown */}
                     <Select value={priorityFilter} onValueChange={setPriorityFilter}>
                         <SelectTrigger className="w-40">
                             <SelectValue placeholder="All Priorities" />
@@ -154,7 +151,6 @@ export default function TasksPage() {
                         </SelectContent>
                     </Select>
 
-                    {/* Result count */}
                     {isFiltering && (
                         <p className="text-sm text-muted-foreground whitespace-nowrap pl-1">
                             {kanbanItems.length} task{kanbanItems.length !== 1 ? "s" : ""}
@@ -164,7 +160,7 @@ export default function TasksPage() {
             </div>
 
             <KanbanBoard
-                columns={taskColumns}
+                columns={TASK_COLUMNS}
                 items={kanbanItems}
                 statusKey="status"
                 onItemClick={handleItemClick}
@@ -177,13 +173,14 @@ export default function TasksPage() {
                 open={modalOpen}
                 onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingTask(null); }}
                 task={editingTask}
-                onSave={handleSave}
             />
 
             <TaskDetailDialog
                 task={viewTask}
+                assigneeName={viewTask ? (userMap.get(viewTask.assignedTo) ?? "—") : ""}
+                caseName={viewTask?.caseId ? (caseMap.get(viewTask.caseId) ?? "") : ""}
                 onClose={() => setViewTask(null)}
-                onEdit={(t) => { setEditingTask(t); setModalOpen(true); }}
+                onEdit={(t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); }}
             />
 
             <ConfirmDialog
@@ -191,10 +188,7 @@ export default function TasksPage() {
                 onOpenChange={(open) => setDeleteDialog({ open, id: deleteDialog.id })}
                 title="Delete Task"
                 description="Are you sure you want to delete this task?"
-                onConfirm={() => {
-                    if (deleteDialog.id) setTasks((prev) => prev.filter((t) => t.id !== deleteDialog.id));
-                    setDeleteDialog({ open: false, id: null });
-                }}
+                onConfirm={handleDelete}
             />
         </div>
     );

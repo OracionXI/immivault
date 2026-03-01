@@ -1,65 +1,89 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Staff, Status } from "@/lib/types";
+
+type ConvexUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.queries.listByOrg>>>[number];
 
 interface StaffModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    staff: Staff | null;
-    onSave: (s: Staff) => void;
+    staff: ConvexUser | null;
 }
 
-const roles = ["Senior Immigration Attorney", "Immigration Attorney", "Case Manager", "Immigration Paralegal", "Junior Paralegal", "Admin Assistant", "Office Manager"];
-const departments = ["Legal", "Operations", "Administration", "Finance"];
+const ROLES = ["admin", "attorney", "paralegal", "staff"] as const;
 
-export function StaffModal({ open, onOpenChange, staff, onSave }: StaffModalProps) {
-    const [form, setForm] = useState({ name: "", email: "", role: "", department: "", status: "active" as Status });
-    const [errors, setErrors] = useState<Record<string, string>>({});
+export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
+    const updateMember = useMutation(api.users.mutations.updateMember);
+
+    const [form, setForm] = useState({
+        role: "staff" as typeof ROLES[number],
+        status: "active" as "active" | "inactive",
+    });
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (staff) {
-            setForm({ name: staff.name, email: staff.email, role: staff.role, department: staff.department, status: staff.status });
-        } else {
-            setForm({ name: "", email: "", role: "", department: "", status: "active" });
+            setForm({ role: staff.role, status: staff.status });
         }
-        setErrors({});
     }, [staff, open]);
 
-    const validate = () => {
-        const errs: Record<string, string> = {};
-        if (!form.name.trim()) errs.name = "Name is required";
-        if (!form.email.trim()) errs.email = "Email is required";
-        if (!form.role) errs.role = "Role is required";
-        if (!form.department) errs.department = "Department is required";
-        setErrors(errs);
-        return Object.keys(errs).length === 0;
-    };
-
-    const handleSubmit = () => {
-        if (!validate()) return;
-        onSave({ id: staff?.id || "", ...form, joinedAt: staff?.joinedAt || new Date().toISOString().split("T")[0] });
+    const handleSubmit = async () => {
+        if (!staff) return;
+        setLoading(true);
+        try {
+            await updateMember({ id: staff._id, role: form.role, status: form.status });
+            onOpenChange(false);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[450px]">
-                <DialogHeader><DialogTitle>{staff ? "Edit Staff" : "Add Staff Member"}</DialogTitle></DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <div className="grid gap-2"><Label>Full Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Sarah Chen" />{errors.name && <p className="text-xs text-destructive">{errors.name}</p>}</div>
-                    <div className="grid gap-2"><Label>Email *</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="email@immivault.com" />{errors.email && <p className="text-xs text-destructive">{errors.email}</p>}</div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2"><Label>Role *</Label><Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}><SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger><SelectContent>{roles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select>{errors.role && <p className="text-xs text-destructive">{errors.role}</p>}</div>
-                        <div className="grid gap-2"><Label>Department *</Label><Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{departments.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select>{errors.department && <p className="text-xs text-destructive">{errors.department}</p>}</div>
+            <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader>
+                    <DialogTitle>Edit Staff Member</DialogTitle>
+                </DialogHeader>
+                {staff && (
+                    <div className="py-2">
+                        <p className="text-sm font-medium">{staff.fullName}</p>
+                        <p className="text-xs text-muted-foreground mb-4">{staff.email}</p>
+
+                        <div className="grid gap-4">
+                            <div className="grid gap-2">
+                                <Label>Role</Label>
+                                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as typeof form.role })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {ROLES.map((r) => (
+                                            <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Status</Label>
+                                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="active">Active</SelectItem>
+                                        <SelectItem value="inactive">Inactive</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
                     </div>
-                    <div className="grid gap-2"><Label>Status</Label><Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Status })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent></Select></div>
-                </div>
-                <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={handleSubmit}>{staff ? "Save Changes" : "Add Staff"}</Button></DialogFooter>
+                )}
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleSubmit} disabled={loading}>Save Changes</Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

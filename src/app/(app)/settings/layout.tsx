@@ -24,9 +24,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 <p className="text-sm text-muted-foreground mt-1">Manage your application configuration</p>
             </div>
 
-            <div className="flex gap-6">
+            <div className="flex flex-col md:flex-row gap-6">
                 {/* Settings Sidebar */}
-                <nav className="w-56 shrink-0 space-y-1">
+                <nav className="flex md:flex-col w-full md:w-56 shrink-0 gap-1 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
                     {settingsTabs.map((tab) => {
                         const isActive = pathname === tab.href || (tab.href !== "/settings" && pathname.startsWith(tab.href));
                         return (
@@ -34,13 +34,13 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                                 key={tab.href}
                                 href={tab.href}
                                 className={cn(
-                                    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                                    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
                                     isActive
                                         ? "bg-primary text-primary-foreground"
                                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                                 )}
                             >
-                                <tab.icon className="h-4 w-4" />
+                                <tab.icon className="h-4 w-4 shrink-0" />
                                 {tab.title}
                             </Link>
                         );
