@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -10,44 +12,37 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Pencil, UserRound, CalendarDays, FileText, MessageSquare, Send } from "lucide-react";
-import type { Case } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-interface Comment {
+type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
+
+interface CaseDetailDialogProps {
+    caseItem: ConvexCase | null;
+    clientName: string;
+    assigneeName: string;
+    onClose: () => void;
+    onEdit: (c: ConvexCase) => void;
+}
+
+interface LocalComment {
     id: string;
     author: string;
     text: string;
     createdAt: string;
 }
 
-interface CaseDetailDialogProps {
-    caseItem: Case | null;
-    onClose: () => void;
-    onEdit: (c: Case) => void;
-}
-
 function getInitials(name: string) {
     return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function formatDate(dateStr: string) {
-    try {
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    } catch { return dateStr; }
+function formatTs(ts: number) {
+    return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const CURRENT_USER = "Sarah Chen";
+const CURRENT_USER = "You";
 
-const avatarColor: Record<string, string> = {
-    "Sarah Chen":  "bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    "John Miller": "bg-blue-500/15 text-blue-700 dark:text-blue-300",
-    "Emily Davis": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-};
-
-export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialogProps) {
-    const [comments, setComments] = useState<Comment[]>([]);
+export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, onEdit }: CaseDetailDialogProps) {
+    const [comments, setComments] = useState<LocalComment[]>([]);
     const [newComment, setNewComment] = useState("");
 
     const handleAddComment = () => {
@@ -55,12 +50,7 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
         if (!text) return;
         setComments((prev) => [
             ...prev,
-            {
-                id: `cmt-${Date.now()}`,
-                author: CURRENT_USER,
-                text,
-                createdAt: new Date().toISOString(),
-            },
+            { id: `cmt-${Date.now()}`, author: CURRENT_USER, text, createdAt: new Date().toISOString() },
         ]);
         setNewComment("");
     };
@@ -74,10 +64,10 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                 <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
                     <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
-                            <p className="text-xs text-muted-foreground font-mono mb-1">CASE · {caseItem.id.toUpperCase()}</p>
+                            <p className="text-xs text-muted-foreground font-mono mb-1">CASE · {caseItem.caseNumber}</p>
                             <DialogTitle className="text-xl leading-snug">{caseItem.title}</DialogTitle>
                             <div className="flex gap-2 mt-2">
-                                <StatusBadge status={caseItem.stage} />
+                                <StatusBadge status={caseItem.status} />
                                 <StatusBadge status={caseItem.priority} />
                             </div>
                         </div>
@@ -98,18 +88,18 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                     {/* Main column */}
                     <ScrollArea className="flex-1 px-6 py-5">
                         <div className="space-y-6 pr-4">
-                            {/* Description */}
+                            {/* Notes / Description */}
                             <section>
                                 <div className="flex items-center gap-2 mb-2">
                                     <FileText className="h-4 w-4 text-muted-foreground" />
-                                    <h3 className="text-sm font-semibold">Description</h3>
+                                    <h3 className="text-sm font-semibold">Notes</h3>
                                 </div>
                                 {caseItem.notes ? (
                                     <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
                                         {caseItem.notes}
                                     </p>
                                 ) : (
-                                    <p className="text-sm text-muted-foreground italic">No description provided.</p>
+                                    <p className="text-sm text-muted-foreground italic">No notes provided.</p>
                                 )}
                             </section>
 
@@ -133,19 +123,14 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                                     <div className="space-y-4 mb-4">
                                         {comments.map((comment) => (
                                             <div key={comment.id} className="flex gap-3">
-                                                <div
-                                                    className={cn(
-                                                        "h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5",
-                                                        avatarColor[comment.author] ?? "bg-primary/10 text-primary"
-                                                    )}
-                                                >
+                                                <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 bg-primary/10 text-primary">
                                                     {getInitials(comment.author)}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-baseline gap-2 mb-1">
                                                         <span className="text-xs font-semibold">{comment.author}</span>
                                                         <span className="text-[11px] text-muted-foreground">
-                                                            {formatDate(comment.createdAt)}
+                                                            {new Date(comment.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                                         </span>
                                                     </div>
                                                     <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
@@ -159,12 +144,7 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
 
                                 {/* Add comment */}
                                 <div className="flex gap-3">
-                                    <div
-                                        className={cn(
-                                            "h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5",
-                                            avatarColor[CURRENT_USER] ?? "bg-primary/10 text-primary"
-                                        )}
-                                    >
+                                    <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5 bg-primary/10 text-primary">
                                         {getInitials(CURRENT_USER)}
                                     </div>
                                     <div className="flex-1 space-y-2">
@@ -180,11 +160,7 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                                                 }
                                             }}
                                         />
-                                        <Button
-                                            size="sm"
-                                            onClick={handleAddComment}
-                                            disabled={!newComment.trim()}
-                                        >
+                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim()}>
                                             <Send className="h-3.5 w-3.5 mr-1.5" />
                                             Comment
                                         </Button>
@@ -200,7 +176,7 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                             <Detail label="Client">
                                 <div className="flex items-center gap-1.5">
                                     <UserRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                    <span className="text-sm font-medium">{caseItem.clientName}</span>
+                                    <span className="text-sm font-medium">{clientName}</span>
                                 </div>
                             </Detail>
 
@@ -211,32 +187,29 @@ export function CaseDetailDialog({ caseItem, onClose, onEdit }: CaseDetailDialog
                             </Detail>
 
                             <Detail label="Assigned To">
-                                <div className="flex items-center gap-2">
-                                    <div
-                                        className={cn(
-                                            "h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
-                                            avatarColor[caseItem.assignedTo] ?? "bg-primary/10 text-primary"
-                                        )}
-                                    >
-                                        {getInitials(caseItem.assignedTo)}
+                                <div className={cn("flex items-center gap-2")}>
+                                    <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-primary/10 text-primary">
+                                        {getInitials(assigneeName)}
                                     </div>
-                                    <span className="text-sm font-medium">{caseItem.assignedTo}</span>
+                                    <span className="text-sm font-medium">{assigneeName}</span>
                                 </div>
                             </Detail>
 
                             <Separator />
 
+                            {caseItem.deadline && (
+                                <Detail label="Deadline">
+                                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                        <span className="text-sm">{formatTs(caseItem.deadline)}</span>
+                                    </div>
+                                </Detail>
+                            )}
+
                             <Detail label="Created">
                                 <div className="flex items-center gap-1.5 text-muted-foreground">
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="text-sm">{formatDate(caseItem.createdAt)}</span>
-                                </div>
-                            </Detail>
-
-                            <Detail label="Last Updated">
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="text-sm">{formatDate(caseItem.updatedAt)}</span>
+                                    <span className="text-sm">{formatTs(caseItem._creationTime)}</span>
                                 </div>
                             </Detail>
                         </div>

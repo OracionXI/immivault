@@ -1,67 +1,89 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import type { Client, Status } from "@/lib/types";
+
+type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.list>>>[number];
 
 interface ClientModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    client: Client | null;
-    onSave: (client: Client) => void;
+    client: ConvexClient | null;
 }
 
-const visaTypes = ["H-1B", "F-1", "L-1A", "L-1B", "O-1", "E-2", "EB-1", "EB-2", "EB-3", "B-1/B-2", "J-1", "K-1", "TN"];
+export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
+    const createClient = useMutation(api.clients.mutations.create);
+    const updateClient = useMutation(api.clients.mutations.update);
+    const staff = useQuery(api.users.queries.listByOrg) ?? [];
 
-export function ClientModal({ open, onOpenChange, client, onSave }: ClientModalProps) {
     const [form, setForm] = useState({
-        name: "", email: "", phone: "", nationality: "", visaType: "", status: "active" as Status,
+        firstName: "", lastName: "", email: "", phone: "", nationality: "",
+        status: "Active" as "Active" | "Pending" | "Inactive" | "Archived",
+        assignedTo: "",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (client) {
-            setForm({ name: client.name, email: client.email, phone: client.phone, nationality: client.nationality, visaType: client.visaType, status: client.status });
+            setForm({
+                firstName: client.firstName,
+                lastName: client.lastName,
+                email: client.email,
+                phone: client.phone ?? "",
+                nationality: client.nationality ?? "",
+                status: client.status,
+                assignedTo: client.assignedTo,
+            });
         } else {
-            setForm({ name: "", email: "", phone: "", nationality: "", visaType: "", status: "active" });
+            setForm({ firstName: "", lastName: "", email: "", phone: "", nationality: "", status: "Active", assignedTo: "" });
         }
         setErrors({});
     }, [client, open]);
 
     const validate = () => {
         const errs: Record<string, string> = {};
-        if (!form.name.trim()) errs.name = "Name is required";
+        if (!form.firstName.trim()) errs.firstName = "First name is required";
+        if (!form.lastName.trim()) errs.lastName = "Last name is required";
         if (!form.email.trim()) errs.email = "Email is required";
-        if (!form.phone.trim()) errs.phone = "Phone is required";
-        if (!form.nationality.trim()) errs.nationality = "Nationality is required";
-        if (!form.visaType) errs.visaType = "Visa type is required";
+        if (!form.assignedTo) errs.assignedTo = "Assigned staff is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!validate()) return;
-        onSave({
-            id: client?.id || "",
-            ...form,
-            createdAt: client?.createdAt || new Date().toISOString().split("T")[0],
-        });
+        setLoading(true);
+        try {
+            const payload = {
+                firstName: form.firstName,
+                lastName: form.lastName,
+                email: form.email,
+                phone: form.phone || undefined,
+                nationality: form.nationality || undefined,
+                status: form.status,
+                assignedTo: form.assignedTo as Id<"users">,
+            };
+            if (client) {
+                await updateClient({ id: client._id, ...payload });
+            } else {
+                await createClient(payload);
+            }
+            onOpenChange(false);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -71,58 +93,65 @@ export function ClientModal({ open, onOpenChange, client, onSave }: ClientModalP
                     <DialogTitle>{client ? "Edit Client" : "New Client"}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="name">Full Name *</Label>
-                        <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Maria Rodriguez" />
-                        {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="firstName">First Name *</Label>
+                            <Input id="firstName" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Maria" />
+                            {errors.firstName && <p className="text-xs text-destructive">{errors.firstName}</p>}
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="lastName">Last Name *</Label>
+                            <Input id="lastName" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Rodriguez" />
+                            {errors.lastName && <p className="text-xs text-destructive">{errors.lastName}</p>}
+                        </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label htmlFor="email">Email *</Label>
                             <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="email@example.com" />
                             {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="phone">Phone *</Label>
+                            <Label htmlFor="phone">Phone</Label>
                             <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1-555-0100" />
-                            {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="nationality">Nationality *</Label>
+                            <Label htmlFor="nationality">Nationality</Label>
                             <Input id="nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g., Mexican" />
-                            {errors.nationality && <p className="text-xs text-destructive">{errors.nationality}</p>}
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="visaType">Visa Type *</Label>
-                            <Select value={form.visaType} onValueChange={(v) => setForm({ ...form, visaType: v })}>
-                                <SelectTrigger><SelectValue placeholder="Select visa type" /></SelectTrigger>
+                            <Label htmlFor="status">Status</Label>
+                            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {visaTypes.map((v) => (
-                                        <SelectItem key={v} value={v}>{v}</SelectItem>
-                                    ))}
+                                    <SelectItem value="Active">Active</SelectItem>
+                                    <SelectItem value="Pending">Pending</SelectItem>
+                                    <SelectItem value="Inactive">Inactive</SelectItem>
+                                    <SelectItem value="Archived">Archived</SelectItem>
                                 </SelectContent>
                             </Select>
-                            {errors.visaType && <p className="text-xs text-destructive">{errors.visaType}</p>}
                         </div>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="status">Status</Label>
-                        <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Status })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
+                        <Label>Assigned To *</Label>
+                        <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select staff member" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="pending">Pending</SelectItem>
-                                <SelectItem value="inactive">Inactive</SelectItem>
-                                <SelectItem value="archived">Archived</SelectItem>
+                                {staff.filter((s) => s.status === "active").map((s) => (
+                                    <SelectItem key={s._id} value={s._id}>{s.fullName}</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
+                        {errors.assignedTo && <p className="text-xs text-destructive">{errors.assignedTo}</p>}
                     </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit}>{client ? "Save Changes" : "Create Client"}</Button>
+                    <Button onClick={handleSubmit} disabled={loading}>
+                        {client ? "Save Changes" : "Create Client"}
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
