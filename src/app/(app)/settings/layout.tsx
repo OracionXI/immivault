@@ -60,8 +60,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                     })}
                 </nav>
 
-                {/* Settings Content */}
-                <div className="flex-1 min-w-0">{children}</div>
+                {/* Settings Content — suppress children on admin-only paths for non-admins */}
+                <div className="flex-1 min-w-0">
+                    {isLoading || (!isAdmin && pathname !== "/settings") ? null : children}
+                </div>
             </div>
         </div>
     );

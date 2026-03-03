@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Search, X } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
+import { toast } from "sonner";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
@@ -90,13 +91,24 @@ export default function TasksPage() {
     };
 
     const handleItemMove = async (itemId: string, newStatus: string) => {
-        await updateStatus({ id: itemId as Id<"tasks">, status: newStatus as ConvexTask["status"] });
+        try {
+            await updateStatus({ id: itemId as Id<"tasks">, status: newStatus as ConvexTask["status"] });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to update task.";
+            toast.error(message);
+        }
     };
 
     const handleDelete = async () => {
         if (deleteDialog.id) {
-            await removeTask({ id: deleteDialog.id });
-            setDeleteDialog({ open: false, id: null });
+            try {
+                await removeTask({ id: deleteDialog.id });
+                setDeleteDialog({ open: false, id: null });
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : "Failed to delete task.";
+                toast.error(message);
+                setDeleteDialog({ open: false, id: null });
+            }
         }
     };
 

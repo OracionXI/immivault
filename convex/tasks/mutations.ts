@@ -98,14 +98,15 @@ export const update = authenticatedMutation({
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     caseId: v.optional(v.id("cases")),
-    assignedTo: v.optional(v.id("users")),
+    // null = explicitly clear the assignee; undefined = leave unchanged
+    assignedTo: v.optional(v.union(v.id("users"), v.null())),
     status: v.optional(statusValidator),
     priority: v.optional(priorityValidator),
     dueDate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
-    const { id, ...fields } = args;
+    const { id, assignedTo, ...fields } = args;
     const task = await ctx.db.get(id);
     if (!task || task.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
@@ -119,12 +120,16 @@ export const update = authenticatedMutation({
       }
     }
 
-    if (fields.assignedTo) {
-      await requireNonAdminTarget(ctx, fields.assignedTo, ctx.user.organisationId);
+    const patch: Record<string, unknown> = { ...fields };
+
+    if (assignedTo === null) {
+      patch.assignedTo = undefined; // clear the assignee
+    } else if (assignedTo !== undefined) {
+      await requireNonAdminTarget(ctx, assignedTo, ctx.user.organisationId);
+      patch.assignedTo = assignedTo;
     }
 
     // Track completedAt
-    const patch: Record<string, unknown> = { ...fields };
     if (fields.status === "Completed" && task.status !== "Completed") {
       patch.completedAt = Date.now();
     } else if (fields.status && fields.status !== "Completed" && task.status === "Completed") {

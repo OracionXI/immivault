@@ -76,8 +76,8 @@ export const create = authenticatedMutation({
 
 /**
  * Update case fields.
- *   admin        → any case, can reassign
- *   case_manager → only their assigned cases, cannot reassign
+ *   admin        → any case, can reassign or unassign (pass null to clear)
+ *   case_manager → only their assigned cases, assignedTo is silently ignored
  */
 export const update = authenticatedMutation({
   args: {
@@ -87,14 +87,15 @@ export const update = authenticatedMutation({
     visaType: v.optional(v.string()),
     status: v.optional(statusValidator),
     priority: v.optional(priorityValidator),
-    assignedTo: v.optional(v.id("users")),
+    // null = explicitly clear the assignee; undefined = leave unchanged
+    assignedTo: v.optional(v.union(v.id("users"), v.null())),
     description: v.optional(v.string()),
     notes: v.optional(v.string()),
     deadline: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
-    const { id, ...fields } = args;
+    const { id, assignedTo, ...fields } = args;
     const c = await ctx.db.get(id);
     if (!c || c.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
@@ -103,15 +104,21 @@ export const update = authenticatedMutation({
     if (ctx.user.role === "case_manager" && c.assignedTo !== ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only update cases assigned to you." });
     }
-    // Case managers cannot reassign cases
-    if (ctx.user.role === "case_manager" && fields.assignedTo !== undefined) {
-      throw new ConvexError({ code: "FORBIDDEN", message: "Only admins can reassign cases." });
+
+    const patch: Record<string, unknown> = { ...fields };
+
+    // Only admins can change the assignment
+    if (ctx.user.role !== "case_manager") {
+      if (assignedTo === null) {
+        patch.assignedTo = undefined; // clear the assignee
+      } else if (assignedTo !== undefined) {
+        await requireCaseManagerTarget(ctx, assignedTo, ctx.user.organisationId);
+        patch.assignedTo = assignedTo;
+      }
     }
-    // Validate reassignment target role (admin path only)
-    if (fields.assignedTo) {
-      await requireCaseManagerTarget(ctx, fields.assignedTo, ctx.user.organisationId);
-    }
-    await ctx.db.patch(id, fields);
+    // For case managers, assignedTo is silently ignored — they can edit other fields freely
+
+    await ctx.db.patch(id, patch as any);
   },
 });
 

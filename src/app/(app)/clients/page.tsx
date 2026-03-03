@@ -10,6 +10,7 @@ import { ClientModal } from "./client-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2 } from "lucide-react";
+import { RoleGuard } from "@/components/shared/role-guard";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -76,6 +77,7 @@ export default function ClientsPage() {
     ];
 
     return (
+        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader
                 title="Clients"
@@ -140,5 +142,6 @@ export default function ClientsPage() {
                 </DialogContent>
             </Dialog>
         </div>
+        </RoleGuard>
     );
 }

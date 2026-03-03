@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { InvoiceModal } from "./invoice-modal";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
+import { RoleGuard } from "@/components/shared/role-guard";
 
 type ConvexInvoice = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listInvoices>>>[number];
 type DisplayInvoice = ConvexInvoice & { clientName: string; dueDateDisplay: string };
@@ -70,6 +71,7 @@ export default function BillingPage() {
     ];
 
     return (
+        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader
                 title="Billing"
@@ -106,5 +108,6 @@ export default function BillingPage() {
                 onConfirm={handleDelete}
             />
         </div>
+        </RoleGuard>
     );
 }

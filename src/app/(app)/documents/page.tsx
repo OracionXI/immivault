@@ -12,6 +12,7 @@ import { DocumentViewer } from "@/components/shared/document-viewer";
 import { Button } from "@/components/ui/button";
 import { Trash2, Upload, Eye } from "lucide-react";
 import { UploadModal } from "./upload-modal";
+import { useRole } from "@/hooks/use-role";
 
 type ConvexDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.list>>>[number];
 type DisplayDocument = ConvexDocument & { clientName: string; caseName: string; uploadedDisplay: string };
@@ -25,6 +26,7 @@ export default function DocumentsPage() {
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const removeDocument = useMutation(api.documents.mutations.remove);
+    const { isStaff } = useRole();
 
     const [uploadOpen, setUploadOpen] = useState(false);
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: Id<"documents"> | null; name: string }>({
@@ -80,14 +82,16 @@ export default function DocumentsPage() {
                     >
                         <Eye className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteDialog({ open: true, id: d._id, name: d.name })}
-                    >
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {!isStaff && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => setDeleteDialog({ open: true, id: d._id, name: d.name })}
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
                 </div>
             ),
         },
@@ -98,9 +102,9 @@ export default function DocumentsPage() {
             <PageHeader
                 title="Documents"
                 description="Manage client documents and files"
-                actionLabel="Upload Document"
-                actionIcon={<Upload className="h-4 w-4" />}
-                onAction={() => setUploadOpen(true)}
+                actionLabel={isStaff ? undefined : "Upload Document"}
+                actionIcon={isStaff ? undefined : <Upload className="h-4 w-4" />}
+                onAction={isStaff ? undefined : () => setUploadOpen(true)}
             />
             <DataTable
                 data={documents as unknown as Record<string, unknown>[]}
