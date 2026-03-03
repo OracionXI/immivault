@@ -1,12 +1,12 @@
 import { internalMutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v, ConvexError } from "convex/values";
+import { checkRateLimit } from "../lib/rateLimit";
 
 /**
- * Called by the Clerk webhook (http.ts) when a new user is created.
+ * Called by the Clerk webhook (http.ts) when a new user joins an org.
  * Creates the Convex user profile linked to the Clerk user.
- * For the first user in an org, `organisationId` is created beforehand
- * by the `organisations.mutations.createFromClerk` mutation.
+ * Non-admin users default to status "inactive" — admin must activate them.
  */
 export const syncFromClerk = internalMutation({
   args: {
@@ -18,8 +18,7 @@ export const syncFromClerk = internalMutation({
     organisationId: v.id("organisations"),
     role: v.union(
       v.literal("admin"),
-      v.literal("attorney"),
-      v.literal("paralegal"),
+      v.literal("case_manager"),
       v.literal("staff")
     ),
   },
@@ -39,6 +38,9 @@ export const syncFromClerk = internalMutation({
       return existing._id;
     }
 
+    // Admins are active immediately; all other roles start inactive
+    const status = args.role === "admin" ? "active" : "inactive";
+
     return await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       tokenIdentifier: args.tokenIdentifier,
@@ -47,7 +49,7 @@ export const syncFromClerk = internalMutation({
       avatarUrl: args.avatarUrl,
       organisationId: args.organisationId,
       role: args.role,
-      status: "active",
+      status,
     });
   },
 });
@@ -78,14 +80,82 @@ export const updateFromClerk = internalMutation({
   },
 });
 
-/** Admin-only: update a staff member's role and active status. */
+/**
+ * Internal: records a pending staff invitation for tracking purposes.
+ * Called by the inviteStaff action before sending the Clerk invitation.
+ */
+export const createInvite = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    email: v.string(),
+    role: v.union(v.literal("case_manager"), v.literal("staff")),
+    invitedBy: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    // 24-hour expiry
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    await ctx.db.insert("invitations", {
+      organisationId: args.organisationId,
+      email: args.email,
+      role: args.role,
+      invitedBy: args.invitedBy,
+      used: false,
+      expiresAt,
+    });
+  },
+});
+
+/**
+ * Internal: rate-limit gate for staff invitations.
+ * Max 10 invitations per hour per organisation.
+ */
+export const recordInviteRateLimit = internalMutation({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    await checkRateLimit(ctx, `inviteStaff:${args.organisationId}`, 10, 3_600_000);
+  },
+});
+
+/**
+ * Internal: unassigns all cases and tasks belonging to a user before deletion.
+ * Called by the deleteStaff action prior to removing the user record.
+ */
+export const cascadeUnassign = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const cases = await ctx.db
+      .query("cases")
+      .withIndex("by_assigned", (q) => q.eq("assignedTo", args.userId))
+      .collect();
+    for (const c of cases) {
+      await ctx.db.patch(c._id, { assignedTo: undefined });
+    }
+
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_assigned", (q) => q.eq("assignedTo", args.userId))
+      .collect();
+    for (const t of tasks) {
+      await ctx.db.patch(t._id, { assignedTo: undefined });
+    }
+  },
+});
+
+/** Internal: permanently removes a user record from Convex. */
+export const remove = internalMutation({
+  args: { id: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+  },
+});
+
+/** Admin-only: update a staff member's role and activation status. */
 export const updateMember = authenticatedMutation({
   args: {
     id: v.id("users"),
     role: v.union(
       v.literal("admin"),
-      v.literal("attorney"),
-      v.literal("paralegal"),
+      v.literal("case_manager"),
       v.literal("staff")
     ),
     status: v.union(v.literal("active"), v.literal("inactive")),

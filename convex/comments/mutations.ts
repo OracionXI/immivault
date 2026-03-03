@@ -17,6 +17,21 @@ export const create = authenticatedMutation({
   },
 });
 
+/** Only the comment author can edit their own comment. */
+export const update = authenticatedMutation({
+  args: { id: v.id("comments"), body: v.string() },
+  handler: async (ctx, args) => {
+    const comment = await ctx.db.get(args.id);
+    if (!comment || comment.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Comment not found." });
+    }
+    if (comment.authorId !== ctx.user._id) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "You can only edit your own comments." });
+    }
+    await ctx.db.patch(args.id, { body: args.body });
+  },
+});
+
 /** Only the comment author can delete their own comment. */
 export const remove = authenticatedMutation({
   args: { id: v.id("comments") },

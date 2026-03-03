@@ -16,7 +16,13 @@ interface StaffModalProps {
     staff: ConvexUser | null;
 }
 
-const ROLES = ["admin", "attorney", "paralegal", "staff"] as const;
+const ROLES = ["admin", "case_manager", "staff"] as const;
+
+const ROLE_LABELS: Record<typeof ROLES[number], string> = {
+    admin: "Admin",
+    case_manager: "Case Manager",
+    staff: "Staff",
+};
 
 export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
     const updateMember = useMutation(api.users.mutations.updateMember);
@@ -62,7 +68,7 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         {ROLES.map((r) => (
-                                            <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                                            <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>

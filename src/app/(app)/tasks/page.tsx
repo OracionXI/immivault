@@ -14,6 +14,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Search, X } from "lucide-react";
+import { useRole } from "@/hooks/use-role";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
@@ -32,6 +33,7 @@ export default function TasksPage() {
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const updateStatus = useMutation(api.tasks.mutations.updateStatus);
     const removeTask = useMutation(api.tasks.mutations.remove);
+    const { isStaff } = useRole();
 
     const userMap = useMemo(
         () => new Map(users.map((u) => [u._id, u.fullName])),
@@ -164,8 +166,8 @@ export default function TasksPage() {
                 items={kanbanItems}
                 statusKey="status"
                 onItemClick={handleItemClick}
-                onItemEdit={handleItemEdit}
-                onItemDelete={handleItemDelete}
+                onItemEdit={isStaff ? undefined : handleItemEdit}
+                onItemDelete={isStaff ? undefined : handleItemDelete}
                 onItemMove={handleItemMove}
             />
 
@@ -180,7 +182,7 @@ export default function TasksPage() {
                 assigneeName={viewTask ? (userMap.get(viewTask.assignedTo) ?? "—") : ""}
                 caseName={viewTask?.caseId ? (caseMap.get(viewTask.caseId) ?? "") : ""}
                 onClose={() => setViewTask(null)}
-                onEdit={(t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); }}
+                onEdit={isStaff ? undefined : (t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); }}
             />
 
             <ConfirmDialog

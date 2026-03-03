@@ -21,7 +21,7 @@ interface TaskDetailDialogProps {
     assigneeName: string;
     caseName: string;
     onClose: () => void;
-    onEdit: (t: ConvexTask) => void;
+    onEdit?: (t: ConvexTask) => void;
 }
 
 interface LocalComment {
@@ -68,7 +68,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
             <DialogContent className="sm:max-w-4xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
                 {/* Header */}
                 <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-3 pr-8">
                         <div className="flex-1 min-w-0">
                             <p className="text-xs text-muted-foreground font-mono mb-1">TASK</p>
                             <DialogTitle className="text-xl leading-snug">{task.title}</DialogTitle>
@@ -77,15 +77,17 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                 <StatusBadge status={task.priority} />
                             </div>
                         </div>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0"
-                            onClick={() => { onClose(); onEdit(task); }}
-                        >
-                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                            Edit
-                        </Button>
+                        {onEdit && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0"
+                                onClick={() => { onClose(); onEdit(task); }}
+                            >
+                                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                                Edit
+                            </Button>
+                        )}
                     </div>
                 </DialogHeader>
 

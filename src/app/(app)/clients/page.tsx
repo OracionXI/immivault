@@ -6,10 +6,13 @@ import { api } from "../../../../convex/_generated/api";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ClientModal } from "./client-modal";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Pencil, Trash2 } from "lucide-react";
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
 
 type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.list>>>[number] & { name: string };
 
@@ -26,11 +29,27 @@ export default function ClientsPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<ConvexClient | null>(null);
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; client: ConvexClient | null }>({ open: false, client: null });
+    const [confirmText, setConfirmText] = useState("");
+    const [deleting, setDeleting] = useState(false);
+
+    const openDelete = (client: ConvexClient) => {
+        setConfirmText("");
+        setDeleteDialog({ open: true, client });
+    };
+
+    const closeDelete = () => {
+        setDeleteDialog({ open: false, client: null });
+        setConfirmText("");
+    };
 
     const handleDelete = async () => {
-        if (deleteDialog.client) {
+        if (!deleteDialog.client || confirmText !== "CONFIRM") return;
+        setDeleting(true);
+        try {
             await removeClient({ id: deleteDialog.client._id });
-            setDeleteDialog({ open: false, client: null });
+            closeDelete();
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -48,7 +67,7 @@ export default function ClientsPage() {
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingClient(c); setModalOpen(true); }}>
                         <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteDialog({ open: true, client: c })}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => openDelete(c)}>
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
@@ -85,13 +104,41 @@ export default function ClientsPage() {
                 onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingClient(null); }}
                 client={editingClient}
             />
-            <ConfirmDialog
-                open={deleteDialog.open}
-                onOpenChange={(open) => setDeleteDialog({ open, client: deleteDialog.client })}
-                title="Delete Client"
-                description={`Are you sure you want to delete ${deleteDialog.client?.name}? This action cannot be undone.`}
-                onConfirm={handleDelete}
-            />
+
+            {/* Destructive delete confirmation — requires typing CONFIRM */}
+            <Dialog open={deleteDialog.open} onOpenChange={(open) => { if (!open) closeDelete(); }}>
+                <DialogContent className="sm:max-w-[440px]">
+                    <DialogHeader>
+                        <DialogTitle>Delete Client</DialogTitle>
+                        <DialogDescription className="pt-1">
+                            This will permanently delete{" "}
+                            <span className="font-semibold text-foreground">{deleteDialog.client?.name}</span>{" "}
+                            along with all associated cases, tasks, and documents. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-3 py-2">
+                        <p className="text-sm text-muted-foreground">
+                            Type <span className="font-mono font-semibold text-destructive">CONFIRM</span> to proceed.
+                        </p>
+                        <Input
+                            value={confirmText}
+                            onChange={(e) => setConfirmText(e.target.value)}
+                            placeholder="CONFIRM"
+                            onKeyDown={(e) => { if (e.key === "Enter" && confirmText === "CONFIRM") handleDelete(); }}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeDelete} disabled={deleting}>Cancel</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDelete}
+                            disabled={confirmText !== "CONFIRM" || deleting}
+                        >
+                            {deleting ? "Deleting…" : "Delete Permanently"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

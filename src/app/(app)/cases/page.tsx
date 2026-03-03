@@ -11,6 +11,7 @@ import { CaseModal } from "./case-modal";
 import { CaseDetailDialog } from "./case-detail-dialog";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
+import { useRole } from "@/hooks/use-role";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 
@@ -20,14 +21,17 @@ const KANBAN_COLUMNS: KanbanColumn[] = [
     { id: "On Hold",   title: "On Hold",   color: "border-orange-400" },
     { id: "Completed", title: "Completed", color: "border-emerald-400" },
     { id: "Rejected",  title: "Rejected",  color: "border-red-400" },
+    { id: "Archived",  title: "Archived",  color: "border-gray-400" },
 ];
 
 export default function CasesPage() {
     const rawCases = useQuery(api.cases.queries.list) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const tasks = useQuery(api.tasks.queries.list) ?? [];
     const updateStatus = useMutation(api.cases.mutations.updateStatus);
     const removeCase = useMutation(api.cases.mutations.remove);
+    const { isAdmin, isCaseManager, user } = useRole();
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
@@ -37,6 +41,17 @@ export default function CasesPage() {
         () => new Map(users.map((u) => [u._id, u.fullName])),
         [users]
     );
+    const tasksByCase = useMemo(() => {
+        const map = new Map<string, string[]>();
+        for (const t of tasks) {
+            if (!t.caseId) continue;
+            const chips = map.get(t.caseId) ?? [];
+            const label = `${t.taskId}: ${t.title.length > 22 ? t.title.slice(0, 22) + "…" : t.title}`;
+            chips.push(label);
+            map.set(t.caseId, chips);
+        }
+        return map;
+    }, [tasks]);
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCase, setEditingCase] = useState<ConvexCase | null>(null);
@@ -53,8 +68,10 @@ export default function CasesPage() {
                 subtitle: clientMap.get(c.clientId) ?? "—",
                 status: c.status,
                 priority: c.priority,
-                assignee: userMap.get(c.assignedTo) ?? "—",
+                assignee: c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : "Unassigned",
+                assignedToId: c.assignedTo ?? null,
                 dueDate: c.deadline ? new Date(c.deadline).toISOString().split("T")[0] : undefined,
+                taskChips: tasksByCase.get(c._id) ?? [],
             }))
             .filter((item) => {
                 if (!q) return true;
@@ -64,7 +81,7 @@ export default function CasesPage() {
                     (item.assignee?.toLowerCase() ?? "").includes(q)
                 );
             });
-    }, [rawCases, clientMap, userMap, search]);
+    }, [rawCases, clientMap, userMap, tasksByCase, search]);
 
     const handleItemClick = (item: KanbanItem) => {
         const c = rawCases.find((x) => x._id === item.id);
@@ -96,8 +113,8 @@ export default function CasesPage() {
             <PageHeader
                 title="Cases"
                 description="Manage immigration cases with drag & drop"
-                actionLabel="New Case"
-                onAction={() => { setEditingCase(null); setModalOpen(true); }}
+                actionLabel={isAdmin ? "New Case" : undefined}
+                onAction={isAdmin ? () => { setEditingCase(null); setModalOpen(true); } : undefined}
             />
 
             <div className="flex items-center gap-3 w-full">
@@ -129,24 +146,32 @@ export default function CasesPage() {
                 columns={KANBAN_COLUMNS}
                 items={kanbanItems}
                 statusKey="status"
+                disabledStatuses={["Archived"]}
                 onItemClick={handleItemClick}
-                onItemEdit={handleItemEdit}
-                onItemDelete={handleItemDelete}
+                onItemEdit={(isAdmin || isCaseManager) ? handleItemEdit : undefined}
+                canEditItem={isCaseManager ? (item) => item.assignedToId === user?._id : undefined}
+                onItemDelete={isAdmin ? handleItemDelete : undefined}
                 onItemMove={handleItemMove}
             />
 
-            <CaseModal
-                open={modalOpen}
-                onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingCase(null); }}
-                caseItem={editingCase}
-            />
+            {(isAdmin || isCaseManager) && (
+                <CaseModal
+                    open={modalOpen}
+                    onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingCase(null); }}
+                    caseItem={editingCase}
+                />
+            )}
 
             <CaseDetailDialog
                 caseItem={viewCase}
                 clientName={viewCase ? (clientMap.get(viewCase.clientId) ?? "—") : ""}
-                assigneeName={viewCase ? (userMap.get(viewCase.assignedTo) ?? "—") : ""}
+                assigneeName={
+                    viewCase
+                        ? (viewCase.assignedTo ? (userMap.get(viewCase.assignedTo) ?? "—") : "Unassigned")
+                        : ""
+                }
                 onClose={() => setViewCase(null)}
-                onEdit={(c) => { setViewCase(null); setEditingCase(c); setModalOpen(true); }}
+                onEdit={isAdmin ? (c) => { setViewCase(null); setEditingCase(c); setModalOpen(true); } : undefined}
             />
 
             <ConfirmDialog

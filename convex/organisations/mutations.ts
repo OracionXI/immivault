@@ -4,34 +4,22 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 
 /**
- * Called by the Clerk webhook when a new organisation is created in Clerk.
- * Creates the matching Convex organisation record.
+ * Gets the existing organisation or creates a default one.
+ * Called by the user.created webhook for the first admin signup
+ * when there is no organisationId in the Clerk user's public_metadata.
  */
-export const createFromClerk = internalMutation({
-  args: {
-    clerkOrgId: v.string(),
-    name: v.string(),
-    slug: v.string(),
-  },
-  handler: async (ctx, args) => {
-    // Prevent duplicates
-    const existing = await ctx.db
-      .query("organisations")
-      .withIndex("by_clerk_org", (q) =>
-        q.eq("clerkOrgId", args.clerkOrgId)
-      )
-      .unique();
-
+export const getOrCreateDefault = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("organisations").first();
     if (existing) return existing._id;
 
     const orgId = await ctx.db.insert("organisations", {
-      clerkOrgId: args.clerkOrgId,
-      name: args.name,
-      slug: args.slug,
+      name: "My Organisation",
+      slug: "my-organisation",
       plan: "free",
     });
 
-    // Seed default organisation settings
     await ctx.db.insert("organisationSettings", {
       organisationId: orgId,
       defaultCurrency: "USD",
@@ -53,6 +41,11 @@ export const updateSettings = authenticatedMutation({
     emailFromAddress: v.optional(v.string()),
     bookingEnabled: v.optional(v.boolean()),
     bookingUrl: v.optional(v.string()),
+    slotDuration: v.optional(v.number()),
+    bufferTime: v.optional(v.number()),
+    availableStartTime: v.optional(v.string()),
+    availableEndTime: v.optional(v.string()),
+    availableDays: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     if (ctx.user.role !== "admin") {

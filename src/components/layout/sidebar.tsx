@@ -28,24 +28,32 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useState } from "react";
+import { useRole } from "@/hooks/use-role";
+
+type Role = "admin" | "case_manager" | "staff";
 
 const navItems = [
-    { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { title: "Clients", href: "/clients", icon: Users },
-    { title: "Cases", href: "/cases", icon: Briefcase },
-    { title: "Tasks", href: "/tasks", icon: CheckSquare },
-    { title: "Documents", href: "/documents", icon: FileText },
-    { title: "Appointments", href: "/appointments", icon: Calendar },
-    { title: "Billing", href: "/billing", icon: Receipt },
-    { title: "Payments", href: "/payments", icon: CreditCard },
-    { title: "Reports", href: "/reports", icon: BarChart3 },
-    { title: "Staff", href: "/staff", icon: UserCog },
-    { title: "Settings", href: "/settings", icon: Settings },
+    { title: "Dashboard",    href: "/dashboard",    icon: LayoutDashboard, roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Clients",      href: "/clients",      icon: Users,           roles: ["admin"] as Role[] },
+    { title: "Cases",        href: "/cases",        icon: Briefcase,       roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Tasks",        href: "/tasks",        icon: CheckSquare,     roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Documents",    href: "/documents",    icon: FileText,        roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Appointments", href: "/appointments", icon: Calendar,        roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Billing",      href: "/billing",      icon: Receipt,         roles: ["admin"] as Role[] },
+    { title: "Payments",     href: "/payments",     icon: CreditCard,      roles: ["admin"] as Role[] },
+    { title: "Reports",      href: "/reports",      icon: BarChart3,       roles: ["admin", "case_manager"] as Role[] },
+    { title: "Staff",        href: "/staff",        icon: UserCog,         roles: ["admin"] as Role[] },
+    { title: "Settings",     href: "/settings",     icon: Settings,        roles: ["admin", "case_manager", "staff"] as Role[] },
 ];
 
 export function Sidebar() {
     const pathname = usePathname();
     const [collapsed, setCollapsed] = useState(false);
+    const { role } = useRole();
+
+    const visibleItems = role
+        ? navItems.filter((item) => item.roles.includes(role))
+        : navItems; // show all while loading to avoid flash
 
     return (
         <aside
@@ -69,7 +77,7 @@ export function Sidebar() {
             {/* Navigation */}
             <ScrollArea className="flex-1 py-2">
                 <nav className="flex flex-col gap-1 px-2">
-                    {navItems.map((item) => {
+                    {visibleItems.map((item) => {
                         const isActive =
                             pathname === item.href ||
                             (item.href !== "/dashboard" && pathname.startsWith(item.href));

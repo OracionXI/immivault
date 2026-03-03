@@ -1,16 +1,33 @@
 import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { getVisibleCaseIds } from "../lib/visibility";
 
-/** All documents in the org. */
+/**
+ * Visible documents scoped by role:
+ *   admin        → all documents in org
+ *   case_manager → documents under clients linked to their assigned cases
+ *   staff        → documents under clients linked to cases containing their assigned tasks
+ */
 export const list = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    if (role === "admin") {
+      return await ctx.db
+        .query("documents")
+        .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+        .order("desc")
+        .collect();
+    }
+
+    const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+    const all = await ctx.db
       .query("documents")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-      .order("desc")
+      .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
       .collect();
+    return all.filter((d) => !d.caseId || visibleCaseIds.has(d.caseId));
   },
 });
 
@@ -36,8 +53,8 @@ export const listByCase = authenticatedQuery({
   },
 });
 
-/** Returns a short-lived signed download URL for a document. */
-export const getDownloadUrl = authenticatedQuery({
+/** Returns a short-lived signed URL for viewing/downloading a document. */
+export const getViewUrl = authenticatedQuery({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.id);

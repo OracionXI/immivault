@@ -46,6 +46,31 @@ export const listByOrg = authenticatedQuery({
 });
 
 /**
+ * Internal: look up a user by JWT tokenIdentifier.
+ * Used by actions that verify auth without the custom wrapper.
+ */
+export const getByToken = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", args.token))
+      .unique();
+  },
+});
+
+/**
+ * Internal: look up a user by Convex document ID.
+ * Used by the deleteStaff action.
+ */
+export const getById = internalQuery({
+  args: { id: v.id("users") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
  * Internal: look up a user by their Clerk user ID.
  * Used in the webhook handler.
  */
