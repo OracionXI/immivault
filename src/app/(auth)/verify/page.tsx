@@ -20,7 +20,7 @@ export default function VerifyPage() {
             const result = await signUp.attemptEmailAddressVerification({ code });
             if (result.status === "complete") {
                 await setActive({ session: result.createdSessionId });
-                router.push("/onboarding");
+                router.push("/dashboard");
             }
         } catch (err: unknown) {
             const clerkError = err as { errors?: { message: string }[] };

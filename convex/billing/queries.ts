@@ -1,3 +1,4 @@
+import { query } from "../_generated/server";
 import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -39,6 +40,32 @@ export const listPayments = authenticatedQuery({
       .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
       .order("desc")
       .collect();
+  },
+});
+
+/**
+ * Public query — no auth required.
+ * Looks up a payment link by its URL token and returns the link with
+ * client name and optional invoice number for display on the pay page.
+ */
+export const getPaymentLinkByToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
+      .unique();
+
+    if (!link) return null;
+
+    const client = await ctx.db.get(link.clientId);
+    const invoice = link.invoiceId ? await ctx.db.get(link.invoiceId) : null;
+
+    return {
+      ...link,
+      clientName: client ? `${client.firstName} ${client.lastName}` : "Unknown",
+      invoiceNumber: invoice?.invoiceNumber ?? null,
+    };
   },
 });
 

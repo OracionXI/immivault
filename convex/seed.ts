@@ -1,48 +1,36 @@
 /**
  * DEV-ONLY: Bootstrap the current Clerk user into Convex.
  *
- * Run this once from the Convex dashboard → Functions → seed:initCurrentUser
+ * Run initCurrentUser once from the Convex dashboard → Functions → seed:initCurrentUser
  * when you haven't set up the Clerk webhook yet.
  *
- * It creates:
- *   1. An organisation record (skips if already exists)
- *   2. A users record for the authenticated caller (skips if already exists)
- *   3. Default organisationSettings
+ * Run clearAllData to wipe all records before a fresh start.
  */
 import { mutation } from "./_generated/server";
-import { v } from "convex/values";
 
 export const initCurrentUser = mutation({
-  args: {
-    orgName: v.optional(v.string()),
-    fullName: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated — log in first.");
 
-    const orgName = args.orgName ?? "My Immigration Firm";
-    const fullName = args.fullName ?? identity.name ?? identity.email ?? "Admin";
+    const fullName = identity.name ?? (identity.email as string | undefined) ?? "Admin";
     const email = (identity.email as string | undefined) ?? "";
+    const orgName = "My Immigration Firm";
     const slug = orgName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 
     // 1. Find or create the organisation
     let orgId = (
-      await ctx.db
-        .query("organisations")
-        .withIndex("by_clerk_org", (q) => q.eq("clerkOrgId", "dev-seed-org"))
-        .unique()
+      await ctx.db.query("organisations").withIndex("by_slug", (q) => q.eq("slug", slug)).unique()
     )?._id;
 
     if (!orgId) {
       orgId = await ctx.db.insert("organisations", {
-        clerkOrgId: "dev-seed-org",
         name: orgName,
         slug,
         plan: "free",
       });
 
-      // Seed default settings
       await ctx.db.insert("organisationSettings", {
         organisationId: orgId,
         defaultCurrency: "USD",
@@ -74,5 +62,113 @@ export const initCurrentUser = mutation({
     }
 
     return { orgId, userId, message: "Seed complete — refresh the app." };
+  },
+});
+
+/**
+ * DEV-ONLY: Repairs a missing organisation.
+ *
+ * Run this when you accidentally deleted the organisation record from the
+ * Convex dashboard. It recreates the org and re-links all orphaned users,
+ * clients, cases, tasks, documents, appointments, and invoices to it.
+ *
+ * Run from: Convex dashboard → Functions → seed:repairOrg
+ */
+export const repairOrg = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const orgName = "My Immigration Firm";
+    const slug = orgName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+
+    // Re-create the organisation
+    const orgId = await ctx.db.insert("organisations", {
+      name: orgName,
+      slug,
+      plan: "free",
+    });
+
+    await ctx.db.insert("organisationSettings", {
+      organisationId: orgId,
+      defaultCurrency: "USD",
+      taxRate: 0,
+      bookingEnabled: false,
+    });
+
+    // Re-link all orphaned rows in every org-scoped table
+    const tables = [
+      "users",
+      "clients",
+      "cases",
+      "tasks",
+      "documents",
+      "appointments",
+      "invoices",
+      "invoiceItems",
+      "payments",
+      "paymentLinks",
+      "comments",
+      "automationRules",
+      "emailTemplates",
+      "bankAccounts",
+      "invitations",
+    ] as const;
+
+    let patched = 0;
+    for (const table of tables) {
+      const rows = await ctx.db.query(table).collect();
+      for (const row of rows) {
+        if ("organisationId" in row) {
+          await ctx.db.patch(row._id, { organisationId: orgId } as never);
+          patched++;
+        }
+      }
+    }
+
+    return {
+      orgId,
+      patched,
+      message: `Org recreated. ${patched} rows re-linked. Refresh the app.`,
+    };
+  },
+});
+
+/**
+ * DEV-ONLY: Wipes all records from every table.
+ * Run from the Convex dashboard before a fresh seed.
+ */
+export const clearAllData = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const tables = [
+      "comments",
+      "invoiceItems",
+      "paymentLinks",
+      "payments",
+      "invoices",
+      "documents",
+      "tasks",
+      "appointments",
+      "cases",
+      "clients",
+      "rateLimits",
+      "invitations",
+      "automationRules",
+      "emailTemplates",
+      "bankAccounts",
+      "organisationSettings",
+      "users",
+      "organisations",
+    ] as const;
+
+    let total = 0;
+    for (const table of tables) {
+      const rows = await ctx.db.query(table).collect();
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+        total++;
+      }
+    }
+
+    return { message: `Cleared ${total} records across ${tables.length} tables.` };
   },
 });

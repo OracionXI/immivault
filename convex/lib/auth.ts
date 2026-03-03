@@ -8,8 +8,8 @@ import { ConvexError } from "convex/values";
 /**
  * Authenticated query wrapper.
  * Looks up the Convex user record from the JWT tokenIdentifier and injects
- * `ctx.user` into every handler. Throws if the caller is not authenticated
- * or if their user profile does not exist in the database.
+ * `ctx.user` into every handler. Throws if the caller is not authenticated,
+ * if their user profile does not exist, or if their account is inactive.
  *
  * Usage:
  *   export const myQuery = authenticatedQuery({ args: {}, handler: async (ctx) => ctx.user });
@@ -35,6 +35,13 @@ export const authenticatedQuery = customQuery(
         throw new ConvexError({
           code: "USER_NOT_FOUND",
           message: "User profile not found. Please contact support.",
+        });
+      }
+
+      if (user.status === "inactive") {
+        throw new ConvexError({
+          code: "ACCOUNT_INACTIVE",
+          message: "Your account is pending activation by an administrator.",
         });
       }
 
@@ -71,6 +78,13 @@ export const authenticatedMutation = customMutation(
         throw new ConvexError({
           code: "USER_NOT_FOUND",
           message: "User profile not found. Please contact support.",
+        });
+      }
+
+      if (user.status === "inactive") {
+        throw new ConvexError({
+          code: "ACCOUNT_INACTIVE",
+          message: "Your account is pending activation by an administrator.",
         });
       }
 

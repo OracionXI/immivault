@@ -1,27 +1,55 @@
 import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { getVisibleClientIds } from "../lib/visibility";
 
-/** All clients in the org — for dropdown pickers. */
-export const listAll = authenticatedQuery({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("clients")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-      .collect();
-  },
-});
-
-/** Paginated client list for the data table. */
+/**
+ * Visible clients scoped by role:
+ *   admin        → all clients in org
+ *   case_manager → clients linked to cases assigned to them
+ *   staff        → clients linked to cases that contain their assigned tasks
+ */
 export const list = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    if (role === "admin") {
+      return await ctx.db
+        .query("clients")
+        .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+        .order("desc")
+        .collect();
+    }
+
+    const visibleClientIds = await getVisibleClientIds(ctx.db, role, userId, organisationId);
+    const all = await ctx.db
       .query("clients")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-      .order("desc")
+      .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
       .collect();
+    return all.filter((c) => visibleClientIds.has(c._id));
+  },
+});
+
+/** Same as list but unordered — for dropdown pickers. */
+export const listAll = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    if (role === "admin") {
+      return await ctx.db
+        .query("clients")
+        .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+        .collect();
+    }
+
+    const visibleClientIds = await getVisibleClientIds(ctx.db, role, userId, organisationId);
+    const all = await ctx.db
+      .query("clients")
+      .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+      .collect();
+    return all.filter((c) => visibleClientIds.has(c._id));
   },
 });
 

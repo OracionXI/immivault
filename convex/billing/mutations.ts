@@ -1,6 +1,9 @@
+import { mutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { checkRateLimit } from "../lib/rateLimit";
+import { requireAdmin } from "../lib/rbac";
 
 const invoiceStatusValidator = v.union(
   v.literal("Draft"),
@@ -27,6 +30,7 @@ export const createInvoice = authenticatedMutation({
     items: v.array(itemValidator),
   },
   handler: async (ctx, args) => {
+    requireAdmin(ctx);
     const { items, taxRate, ...rest } = args;
 
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -76,6 +80,7 @@ export const updateInvoice = authenticatedMutation({
     paidAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    requireAdmin(ctx);
     const { id, ...fields } = args;
     const invoice = await ctx.db.get(id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
@@ -89,6 +94,7 @@ export const updateInvoice = authenticatedMutation({
 export const removeInvoice = authenticatedMutation({
   args: { id: v.id("invoices") },
   handler: async (ctx, args) => {
+    requireAdmin(ctx);
     const invoice = await ctx.db.get(args.id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -123,6 +129,7 @@ export const recordPayment = authenticatedMutation({
     paidAt: v.number(),
   },
   handler: async (ctx, args) => {
+    requireAdmin(ctx);
     const invoice = await ctx.db.get(args.invoiceId);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -143,6 +150,50 @@ export const recordPayment = authenticatedMutation({
   },
 });
 
+/**
+ * Public mutation — no auth required.
+ * Validates the payment link token, records a payment, marks the link as
+ * Used, and marks the associated invoice as Paid (if one exists).
+ */
+export const processPaymentLink = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
+      .unique();
+
+    if (!link) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
+    }
+    if (link.status !== "Active") {
+      throw new ConvexError({ code: "INVALID", message: "This payment link is no longer active." });
+    }
+    if (link.expiresAt < Date.now()) {
+      throw new ConvexError({ code: "EXPIRED", message: "This payment link has expired." });
+    }
+
+    const now = Date.now();
+
+    await ctx.db.insert("payments", {
+      organisationId: link.organisationId,
+      invoiceId: link.invoiceId,
+      clientId: link.clientId,
+      amount: link.amount,
+      currency: "USD",
+      method: "Online",
+      status: "Completed",
+      paidAt: now,
+    });
+
+    await ctx.db.patch(link._id, { status: "Used" });
+
+    if (link.invoiceId) {
+      await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
+    }
+  },
+});
+
 /** Creates a shareable payment link for an invoice or standalone. */
 export const createPaymentLink = authenticatedMutation({
   args: {
@@ -153,6 +204,10 @@ export const createPaymentLink = authenticatedMutation({
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
+    requireAdmin(ctx);
+    // Rate limit: max 20 payment links per hour per org
+    await checkRateLimit(ctx, `createPaymentLink:${ctx.user.organisationId}`, 20, 3_600_000);
+
     // Generate a short unique token
     const urlToken =
       Math.random().toString(36).slice(2, 10) +

@@ -22,6 +22,7 @@ export interface KanbanItem {
     priority?: string;
     assignee?: string;
     dueDate?: string;
+    taskChips?: string[];
     [key: string]: unknown;
 }
 
@@ -39,6 +40,12 @@ interface KanbanBoardProps {
     onItemDelete?: (item: KanbanItem) => void;
     onItemMove?: (itemId: string, newStatus: string) => void;
     statusKey?: string;
+    /** Items whose status is in this list are grayed out and cannot be dragged. */
+    disabledStatuses?: string[];
+    /** When provided, the edit button is only shown for items where this returns true. */
+    canEditItem?: (item: KanbanItem) => boolean;
+    /** Disables all dragging on the board (e.g. for read-only roles). */
+    dragDisabled?: boolean;
 }
 
 const priorityBorderColor: Record<string, string> = {
@@ -90,6 +97,9 @@ export function KanbanBoard({
     onItemDelete,
     onItemMove,
     statusKey = "status",
+    disabledStatuses = [],
+    canEditItem,
+    dragDisabled = false,
 }: KanbanBoardProps) {
     const [boardItems, setBoardItems] = useState(items);
 
@@ -159,25 +169,32 @@ export function KanbanBoard({
                                                     assigneeName && assigneeBgColor[assigneeName]
                                                         ? assigneeBgColor[assigneeName]
                                                         : "bg-primary/10 text-primary";
+                                                const isDisabled = dragDisabled || disabledStatuses.includes(item[statusKey] as string);
 
                                                 return (
                                                     <Draggable
                                                         key={item.id}
                                                         draggableId={item.id}
                                                         index={index}
+                                                        isDragDisabled={isDisabled}
                                                     >
                                                         {(provided, snapshot) => (
                                                             <Card
                                                                 ref={provided.innerRef}
                                                                 {...provided.draggableProps}
                                                                 className={cn(
-                                                                    "group cursor-pointer transition-all duration-200 border-l-4 overflow-hidden",
-                                                                    item.priority
-                                                                        ? (priorityBorderColor[item.priority] ?? "border-l-transparent")
-                                                                        : "border-l-transparent",
-                                                                    snapshot.isDragging
-                                                                        ? "shadow-xl rotate-1 scale-[1.02]"
-                                                                        : "hover:shadow-md"
+                                                                    "group transition-all duration-200 border-l-4 overflow-hidden",
+                                                                    isDisabled
+                                                                        ? "opacity-60 cursor-default border-l-transparent"
+                                                                        : cn(
+                                                                            "cursor-pointer",
+                                                                            item.priority
+                                                                                ? (priorityBorderColor[item.priority] ?? "border-l-transparent")
+                                                                                : "border-l-transparent",
+                                                                            snapshot.isDragging
+                                                                                ? "shadow-xl rotate-1 scale-[1.02]"
+                                                                                : "hover:shadow-md"
+                                                                        )
                                                                 )}
                                                                 onClick={() => onItemClick?.(item)}
                                                             >
@@ -188,7 +205,12 @@ export function KanbanBoard({
                                                                         <div className="flex items-start gap-1.5">
                                                                             <div
                                                                                 {...provided.dragHandleProps}
-                                                                                className="mt-0.5 opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing shrink-0"
+                                                                                className={cn(
+                                                                                    "mt-0.5 shrink-0",
+                                                                                    isDisabled
+                                                                                        ? "invisible"
+                                                                                        : "opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing"
+                                                                                )}
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                             >
                                                                                 <GripVertical className="h-4 w-4 text-muted-foreground" />
@@ -196,27 +218,33 @@ export function KanbanBoard({
                                                                             <p className="text-sm font-semibold leading-snug flex-1 line-clamp-2">
                                                                                 {item.title}
                                                                             </p>
+                                                                            {!isDisabled && (onItemEdit || onItemDelete) && (
                                                                             <div
                                                                                 className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                             >
-                                                                                <Button
-                                                                                    variant="ghost"
-                                                                                    size="icon"
-                                                                                    className="h-6 w-6"
-                                                                                    onClick={() => onItemEdit?.(item)}
-                                                                                >
-                                                                                    <Pencil className="h-3 w-3" />
-                                                                                </Button>
-                                                                                <Button
-                                                                                    variant="ghost"
-                                                                                    size="icon"
-                                                                                    className="h-6 w-6 text-destructive hover:text-destructive"
-                                                                                    onClick={() => onItemDelete?.(item)}
-                                                                                >
-                                                                                    <Trash2 className="h-3 w-3" />
-                                                                                </Button>
+                                                                                {onItemEdit && (!canEditItem || canEditItem(item)) && (
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="icon"
+                                                                                        className="h-6 w-6"
+                                                                                        onClick={() => onItemEdit(item)}
+                                                                                    >
+                                                                                        <Pencil className="h-3 w-3" />
+                                                                                    </Button>
+                                                                                )}
+                                                                                {onItemDelete && (
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="icon"
+                                                                                        className="h-6 w-6 text-destructive hover:text-destructive"
+                                                                                        onClick={() => onItemDelete(item)}
+                                                                                    >
+                                                                                        <Trash2 className="h-3 w-3" />
+                                                                                    </Button>
+                                                                                )}
                                                                             </div>
+                                                                            )}
                                                                         </div>
 
                                                                         {/* Subtitle */}
@@ -226,6 +254,25 @@ export function KanbanBoard({
                                                                                 <p className="text-xs text-muted-foreground truncate">
                                                                                     {item.subtitle}
                                                                                 </p>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Task chips */}
+                                                                        {Array.isArray(item.taskChips) && (item.taskChips as string[]).length > 0 && (
+                                                                            <div className="flex flex-wrap gap-1 pl-5">
+                                                                                {(item.taskChips as string[]).slice(0, 3).map((chip, i) => (
+                                                                                    <span
+                                                                                        key={i}
+                                                                                        className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground leading-none truncate max-w-[160px]"
+                                                                                    >
+                                                                                        {chip}
+                                                                                    </span>
+                                                                                ))}
+                                                                                {(item.taskChips as string[]).length > 3 && (
+                                                                                    <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground leading-none">
+                                                                                        +{(item.taskChips as string[]).length - 3}
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
                                                                         )}
                                                                     </div>

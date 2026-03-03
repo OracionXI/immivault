@@ -2,16 +2,56 @@
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Client, Case, Invoice, Payment } from "./types";
+
+// Convex-compatible types accepted by the report generator
+export type ReportClient = {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    nationality?: string;
+    status: string;
+    _creationTime: number;
+};
+
+export type ReportCase = {
+    title: string;
+    visaType: string;
+    status: string;
+    priority: string;
+    caseNumber: string;
+    assigneeName: string; // pre-resolved by caller
+};
+
+export type ReportInvoice = {
+    invoiceNumber: string;
+    total: number;
+    status: string;
+    dueDate: number;
+    issuedAt?: number;
+};
+
+export type ReportPayment = {
+    paidAt: number;
+    amount: number;
+    method: string;
+    status: string;
+    reference?: string;
+};
+
+function fmtDate(ts: number) {
+    return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 export function generateClientReport(
-    client: Client,
-    cases: Case[],
-    invoices: Invoice[],
-    payments: Payment[]
+    client: ReportClient,
+    cases: ReportCase[],
+    invoices: ReportInvoice[],
+    payments: ReportPayment[]
 ) {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
+    const fullName = `${client.firstName} ${client.lastName}`;
 
     // Header
     doc.setFillColor(15, 23, 42);
@@ -32,13 +72,12 @@ export function generateClientReport(
     doc.setTextColor(71, 85, 105);
 
     const clientInfo = [
-        ["Name", client.name],
+        ["Name", fullName],
         ["Email", client.email],
-        ["Phone", client.phone],
-        ["Nationality", client.nationality],
-        ["Visa Type", client.visaType],
-        ["Status", client.status.charAt(0).toUpperCase() + client.status.slice(1)],
-        ["Client Since", client.createdAt],
+        ["Phone", client.phone ?? "—"],
+        ["Nationality", client.nationality ?? "—"],
+        ["Status", client.status],
+        ["Client Since", fmtDate(client._creationTime)],
     ];
 
     autoTable(doc, {
@@ -58,8 +97,8 @@ export function generateClientReport(
     if (cases.length > 0) {
         autoTable(doc, {
             startY: finalY1 + 18,
-            head: [["Title", "Visa Type", "Stage", "Priority", "Assigned To"]],
-            body: cases.map((c) => [c.title, c.visaType, c.stage, c.priority, c.assignedTo]),
+            head: [["Case #", "Title", "Visa Type", "Status", "Priority", "Assigned To"]],
+            body: cases.map((c) => [c.caseNumber, c.title, c.visaType, c.status, c.priority, c.assigneeName]),
             headStyles: { fillColor: [15, 23, 42] },
             styles: { fontSize: 9 },
         });
@@ -74,13 +113,13 @@ export function generateClientReport(
     if (invoices.length > 0) {
         autoTable(doc, {
             startY: finalY2 + 18,
-            head: [["Invoice #", "Amount", "Status", "Issued", "Due"]],
+            head: [["Invoice #", "Total", "Status", "Issued", "Due"]],
             body: invoices.map((i) => [
                 i.invoiceNumber,
-                `$${i.totalAmount.toLocaleString()}`,
+                `$${i.total.toLocaleString()}`,
                 i.status,
-                i.issuedDate,
-                i.dueDate,
+                i.issuedAt ? fmtDate(i.issuedAt) : "—",
+                fmtDate(i.dueDate),
             ]),
             headStyles: { fillColor: [15, 23, 42] },
             styles: { fontSize: 9 },
@@ -98,16 +137,16 @@ export function generateClientReport(
             startY: finalY3 + 18,
             head: [["Date", "Amount", "Method", "Status", "Reference"]],
             body: payments.map((p) => [
-                p.date,
+                fmtDate(p.paidAt),
                 `$${p.amount.toLocaleString()}`,
                 p.method,
                 p.status,
-                p.reference,
+                p.reference ?? "—",
             ]),
             headStyles: { fillColor: [15, 23, 42] },
             styles: { fontSize: 9 },
         });
     }
 
-    doc.save(`ImmiVault_Report_${client.name.replace(/\s+/g, "_")}.pdf`);
+    doc.save(`ImmiVault_Report_${fullName.replace(/\s+/g, "_")}.pdf`);
 }

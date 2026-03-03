@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { mockPayments, mockPaymentLinks } from "@/lib/mock-data";
-import type { Payment, PaymentLink } from "@/lib/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -17,52 +18,118 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { mockClients } from "@/lib/mock-data";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, Loader2 } from "lucide-react";
+
+type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
+type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
+
+type PaymentRow = ConvexPayment & { clientName: string; dateDisplay: string };
+type LinkRow = ConvexPaymentLink & { clientName: string; expiresDisplay: string; linkUrl: string };
+
+function formatTs(ts: number) {
+    return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 export default function PaymentsPage() {
-    const [payments] = useState<Payment[]>(mockPayments);
-    const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>(mockPaymentLinks);
-    const [linkModalOpen, setLinkModalOpen] = useState(false);
+    const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
+    const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
+    const clients = useQuery(api.clients.queries.listAll) ?? [];
+    const createPaymentLink = useMutation(api.billing.mutations.createPaymentLink);
 
-    const paymentColumns: Column<Payment>[] = [
-        { key: "reference", label: "Reference", render: (p) => <span className="font-mono text-sm">{p.reference}</span> },
+    const clientMap = useMemo(
+        () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
+        [clients]
+    );
+
+    const payments: PaymentRow[] = rawPayments.map((p) => ({
+        ...p,
+        clientName: clientMap.get(p.clientId) ?? "—",
+        dateDisplay: formatTs(p.paidAt),
+    }));
+
+    const paymentLinks: LinkRow[] = rawLinks.map((l) => ({
+        ...l,
+        clientName: clientMap.get(l.clientId) ?? "—",
+        expiresDisplay: formatTs(l.expiresAt),
+        linkUrl: `${typeof window !== "undefined" ? window.location.origin : ""}/pay/${l.urlToken}`,
+    }));
+
+    const [linkModalOpen, setLinkModalOpen] = useState(false);
+    const [linkLoading, setLinkLoading] = useState(false);
+    const [linkForm, setLinkForm] = useState({
+        clientId: "" as Id<"clients"> | "",
+        amount: "",
+        description: "",
+        expiryDate: "",
+    });
+
+    const paymentColumns: Column<PaymentRow>[] = [
+        {
+            key: "reference",
+            label: "Reference",
+            render: (p) => <span className="font-mono text-sm">{p.reference ?? "—"}</span>,
+        },
         { key: "clientName", label: "Client", sortable: true },
-        { key: "amount", label: "Amount", sortable: true, render: (p) => <span className="font-semibold">${p.amount.toLocaleString()}</span> },
+        {
+            key: "amount",
+            label: "Amount",
+            sortable: true,
+            render: (p) => <span className="font-semibold">${p.amount.toLocaleString()}</span>,
+        },
         { key: "method", label: "Method" },
-        { key: "date", label: "Date", sortable: true },
+        { key: "dateDisplay", label: "Date", sortable: true },
         { key: "status", label: "Status", render: (p) => <StatusBadge status={p.status} /> },
     ];
 
-    const linkColumns: Column<PaymentLink>[] = [
+    const linkColumns: Column<LinkRow>[] = [
         { key: "clientName", label: "Client", sortable: true },
         { key: "description", label: "Description" },
-        { key: "amount", label: "Amount", render: (l) => <span className="font-semibold">${l.amount.toLocaleString()}</span> },
-        { key: "expiryDate", label: "Expires", sortable: true },
+        {
+            key: "amount",
+            label: "Amount",
+            render: (l) => <span className="font-semibold">${l.amount.toLocaleString()}</span>,
+        },
+        { key: "expiresDisplay", label: "Expires", sortable: true },
         { key: "status", label: "Status", render: (l) => <StatusBadge status={l.status} /> },
         {
-            key: "actions", label: "Actions", render: (l) => (
+            key: "actions",
+            label: "Actions",
+            render: (l) => (
                 <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigator.clipboard.writeText(l.link)}><Copy className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => navigator.clipboard.writeText(l.linkUrl)}
+                        title="Copy link"
+                    >
+                        <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => window.open(l.linkUrl, "_blank")}
+                        title="Open link"
+                    >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
                 </div>
             ),
         },
     ];
 
-    const [linkForm, setLinkForm] = useState({ clientId: "", amount: "", description: "", expiryDate: "" });
-
-    const handleCreateLink = () => {
-        const client = mockClients.find((c) => c.id === linkForm.clientId);
-        const newLink: PaymentLink = {
-            id: `pl${Date.now()}`, clientId: linkForm.clientId, clientName: client?.name || "",
-            amount: Number(linkForm.amount), description: linkForm.description,
-            link: `https://pay.immivault.com/pl${Date.now()}`, status: "active",
-            expiryDate: linkForm.expiryDate, createdAt: new Date().toISOString().split("T")[0],
-        };
-        setPaymentLinks((prev) => [...prev, newLink]);
-        setLinkModalOpen(false);
-        setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "" });
+    const handleCreateLink = async () => {
+        if (!linkForm.clientId || !linkForm.amount || !linkForm.description || !linkForm.expiryDate) return;
+        setLinkLoading(true);
+        try {
+            await createPaymentLink({
+                clientId: linkForm.clientId as Id<"clients">,
+                amount: Number(linkForm.amount),
+                description: linkForm.description,
+                expiresAt: new Date(linkForm.expiryDate).getTime(),
+            });
+            setLinkModalOpen(false);
+            setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "" });
+        } finally {
+            setLinkLoading(false);
+        }
     };
 
     return (
@@ -113,29 +180,64 @@ export default function PaymentsPage() {
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
                             <Label>Client</Label>
-                            <Select value={linkForm.clientId} onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v })}>
+                            <Select
+                                value={linkForm.clientId}
+                                onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v as Id<"clients"> })}
+                            >
                                 <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
-                                <SelectContent>{mockClients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                                <SelectContent>
+                                    {clients.map((c) => (
+                                        <SelectItem key={c._id} value={c._id}>
+                                            {c.firstName} {c.lastName}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
                             </Select>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Amount ($)</Label>
-                                <Input type="number" value={linkForm.amount} onChange={(e) => setLinkForm({ ...linkForm, amount: e.target.value })} placeholder="0.00" />
+                                <Input
+                                    type="number"
+                                    value={linkForm.amount}
+                                    onChange={(e) => setLinkForm({ ...linkForm, amount: e.target.value })}
+                                    placeholder="0.00"
+                                />
                             </div>
                             <div className="grid gap-2">
                                 <Label>Expiry Date</Label>
-                                <Input type="date" value={linkForm.expiryDate} onChange={(e) => setLinkForm({ ...linkForm, expiryDate: e.target.value })} />
+                                <Input
+                                    type="date"
+                                    value={linkForm.expiryDate}
+                                    onChange={(e) => setLinkForm({ ...linkForm, expiryDate: e.target.value })}
+                                />
                             </div>
                         </div>
                         <div className="grid gap-2">
                             <Label>Description</Label>
-                            <Textarea value={linkForm.description} onChange={(e) => setLinkForm({ ...linkForm, description: e.target.value })} placeholder="Payment description..." rows={2} />
+                            <Textarea
+                                value={linkForm.description}
+                                onChange={(e) => setLinkForm({ ...linkForm, description: e.target.value })}
+                                placeholder="Payment description..."
+                                rows={2}
+                            />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setLinkModalOpen(false)}>Cancel</Button>
-                        <Button onClick={handleCreateLink}>Create Link</Button>
+                        <Button
+                            onClick={handleCreateLink}
+                            disabled={
+                                linkLoading ||
+                                !linkForm.clientId ||
+                                !linkForm.amount ||
+                                !linkForm.description ||
+                                !linkForm.expiryDate
+                            }
+                        >
+                            {linkLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                            Create Link
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

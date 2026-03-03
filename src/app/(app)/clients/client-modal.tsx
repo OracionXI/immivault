@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -25,12 +24,10 @@ interface ClientModalProps {
 export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
     const createClient = useMutation(api.clients.mutations.create);
     const updateClient = useMutation(api.clients.mutations.update);
-    const staff = useQuery(api.users.queries.listByOrg) ?? [];
 
     const [form, setForm] = useState({
         firstName: "", lastName: "", email: "", phone: "", nationality: "",
         status: "Active" as "Active" | "Pending" | "Inactive" | "Archived",
-        assignedTo: "",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
@@ -44,10 +41,9 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                 phone: client.phone ?? "",
                 nationality: client.nationality ?? "",
                 status: client.status,
-                assignedTo: client.assignedTo,
             });
         } else {
-            setForm({ firstName: "", lastName: "", email: "", phone: "", nationality: "", status: "Active", assignedTo: "" });
+            setForm({ firstName: "", lastName: "", email: "", phone: "", nationality: "", status: "Active" });
         }
         setErrors({});
     }, [client, open]);
@@ -57,7 +53,6 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
         if (!form.firstName.trim()) errs.firstName = "First name is required";
         if (!form.lastName.trim()) errs.lastName = "Last name is required";
         if (!form.email.trim()) errs.email = "Email is required";
-        if (!form.assignedTo) errs.assignedTo = "Assigned staff is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -73,7 +68,6 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                 phone: form.phone || undefined,
                 nationality: form.nationality || undefined,
                 status: form.status,
-                assignedTo: form.assignedTo as Id<"users">,
             };
             if (client) {
                 await updateClient({ id: client._id, ...payload });
@@ -133,18 +127,6 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                                 </SelectContent>
                             </Select>
                         </div>
-                    </div>
-                    <div className="grid gap-2">
-                        <Label>Assigned To *</Label>
-                        <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
-                            <SelectTrigger><SelectValue placeholder="Select staff member" /></SelectTrigger>
-                            <SelectContent>
-                                {staff.filter((s) => s.status === "active").map((s) => (
-                                    <SelectItem key={s._id} value={s._id}>{s.fullName}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        {errors.assignedTo && <p className="text-xs text-destructive">{errors.assignedTo}</p>}
                     </div>
                 </div>
                 <DialogFooter>

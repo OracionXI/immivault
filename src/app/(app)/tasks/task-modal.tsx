@@ -37,6 +37,11 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
 
+    // Tasks can be assigned to case managers or staff — never admins
+    const assignableUsers = users.filter(
+        (u) => (u.role === "case_manager" || u.role === "staff") && u.status === "active"
+    );
+
     const [form, setForm] = useState({
         title: "",
         description: "",
@@ -48,6 +53,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
+    const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
     const [casePopoverOpen, setCasePopoverOpen] = useState(false);
 
     useEffect(() => {
@@ -65,13 +71,13 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
             setForm({ title: "", description: "", assignedTo: "", priority: "Medium", status: "To Do", dueDate: "", caseId: "" });
         }
         setErrors({});
+        setAssigneePopoverOpen(false);
         setCasePopoverOpen(false);
     }, [task, open]);
 
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
-        if (!form.assignedTo) errs.assignedTo = "Assignee is required";
         if (!form.dueDate) errs.dueDate = "Due date is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
@@ -84,7 +90,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
             const payload = {
                 title: form.title,
                 description: form.description || undefined,
-                assignedTo: form.assignedTo as Id<"users">,
+                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
                 priority: form.priority,
                 status: form.status,
                 dueDate: form.dueDate ? new Date(form.dueDate).getTime() : undefined,
@@ -134,16 +140,51 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label>Assignee *</Label>
-                            <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
-                                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                                <SelectContent>
-                                    {users.filter((u) => u.status === "active").map((u) => (
-                                        <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {errors.assignedTo && <p className="text-xs text-destructive">{errors.assignedTo}</p>}
+                            <Label>Assignee</Label>
+                            <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={assigneePopoverOpen}
+                                        className="w-full justify-between font-normal truncate"
+                                    >
+                                        <span className="truncate">
+                                            {form.assignedTo
+                                                ? (assignableUsers.find((u) => u._id === form.assignedTo)?.fullName ?? "Unassigned")
+                                                : "Unassigned"}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[200px] p-0" align="start" side="bottom">
+                                    <Command>
+                                        <CommandInput placeholder="Search..." />
+                                        <CommandList>
+                                            <CommandEmpty>No users found.</CommandEmpty>
+                                            <CommandGroup>
+                                                <CommandItem
+                                                    value="unassigned"
+                                                    onSelect={() => { setForm({ ...form, assignedTo: "" }); setAssigneePopoverOpen(false); }}
+                                                >
+                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === "" ? "opacity-100" : "opacity-0")} />
+                                                    Unassigned
+                                                </CommandItem>
+                                                {assignableUsers.map((u) => (
+                                                    <CommandItem
+                                                        key={u._id}
+                                                        value={u.fullName}
+                                                        onSelect={() => { setForm({ ...form, assignedTo: u._id }); setAssigneePopoverOpen(false); }}
+                                                    >
+                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === u._id ? "opacity-100" : "opacity-0")} />
+                                                        {u.fullName}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
                         </div>
                         <div className="grid gap-2">
                             <Label>Due Date *</Label>

@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -16,23 +15,26 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Sun, Moon, Search, Bell, Menu, Shield, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
+import { Sun, Moon, Bell, Menu, Shield, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { useRole } from "@/hooks/use-role";
+
+type Role = "admin" | "case_manager" | "staff";
 
 const navItems = [
-    { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { title: "Clients", href: "/clients", icon: Users },
-    { title: "Cases", href: "/cases", icon: Briefcase },
-    { title: "Tasks", href: "/tasks", icon: CheckSquare },
-    { title: "Documents", href: "/documents", icon: FileText },
-    { title: "Appointments", href: "/appointments", icon: Calendar },
-    { title: "Billing", href: "/billing", icon: Receipt },
-    { title: "Payments", href: "/payments", icon: CreditCard },
-    { title: "Reports", href: "/reports", icon: BarChart3 },
-    { title: "Staff", href: "/staff", icon: UserCog },
-    { title: "Settings", href: "/settings", icon: Settings },
+    { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Clients", href: "/clients", icon: Users, roles: ["admin"] as Role[] },
+    { title: "Cases", href: "/cases", icon: Briefcase, roles: ["admin", "case_manager"] as Role[] },
+    { title: "Tasks", href: "/tasks", icon: CheckSquare, roles: ["admin", "case_manager", "staff"] as Role[] },
+    { title: "Documents", href: "/documents", icon: FileText, roles: ["admin", "case_manager"] as Role[] },
+    { title: "Appointments", href: "/appointments", icon: Calendar, roles: ["admin", "case_manager"] as Role[] },
+    { title: "Billing", href: "/billing", icon: Receipt, roles: ["admin"] as Role[] },
+    { title: "Payments", href: "/payments", icon: CreditCard, roles: ["admin"] as Role[] },
+    { title: "Reports", href: "/reports", icon: BarChart3, roles: ["admin"] as Role[] },
+    { title: "Staff", href: "/staff", icon: UserCog, roles: ["admin"] as Role[] },
+    { title: "Settings", href: "/settings", icon: Settings, roles: ["admin"] as Role[] },
 ];
 
 export function Header() {
@@ -43,6 +45,7 @@ export function Header() {
     const { signOut } = useClerk();
     const [open, setOpen] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const { role } = useRole();
 
     useEffect(() => {
         setMounted(true);
@@ -55,10 +58,13 @@ export function Header() {
 
     const handleSignOut = () => signOut(() => router.push("/login"));
 
+    const visibleItems = role
+        ? navItems.filter((item) => item.roles.includes(role))
+        : navItems;
+
     return (
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border bg-card/80 backdrop-blur-md px-4 md:px-6">
             <div className="flex items-center gap-2 flex-1 md:flex-none">
-                {/* Mobile Menu Trigger */}
                 <Sheet open={open} onOpenChange={setOpen}>
                     <SheetTrigger asChild>
                         <Button variant="ghost" size="icon" className="md:hidden">
@@ -75,7 +81,7 @@ export function Header() {
                             <span className="text-lg font-bold tracking-tight">ImmiVault</span>
                         </div>
                         <nav className="flex flex-col gap-1 px-2 py-4">
-                            {navItems.map((item) => {
+                            {visibleItems.map((item) => {
                                 const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
                                 return (
                                     <Link
@@ -96,12 +102,9 @@ export function Header() {
                         </nav>
                     </SheetContent>
                 </Sheet>
-
             </div>
 
-            {/* Right side actions */}
             <div className="flex items-center gap-[6px] md:gap-2">
-
                 {mounted && (
                     <Button
                         variant="ghost"
@@ -153,4 +156,3 @@ export function Header() {
         </header>
     );
 }
-

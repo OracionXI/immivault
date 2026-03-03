@@ -13,18 +13,23 @@ export const mine = authenticatedQuery({
 });
 
 /**
- * Internal: look up an organisation by Clerk org ID.
- * Used in the webhook handler.
+ * Internal: look up an organisation by its Convex document ID.
  */
-export const getByClerkOrgId = internalQuery({
-  args: { clerkOrgId: v.string() },
+export const getById = internalQuery({
+  args: { id: v.id("organisations") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("organisations")
-      .withIndex("by_clerk_org", (q) =>
-        q.eq("clerkOrgId", args.clerkOrgId)
-      )
-      .unique();
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal: returns the first organisation in the database.
+ * Used as a fallback when a new admin signs up without invitation metadata.
+ */
+export const getFirst = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("organisations").first();
   },
 });
 

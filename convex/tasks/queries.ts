@@ -1,27 +1,76 @@
+import { internalQuery } from "../_generated/server";
 import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { getVisibleCaseIds } from "../lib/visibility";
 
-/** All tasks in the org — for the Kanban board. */
+/**
+ * Visible tasks scoped by role:
+ *   admin        → all tasks in org
+ *   case_manager → all tasks under clients linked to their assigned cases
+ *   staff        → all tasks under clients linked to cases containing their assigned tasks
+ */
 export const list = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    if (role === "admin") {
+      return (await ctx.db
+        .query("tasks")
+        .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+        .order("desc")
+        .collect()).filter((t) => !t.hidden);
+    }
+
+    const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+    const allTasks = await ctx.db
       .query("tasks")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-      .order("desc")
+      .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
       .collect();
+    return allTasks.filter((t) => !t.hidden && t.caseId && visibleCaseIds.has(t.caseId));
   },
 });
 
-/** Tasks for a specific case. */
+/** Tasks for a specific case — respects role visibility. */
 export const listByCase = authenticatedQuery({
   args: { caseId: v.id("cases") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    return (await ctx.db
       .query("tasks")
       .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
+      .collect()).filter((t) => !t.hidden);
+  },
+});
+
+/**
+ * Internal: tasks due within a specific time window.
+ * Used by the daily task reminder cron job.
+ */
+export const listDueTomorrow = internalQuery({
+  args: { start: v.number(), end: v.number() },
+  handler: async (ctx, args) => {
+    const tasks = await ctx.db
+      .query("tasks")
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("status"), "Completed"),
+          q.gte(q.field("dueDate"), args.start),
+          q.lte(q.field("dueDate"), args.end)
+        )
+      )
       .collect();
+
+    return await Promise.all(
+      tasks.map(async (task) => {
+        const assignee = task.assignedTo ? await ctx.db.get(task.assignedTo) : null;
+        return {
+          ...task,
+          assigneeEmail: assignee?.email ?? null,
+          assigneeName: assignee?.fullName ?? "Team Member",
+        };
+      })
+    );
   },
 });
 
