@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { generateClientReport } from "@/lib/pdf-generator";
 import { FileDown, DollarSign, Briefcase, Users, TrendingUp } from "lucide-react";
+import { RoleGuard } from "@/components/shared/role-guard";
 
 type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.listAll>>>[number];
 
@@ -153,6 +154,7 @@ export default function ReportsPage() {
     ];
 
     return (
+        <RoleGuard allowedRoles={["admin", "case_manager"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader title="Reports" description="Generate reports and analyse your practice" />
 
@@ -202,5 +204,6 @@ export default function ReportsPage() {
                 searchPlaceholder="Search clients..."
             />
         </div>
+        </RoleGuard>
     );
 }

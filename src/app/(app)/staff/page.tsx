@@ -11,6 +11,7 @@ import { StaffModal } from "./staff-modal";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Pencil, UserPlus, Trash2 } from "lucide-react";
+import { RoleGuard } from "@/components/shared/role-guard";
 import { InviteModal } from "./invite-modal";
 import {
     Dialog,
@@ -86,6 +87,7 @@ export default function StaffPage() {
     ];
 
     return (
+        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <div className="flex items-start justify-between">
                 <PageHeader
@@ -144,5 +146,6 @@ export default function StaffPage() {
                 </DialogContent>
             </Dialog>
         </div>
+        </RoleGuard>
     );
 }

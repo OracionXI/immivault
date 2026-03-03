@@ -89,7 +89,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                 clientId: form.clientId as Id<"clients">,
                 visaType: form.visaType,
                 status: form.status,
-                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
+                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : null,
                 priority: form.priority,
                 notes: form.notes || undefined,
             };

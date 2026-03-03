@@ -19,6 +19,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { RoleGuard } from "@/components/shared/role-guard";
 
 type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
 type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
@@ -133,6 +134,7 @@ export default function PaymentsPage() {
     };
 
     return (
+        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader title="Payments" description="Track transactions and payment links" />
 
@@ -242,5 +244,6 @@ export default function PaymentsPage() {
                 </DialogContent>
             </Dialog>
         </div>
+        </RoleGuard>
     );
 }
