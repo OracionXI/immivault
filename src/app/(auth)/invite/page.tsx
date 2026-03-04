@@ -2,12 +2,12 @@
 
 import { SignUp } from "@clerk/nextjs";
 
-export default function SignupPage() {
+export default function InviteSignUpPage() {
     return (
         <div className="w-full flex justify-center">
             <SignUp
                 routing="hash"
-                fallbackRedirectUrl="/onboarding"
+                fallbackRedirectUrl="/waiting"
                 signInUrl="/login"
                 appearance={{
                     elements: {
@@ -19,4 +19,3 @@ export default function SignupPage() {
         </div>
     );
 }
-

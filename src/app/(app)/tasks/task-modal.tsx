@@ -75,10 +75,17 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
         setCasePopoverOpen(false);
     }, [task, open]);
 
+    const today = new Date().toISOString().split("T")[0];
+
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
-        if (!form.dueDate) errs.dueDate = "Due date is required";
+        if (!form.caseId) errs.caseId = "Related case is required";
+        if (!form.dueDate) {
+            errs.dueDate = "Due date is required";
+        } else if (!task && form.dueDate < today) {
+            errs.dueDate = "Due date cannot be in the past";
+        }
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -191,6 +198,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                             <Input
                                 type="date"
                                 value={form.dueDate}
+                                min={today}
                                 onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                             />
                             {errors.dueDate && <p className="text-xs text-destructive">{errors.dueDate}</p>}
@@ -223,16 +231,23 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                     </div>
 
                     <div className="grid gap-2">
-                        <Label>Related Case</Label>
+                        <Label>Related Case *</Label>
                         <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                     variant="outline"
                                     role="combobox"
                                     aria-expanded={casePopoverOpen}
-                                    className="w-full justify-between font-normal truncate"
+                                    className={cn(
+                                        "w-full justify-between font-normal truncate",
+                                        errors.caseId && "border-destructive"
+                                    )}
                                 >
-                                    <span className="truncate">{selectedCaseTitle}</span>
+                                    <span className={cn("truncate", !form.caseId && "text-muted-foreground")}>
+                                        {form.caseId
+                                            ? (cases.find((c) => c._id === form.caseId)?.title ?? "Select a case")
+                                            : "Select a case"}
+                                    </span>
                                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                             </PopoverTrigger>
@@ -242,13 +257,6 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                                     <CommandList>
                                         <CommandEmpty>No cases found.</CommandEmpty>
                                         <CommandGroup>
-                                            <CommandItem
-                                                value="none"
-                                                onSelect={() => { setForm({ ...form, caseId: "" }); setCasePopoverOpen(false); }}
-                                            >
-                                                <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === "" ? "opacity-100" : "opacity-0")} />
-                                                None
-                                            </CommandItem>
                                             {cases.map((c) => (
                                                 <CommandItem
                                                     key={c._id}
@@ -264,6 +272,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                                 </Command>
                             </PopoverContent>
                         </Popover>
+                        {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
                     </div>
                 </div>
                 <DialogFooter>

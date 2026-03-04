@@ -1,4 +1,4 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, mutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -7,6 +7,7 @@ import { ConvexError } from "convex/values";
  * Gets the existing organisation or creates a default one.
  * Called by the user.created webhook for the first admin signup
  * when there is no organisationId in the Clerk user's public_metadata.
+ * Creates a temporary placeholder — the real name is set in /onboarding.
  */
 export const getOrCreateDefault = internalMutation({
   args: {},
@@ -15,8 +16,8 @@ export const getOrCreateDefault = internalMutation({
     if (existing) return existing._id;
 
     const orgId = await ctx.db.insert("organisations", {
-      name: "My Organisation",
-      slug: "my-organisation",
+      name: "Pending Setup",
+      slug: "pending-setup",
       plan: "free",
     });
 
@@ -28,6 +29,88 @@ export const getOrCreateDefault = internalMutation({
     });
 
     return orgId;
+  },
+});
+
+/**
+ * Completes the onboarding flow for a manual admin signup.
+ * This is a raw mutation (not authenticatedMutation) because the user
+ * is still in "pending_onboarding" status when they call it.
+ *
+ * - Verifies the caller is authenticated and in pending_onboarding status
+ * - Updates the organisation name, slug, and agreement details
+ * - Sets the user status to "active"
+ */
+export const completeOnboarding = mutation({
+  args: {
+    orgName: v.string(),
+    agreementSignature: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHENTICATED", message: "Not authenticated." });
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique();
+
+    if (!user) {
+      throw new ConvexError({
+        code: "USER_NOT_FOUND",
+        message: "User profile not found. Please contact support.",
+      });
+    }
+
+    if (user.status !== "pending_onboarding") {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "Onboarding already completed.",
+      });
+    }
+
+    const orgName = args.orgName.trim();
+    if (orgName.length < 2) {
+      throw new ConvexError({
+        code: "VALIDATION",
+        message: "Organisation name must be at least 2 characters.",
+      });
+    }
+
+    // Generate a URL-safe slug from the org name
+    const baseSlug = orgName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50);
+
+    // Ensure slug uniqueness by appending a counter if necessary
+    let slug = baseSlug;
+    let counter = 1;
+    while (true) {
+      const existing = await ctx.db
+        .query("organisations")
+        .withIndex("by_slug", (q) => q.eq("slug", slug))
+        .unique();
+      if (!existing || existing._id === user.organisationId) break;
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+
+    // Update organisation with the real name and agreement record
+    await ctx.db.patch(user.organisationId, {
+      name: orgName,
+      slug,
+      agreementSignature: args.agreementSignature,
+      agreementSignedAt: Date.now(),
+    });
+
+    // Activate the user
+    await ctx.db.patch(user._id, { status: "active" });
   },
 });
 

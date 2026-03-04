@@ -9,6 +9,12 @@ export default function LoginPage() {
                 routing="hash"
                 fallbackRedirectUrl="/dashboard"
                 signUpUrl="/signup"
+                appearance={{
+                    elements: {
+                        socialButtonsBlock: { display: "none" },
+                        dividerRow: { display: "none" },
+                    },
+                }}
             />
         </div>
     );
