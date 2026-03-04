@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Pencil, CalendarDays, FileText, MessageSquare, Send, Layers } from "lucide-react";
+import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
+import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
+import { Pencil, Trash2, CalendarDays, FileText, MessageSquare, Send, Layers, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
@@ -24,15 +25,8 @@ interface TaskDetailDialogProps {
     onEdit?: (t: ConvexTask) => void;
 }
 
-interface LocalComment {
-    id: string;
-    author: string;
-    text: string;
-    createdAt: string;
-}
-
 function getInitials(name: string) {
-    return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
+    return name.split(" ").map((n) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
 }
 
 function formatTs(ts: number) {
@@ -43,20 +37,63 @@ function isOverdue(ts: number) {
     return ts < Date.now();
 }
 
-const CURRENT_USER = "You";
-
 export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit }: TaskDetailDialogProps) {
-    const [comments, setComments] = useState<LocalComment[]>([]);
     const [newComment, setNewComment] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editBody, setEditBody] = useState("");
 
-    const handleAddComment = () => {
+    const addComment = useMutation(api.comments.mutations.create);
+    const editComment = useMutation(api.comments.mutations.update);
+    const deleteComment = useMutation(api.comments.mutations.remove);
+    const me = useQuery(api.users.queries.me);
+    const orgUsers = useQuery(api.users.queries.listByOrg) ?? [];
+
+    // Convex-backed comments for this task
+    const comments = useQuery(
+        api.comments.queries.listByEntity,
+        task ? { entityType: "task", entityId: task._id } : "skip"
+    ) ?? [];
+
+    // All tasks on the parent case — used to compute case-linked people
+    const tasksByCase = useQuery(
+        api.tasks.queries.listByCase,
+        task?.caseId ? { caseId: task.caseId } : "skip"
+    ) ?? [];
+
+    // Documents on the parent case — offered for @doc mentions
+    const allDocs = useQuery(api.documents.queries.list) ?? [];
+    const caseDocs = task?.caseId
+        ? allDocs.filter((d) => d.caseId === task.caseId)
+        : [];
+
+    // ── @mention data ─────────────────────────────────────────────────────────
+    // People: anyone assigned to any task on the parent case
+    const linkedUserIds = new Set<string>(
+        tasksByCase
+            .map((t) => t.assignedTo)
+            .filter((id): id is string => !!id)
+    );
+    const mentionUsers: MentionableUser[] = orgUsers
+        .filter((u) => linkedUserIds.has(u._id))
+        .map((u) => ({ id: u._id, name: u.fullName }));
+    const mentionDocs: MentionableDoc[] = caseDocs.map((d) => ({ id: d._id, name: d.name }));
+
+    function getAuthorName(authorId: string) {
+        if (authorId === me?._id) return "You";
+        return orgUsers.find((u) => u._id === authorId)?.fullName ?? "Unknown";
+    }
+
+    const handleAddComment = async () => {
         const text = newComment.trim();
-        if (!text) return;
-        setComments((prev) => [
-            ...prev,
-            { id: `cmt-${Date.now()}`, author: CURRENT_USER, text, createdAt: new Date().toISOString() },
-        ]);
+        if (!text || !task || submitting) return;
+        setSubmitting(true);
         setNewComment("");
+        try {
+            await addComment({ entityType: "task", entityId: task._id, body: text });
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     if (!task) return null;
@@ -70,7 +107,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                 <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
                     <div className="flex items-start gap-3 pr-8">
                         <div className="flex-1 min-w-0">
-                            <p className="text-xs text-muted-foreground font-mono mb-1">TASK</p>
+                            <p className="text-xs text-muted-foreground font-mono mb-1">TASK · {task.taskId}</p>
                             <DialogTitle className="text-xl leading-snug">{task.title}</DialogTitle>
                             <div className="flex gap-2 mt-2">
                                 <StatusBadge status={task.status} />
@@ -96,6 +133,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                     {/* Main column */}
                     <ScrollArea className="flex-1 px-6 py-5">
                         <div className="space-y-6 pr-4">
+                            {/* Description */}
                             <section>
                                 <div className="flex items-center gap-2 mb-2">
                                     <FileText className="h-4 w-4 text-muted-foreground" />
@@ -112,6 +150,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
 
                             <Separator />
 
+                            {/* Activity */}
                             <section>
                                 <div className="flex items-center gap-2 mb-3">
                                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
@@ -127,37 +166,98 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                     <p className="text-sm text-muted-foreground italic mb-4">No comments yet.</p>
                                 ) : (
                                     <div className="space-y-4 mb-4">
-                                        {comments.map((comment) => (
-                                            <div key={comment.id} className="flex gap-3">
-                                                <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 bg-primary/10 text-primary">
-                                                    {getInitials(comment.author)}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-baseline gap-2 mb-1">
-                                                        <span className="text-xs font-semibold">{comment.author}</span>
-                                                        <span className="text-[11px] text-muted-foreground">
-                                                            {new Date(comment.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                                        </span>
+                                        {comments.map((comment) => {
+                                            const authorName = getAuthorName(comment.authorId);
+                                            const isOwn = comment.authorId === me?._id;
+                                            const isEditing = editingId === comment._id;
+                                            return (
+                                                <div key={comment._id} className="flex gap-3 group">
+                                                    <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 bg-primary/10 text-primary">
+                                                        {getInitials(authorName)}
                                                     </div>
-                                                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
-                                                        {comment.text}
-                                                    </p>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-baseline gap-2 mb-1">
+                                                            <span className="text-xs font-semibold">{authorName}</span>
+                                                            <span className="text-[11px] text-muted-foreground">
+                                                                {new Date(comment._creationTime).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                                            </span>
+                                                            {isOwn && !isEditing && (
+                                                                <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button
+                                                                        className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                                                                        onClick={() => { setEditingId(comment._id); setEditBody(comment.body); }}
+                                                                    >
+                                                                        <Pencil className="h-3 w-3" />
+                                                                    </button>
+                                                                    <button
+                                                                        className="text-muted-foreground hover:text-destructive p-0.5 rounded"
+                                                                        onClick={() => deleteComment({ id: comment._id })}
+                                                                    >
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </button>
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {isEditing ? (
+                                                            <div className="space-y-2">
+                                                                <MentionTextarea
+                                                                    value={editBody}
+                                                                    onChange={setEditBody}
+                                                                    rows={2}
+                                                                    autoFocus
+                                                                    users={mentionUsers}
+                                                                    docs={mentionDocs}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Escape") { setEditingId(null); setEditBody(""); }
+                                                                    }}
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        disabled={!editBody.trim()}
+                                                                        onClick={async () => {
+                                                                            if (!editBody.trim()) return;
+                                                                            await editComment({ id: comment._id, body: editBody.trim() });
+                                                                            setEditingId(null);
+                                                                            setEditBody("");
+                                                                        }}
+                                                                    >
+                                                                        Save
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        onClick={() => { setEditingId(null); setEditBody(""); }}
+                                                                    >
+                                                                        <X className="h-3.5 w-3.5 mr-1" />
+                                                                        Cancel
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
+                                                                <MentionBody body={comment.body} />
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
 
                                 <div className="flex gap-3">
                                     <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5 bg-primary/10 text-primary">
-                                        {getInitials(CURRENT_USER)}
+                                        {getInitials(me?.fullName ?? "?")}
                                     </div>
                                     <div className="flex-1 space-y-2">
-                                        <Textarea
-                                            placeholder="Add a comment..."
+                                        <MentionTextarea
+                                            placeholder="Add a comment… type @ to mention people or documents"
                                             value={newComment}
-                                            onChange={(e) => setNewComment(e.target.value)}
+                                            onChange={setNewComment}
                                             rows={2}
+                                            users={mentionUsers}
+                                            docs={mentionDocs}
                                             onKeyDown={(e) => {
                                                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                                                     e.preventDefault();
@@ -165,7 +265,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                 }
                                             }}
                                         />
-                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim()}>
+                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim() || submitting}>
                                             <Send className="h-3.5 w-3.5 mr-1.5" />
                                             Comment
                                         </Button>

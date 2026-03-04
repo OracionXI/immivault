@@ -7,6 +7,8 @@ import { checkRateLimit } from "../lib/rateLimit";
  * Called by the Clerk webhook (http.ts) when a new user joins an org.
  * Creates the Convex user profile linked to the Clerk user.
  * Non-admin users default to status "inactive" — admin must activate them.
+ * Manual admin signups pass status "pending_onboarding" explicitly so the
+ * user is gated until they complete the /onboarding form.
  */
 export const syncFromClerk = internalMutation({
   args: {
@@ -20,6 +22,14 @@ export const syncFromClerk = internalMutation({
       v.literal("admin"),
       v.literal("case_manager"),
       v.literal("staff")
+    ),
+    // Optional override: if provided, bypasses the role-based status default.
+    status: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("inactive"),
+        v.literal("pending_onboarding")
+      )
     ),
   },
   handler: async (ctx, args) => {
@@ -38,8 +48,9 @@ export const syncFromClerk = internalMutation({
       return existing._id;
     }
 
-    // Admins are active immediately; all other roles start inactive
-    const status = args.role === "admin" ? "active" : "inactive";
+    // Explicit status wins; otherwise default by role (admins active, others inactive)
+    const status =
+      args.status ?? (args.role === "admin" ? "active" : "inactive");
 
     return await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,

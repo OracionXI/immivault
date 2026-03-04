@@ -38,7 +38,7 @@ export const authenticatedQuery = customQuery(
         });
       }
 
-      if (user.status === "inactive") {
+      if (user.status === "inactive" || user.status === "pending_onboarding") {
         throw new ConvexError({
           code: "ACCOUNT_INACTIVE",
           message: "Your account is pending activation by an administrator.",
@@ -81,7 +81,7 @@ export const authenticatedMutation = customMutation(
         });
       }
 
-      if (user.status === "inactive") {
+      if (user.status === "inactive" || user.status === "pending_onboarding") {
         throw new ConvexError({
           code: "ACCOUNT_INACTIVE",
           message: "Your account is pending activation by an administrator.",

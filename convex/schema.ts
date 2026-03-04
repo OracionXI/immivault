@@ -7,6 +7,8 @@ export default defineSchema({
     name: v.string(),
     slug: v.string(),
     plan: v.string(), // "free" | "pro" | "enterprise"
+    agreementSignature: v.optional(v.string()),  // typed name or PNG data URL
+    agreementSignedAt: v.optional(v.number()),   // epoch ms
   })
     .index("by_slug", ["slug"]),
 
@@ -37,7 +39,11 @@ export default defineSchema({
       v.literal("case_manager"),
       v.literal("staff")
     ),
-    status: v.union(v.literal("active"), v.literal("inactive")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("inactive"),
+      v.literal("pending_onboarding")
+    ),
   })
     .index("by_token", ["tokenIdentifier"])
     .index("by_org", ["organisationId"])

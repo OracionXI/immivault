@@ -8,11 +8,12 @@ import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentViewer } from "@/components/shared/document-viewer";
+import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
+import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
 import { Pencil, Trash2, UserRound, CalendarDays, FileText, MessageSquare, Send, CheckSquare, Eye, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +61,19 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         api.comments.queries.listByEntity,
         caseItem ? { entityType: "case", entityId: caseItem._id } : "skip"
     ) ?? [];
+
+    // ── @mention data ─────────────────────────────────────────────────────────
+    // People: case assignee + anyone assigned to a task on this case
+    const linkedUserIds = new Set<string>(
+        [
+            caseItem?.assignedTo,
+            ...tasks.map((t) => t.assignedTo),
+        ].filter((id): id is string => !!id)
+    );
+    const mentionUsers: MentionableUser[] = orgUsers
+        .filter((u) => linkedUserIds.has(u._id))
+        .map((u) => ({ id: u._id, name: u.fullName }));
+    const mentionDocs: MentionableDoc[] = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
     function getAuthorName(authorId: string) {
         if (authorId === me?._id) return "You";
@@ -244,11 +258,13 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                             </div>
                                                             {isEditing ? (
                                                                 <div className="space-y-2">
-                                                                    <Textarea
+                                                                    <MentionTextarea
                                                                         value={editBody}
-                                                                        onChange={(e) => setEditBody(e.target.value)}
+                                                                        onChange={setEditBody}
                                                                         rows={2}
                                                                         autoFocus
+                                                                        users={mentionUsers}
+                                                                        docs={mentionDocs}
                                                                         onKeyDown={(e) => {
                                                                             if (e.key === "Escape") { setEditingId(null); setEditBody(""); }
                                                                         }}
@@ -278,7 +294,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                 </div>
                                                             ) : (
                                                                 <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
-                                                                    {comment.body}
+                                                                    <MentionBody body={comment.body} />
                                                                 </p>
                                                             )}
                                                         </div>
@@ -293,11 +309,13 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                             {getInitials(me?.fullName ?? "?")}
                                         </div>
                                         <div className="flex-1 space-y-2">
-                                            <Textarea
-                                                placeholder="Add a comment..."
+                                            <MentionTextarea
+                                                placeholder="Add a comment… type @ to mention people or documents"
                                                 value={newComment}
-                                                onChange={(e) => setNewComment(e.target.value)}
+                                                onChange={setNewComment}
                                                 rows={2}
+                                                users={mentionUsers}
+                                                docs={mentionDocs}
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                                                         e.preventDefault();

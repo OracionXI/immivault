@@ -75,6 +75,7 @@ http.route({
       // - First admin signup: no metadata → get or create the default org
       const metaOrgId = user.public_metadata?.convexOrgId;
       let organisationId: Id<"organisations">;
+      const isInvitedUser = !!metaOrgId;
 
       if (metaOrgId) {
         const org = await ctx.runQuery(internal.organisations.queries.getById, {
@@ -91,7 +92,7 @@ http.route({
           );
         }
       } else {
-        // First admin: get existing org or create a default one
+        // First admin: get existing org or create a placeholder
         organisationId = await ctx.runMutation(
           internal.organisations.mutations.getOrCreateDefault,
           {}
@@ -107,6 +108,11 @@ http.route({
           ? "staff"
           : "admin";
 
+      // Manual admin signups start as "pending_onboarding" — they must complete
+      // the /onboarding form before accessing the app.
+      // Invited non-admin users start as "inactive" — admin must activate them.
+      const status = isInvitedUser ? "inactive" : "pending_onboarding";
+
       await ctx.runMutation(internal.users.mutations.syncFromClerk, {
         clerkUserId: user.id,
         tokenIdentifier,
@@ -115,6 +121,7 @@ http.route({
         avatarUrl: user.image_url || undefined,
         organisationId,
         role,
+        status,
       });
     }
 

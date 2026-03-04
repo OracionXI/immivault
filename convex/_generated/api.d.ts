@@ -41,6 +41,7 @@ import type * as lib_rbac from "../lib/rbac.js";
 import type * as lib_visibility from "../lib/visibility.js";
 import type * as notifications_actions from "../notifications/actions.js";
 import type * as notifications_jobs from "../notifications/jobs.js";
+import type * as organisations_jobs from "../organisations/jobs.js";
 import type * as organisations_mutations from "../organisations/mutations.js";
 import type * as organisations_queries from "../organisations/queries.js";
 import type * as seed from "../seed.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   "lib/visibility": typeof lib_visibility;
   "notifications/actions": typeof notifications_actions;
   "notifications/jobs": typeof notifications_jobs;
+  "organisations/jobs": typeof organisations_jobs;
   "organisations/mutations": typeof organisations_mutations;
   "organisations/queries": typeof organisations_queries;
   seed: typeof seed;
