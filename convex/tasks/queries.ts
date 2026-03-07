@@ -74,6 +74,14 @@ export const listDueTomorrow = internalQuery({
   },
 });
 
+/** Internal: get a task by ID without auth checks. Used by notification actions. */
+export const getById = internalQuery({
+  args: { id: v.id("tasks") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** Single task by ID. */
 export const get = authenticatedQuery({
   args: { id: v.id("tasks") },

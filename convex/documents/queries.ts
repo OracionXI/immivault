@@ -1,4 +1,5 @@
 import { authenticatedQuery } from "../lib/auth";
+import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { getVisibleCaseIds } from "../lib/visibility";
@@ -50,6 +51,14 @@ export const listByCase = authenticatedQuery({
       .query("documents")
       .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
       .collect();
+  },
+});
+
+/** Internal: get a document by ID. Used by onDocumentUploaded notification action. */
+export const getById = internalQuery({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });
 

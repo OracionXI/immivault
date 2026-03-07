@@ -1,5 +1,14 @@
 import { authenticatedQuery } from "../lib/auth";
+import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+
+/** Internal: get a comment by ID. Used by onComment notification action. */
+export const getById = internalQuery({
+  args: { id: v.id("comments") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
 
 /** Comments for a case or task. entityId is the string form of a Convex Id. */
 export const listByEntity = authenticatedQuery({

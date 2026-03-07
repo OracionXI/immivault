@@ -1,4 +1,5 @@
 import { authenticatedMutation } from "../lib/auth";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAtLeastCaseManager } from "../lib/rbac";
@@ -44,13 +45,21 @@ export const create = authenticatedMutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to your own cases." });
     }
 
-    return await ctx.db.insert("documents", {
+    const id = await ctx.db.insert("documents", {
       ...args,
       clientId: c.clientId,
       status: "Verified",
       organisationId: ctx.user.organisationId,
       uploadedBy: ctx.user._id,
     });
+
+    // Notify the case assignee that a new document was uploaded
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onDocumentUploaded, {
+      documentId: id,
+      uploaderId: ctx.user._id,
+    });
+
+    return id;
   },
 });
 

@@ -15,9 +15,9 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Sun, Moon, Bell, Menu, Shield, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Sun, Moon, Menu, Shield, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
+import { NotificationBell } from "@/components/shared/notification-bell";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useRole } from "@/hooks/use-role";
 
@@ -118,12 +118,7 @@ export function Header() {
                     </Button>
                 )}
 
-                <Button variant="ghost" size="icon" className="relative rounded-full hidden sm:flex">
-                    <Bell className="h-4.5 w-4.5" />
-                    <Badge className="absolute -top-0.5 -right-0.5 h-4.5 w-4.5 rounded-full p-0 flex flex-col items-center justify-center text-[10px] bg-destructive text-white border-2 border-card">
-                        3
-                    </Badge>
-                </Button>
+                <NotificationBell />
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>

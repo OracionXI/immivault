@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -12,6 +12,7 @@ import { CaseDetailDialog } from "./case-detail-dialog";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 
@@ -58,6 +59,20 @@ export default function CasesPage() {
     const [viewCase, setViewCase] = useState<ConvexCase | null>(null);
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: Id<"cases"> | null }>({ open: false, id: null });
     const [search, setSearch] = useState("");
+
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
+    // Auto-open a specific case when navigated from a notification (?open=caseId)
+    useEffect(() => {
+        const openId = searchParams.get("open");
+        if (!openId || rawCases.length === 0) return;
+        const c = rawCases.find((x) => x._id === openId);
+        if (c) {
+            setViewCase(c);
+            router.replace("/cases", { scroll: false });
+        }
+    }, [searchParams, rawCases, router]);
 
     const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();

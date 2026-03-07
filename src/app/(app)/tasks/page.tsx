@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -16,6 +16,7 @@ import {
 import { Search, X } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
@@ -53,6 +54,20 @@ export default function TasksPage() {
     const [assigneeFilter, setAssigneeFilter] = useState("all");
     const [priorityFilter, setPriorityFilter] = useState("all");
 
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
+    // Auto-open a specific task when navigated from a notification (?open=taskId)
+    useEffect(() => {
+        const openId = searchParams.get("open");
+        if (!openId || rawTasks.length === 0) return;
+        const t = rawTasks.find((x) => x._id === openId);
+        if (t) {
+            setViewTask(t);
+            router.replace("/tasks", { scroll: false });
+        }
+    }, [searchParams, rawTasks, router]);
+
     const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();
         return rawTasks
@@ -62,7 +77,7 @@ export default function TasksPage() {
                 subtitle: t.caseId ? (caseMap.get(t.caseId) ?? "—") : (t.description ?? ""),
                 status: t.status,
                 priority: t.priority,
-                assignee: userMap.get(t.assignedTo) ?? "—",
+                assignee: t.assignedTo ? (userMap.get(t.assignedTo) ?? "—") : "Unassigned",
                 dueDate: t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : undefined,
             }))
             .filter((item) => {
@@ -191,7 +206,7 @@ export default function TasksPage() {
 
             <TaskDetailDialog
                 task={viewTask}
-                assigneeName={viewTask ? (userMap.get(viewTask.assignedTo) ?? "—") : ""}
+                assigneeName={viewTask ? (viewTask.assignedTo ? (userMap.get(viewTask.assignedTo) ?? "—") : "Unassigned") : ""}
                 caseName={viewTask?.caseId ? (caseMap.get(viewTask.caseId) ?? "") : ""}
                 onClose={() => setViewTask(null)}
                 onEdit={isStaff ? undefined : (t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); }}

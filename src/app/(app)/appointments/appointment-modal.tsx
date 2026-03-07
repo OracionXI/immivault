@@ -60,7 +60,7 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
         if (appointment) {
             setForm({
                 clientId: appointment.clientId,
-                assignedTo: appointment.assignedTo,
+                assignedTo: appointment.assignedTo ? (appointment.assignedTo as string) : "",
                 title: appointment.title,
                 type: appointment.type,
                 status: appointment.status,

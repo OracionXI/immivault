@@ -31,4 +31,11 @@ crons.daily(
   internal.tasks.mutations.markOverdueUrgent
 );
 
+// Daily at 06:00 UTC — notify case assignees of deadlines within 48 hours
+crons.daily(
+  "case deadline reminders",
+  { hourUTC: 6, minuteUTC: 0 },
+  internal.notifications.jobs.sendCaseDeadlineReminders
+);
+
 export default crons;

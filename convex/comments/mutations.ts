@@ -1,4 +1,5 @@
 import { authenticatedMutation } from "../lib/auth";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 
@@ -9,11 +10,16 @@ export const create = authenticatedMutation({
     body: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("comments", {
+    const id = await ctx.db.insert("comments", {
       ...args,
       organisationId: ctx.user.organisationId,
       authorId: ctx.user._id,
     });
+    // Notify entity assignee + anyone @mentioned in the comment
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onComment, {
+      commentId: id,
+    });
+    return id;
   },
 });
 

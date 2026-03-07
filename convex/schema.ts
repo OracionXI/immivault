@@ -98,6 +98,7 @@ export default defineSchema({
     deadline: v.optional(v.number()),
     completedAt: v.optional(v.number()),              // set when status → Completed
     archivedReportStorageId: v.optional(v.id("_storage")), // PDF stored after archival
+    deadlineNotifiedAt: v.optional(v.number()),       // set after 48h deadline notification sent
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
@@ -310,6 +311,31 @@ export default defineSchema({
     key: v.string(),       // e.g. "inviteStaff:<orgId>"
     timestamp: v.number(), // ms epoch — used for window expiry
   }).index("by_key", ["key"]),
+
+  // ─── Notifications ────────────────────────────────────────────────────────────
+  notifications: defineTable({
+    organisationId: v.id("organisations"),
+    recipientId: v.id("users"),
+    type: v.union(
+      v.literal("case_created"),
+      v.literal("case_assigned"),
+      v.literal("case_status_changed"),
+      v.literal("case_deadline"),
+      v.literal("task_assigned"),
+      v.literal("task_status_changed"),
+      v.literal("task_overdue"),
+      v.literal("comment"),
+      v.literal("mention"),
+      v.literal("document_uploaded")
+    ),
+    title: v.string(),
+    message: v.string(),
+    entityType: v.optional(v.union(v.literal("case"), v.literal("task"))),
+    entityId: v.optional(v.string()),
+    read: v.boolean(),
+  })
+    .index("by_recipient", ["recipientId"])
+    .index("by_recipient_unread", ["recipientId", "read"]),
 
   // ─── Organisation Settings ────────────────────────────────────────────────────
   organisationSettings: defineTable({

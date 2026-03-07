@@ -1,0 +1,165 @@
+"use client";
+
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/../convex/_generated/api";
+import type { Id } from "@/../convex/_generated/dataModel";
+import { useRouter } from "next/navigation";
+import { Bell, Briefcase, CheckSquare, MessageSquare, AtSign, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type NotificationType =
+  | "case_created"
+  | "case_assigned"
+  | "case_status_changed"
+  | "case_deadline"
+  | "task_assigned"
+  | "task_status_changed"
+  | "task_overdue"
+  | "comment"
+  | "mention"
+  | "document_uploaded";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function notificationIcon(type: NotificationType) {
+  const cls = "h-4 w-4 shrink-0 mt-0.5";
+  if (type.startsWith("case_")) return <Briefcase className={cn(cls, "text-blue-500")} />;
+  if (type.startsWith("task_")) return <CheckSquare className={cn(cls, "text-violet-500")} />;
+  if (type === "comment") return <MessageSquare className={cn(cls, "text-emerald-500")} />;
+  if (type === "mention") return <AtSign className={cn(cls, "text-amber-500")} />;
+  if (type === "document_uploaded") return <FileText className={cn(cls, "text-rose-500")} />;
+  return <Bell className={cn(cls, "text-muted-foreground")} />;
+}
+
+function relativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function NotificationBell() {
+  const router = useRouter();
+  const unreadCount = useQuery(api.notifications.queries.getUnreadCount) ?? 0;
+  const notifications = useQuery(api.notifications.queries.list) ?? [];
+  const markRead = useMutation(api.notifications.mutations.markRead);
+  const markAllRead = useMutation(api.notifications.mutations.markAllRead);
+
+  async function handleClick(notif: (typeof notifications)[number]) {
+    if (!notif.read) {
+      await markRead({ id: notif._id as Id<"notifications"> });
+    }
+    const id = notif.entityId;
+    const type = notif.type as NotificationType;
+
+    if (type === "document_uploaded") {
+      router.push(`/documents${id ? `?doc=${id}` : ""}`);
+      return;
+    }
+    if (type === "case_created" || type === "case_assigned" || type === "case_status_changed" || type === "case_deadline") {
+      router.push(`/cases${id ? `?open=${id}` : ""}`);
+      return;
+    }
+    if (type === "task_assigned" || type === "task_status_changed" || type === "task_overdue") {
+      router.push(`/tasks${id ? `?open=${id}` : ""}`);
+      return;
+    }
+    // comment / mention — use entityType to determine destination
+    if (notif.entityType === "case") router.push(`/cases${id ? `?open=${id}` : ""}`);
+    else if (notif.entityType === "task") router.push(`/tasks${id ? `?open=${id}` : ""}`);
+  }
+
+  const badgeLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative rounded-full hidden sm:flex">
+          <Bell className="h-4.5 w-4.5" />
+          {unreadCount > 0 && (
+            <Badge className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full p-0 px-1 flex items-center justify-center text-[10px] leading-none bg-destructive text-white border-2 border-card">
+              {badgeLabel}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 p-0 shadow-xl"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <p className="text-sm font-semibold">Notifications</p>
+          {unreadCount > 0 && (
+            <button
+              onClick={() => markAllRead()}
+              className="text-xs text-primary hover:underline"
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
+
+        {/* List */}
+        {notifications.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+            <Bell className="h-8 w-8 text-muted-foreground/40 mb-2" />
+            <p className="text-sm text-muted-foreground">No notifications yet</p>
+          </div>
+        ) : (
+          <ScrollArea className="max-h-96">
+            <div className="divide-y divide-border">
+              {notifications.map((notif) => (
+                <button
+                  key={notif._id}
+                  onClick={() => handleClick(notif)}
+                  className={cn(
+                    "w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50",
+                    !notif.read && "bg-primary/5"
+                  )}
+                >
+                  {/* Icon */}
+                  <div className="mt-0.5">
+                    {notificationIcon(notif.type as NotificationType)}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-sm leading-snug", !notif.read ? "font-semibold" : "font-medium")}>
+                      {notif.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-snug">
+                      {notif.message}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">
+                      {relativeTime(notif._creationTime)}
+                    </p>
+                  </div>
+
+                  {/* Unread dot */}
+                  {!notif.read && (
+                    <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
