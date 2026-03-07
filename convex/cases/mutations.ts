@@ -21,6 +21,23 @@ const priorityValidator = v.union(
   v.literal("Urgent")
 );
 
+/**
+ * Unassigns all tasks on a case that belong to a specific case manager.
+ * Called whenever a case manager is removed or replaced on a case.
+ */
+async function unassignCaseManagerTasks(
+  ctx: { db: any },
+  caseId: string,
+  oldAssigneeId: string
+) {
+  const tasks = await ctx.db
+    .query("tasks")
+    .withIndex("by_case", (q: any) => q.eq("caseId", caseId))
+    .collect();
+  const affected = tasks.filter((t: any) => t.assignedTo === oldAssigneeId);
+  await Promise.all(affected.map((t: any) => ctx.db.patch(t._id, { assignedTo: undefined })));
+}
+
 /** Cases can only be assigned to case managers — not admins or staff. */
 async function requireCaseManagerTarget(
   ctx: { db: any },
@@ -131,12 +148,20 @@ export const update = authenticatedMutation({
     // Only admins can change the assignment
     if (ctx.user.role !== "case_manager") {
       if (assignedTo === null) {
-        patch.assignedTo = undefined; // clear the assignee
+        // Unassign: cascade-clear tasks belonging to the old case manager
+        if (c.assignedTo) {
+          await unassignCaseManagerTasks(ctx, id, c.assignedTo);
+        }
+        patch.assignedTo = undefined;
       } else if (assignedTo !== undefined) {
         await requireCaseManagerTarget(ctx, assignedTo, ctx.user.organisationId);
         patch.assignedTo = assignedTo;
         if (assignedTo !== c.assignedTo) {
           newAssigneeId = assignedTo;
+          // Reassign: old manager's tasks go unassigned, new manager starts fresh
+          if (c.assignedTo) {
+            await unassignCaseManagerTasks(ctx, id, c.assignedTo);
+          }
         }
       }
     }
@@ -231,6 +256,12 @@ export const assign = authenticatedMutation({
     if (args.assignedTo) {
       await requireCaseManagerTarget(ctx, args.assignedTo, ctx.user.organisationId);
     }
+
+    // Cascade: unassign old manager's tasks when the assignee changes or is removed
+    if (c.assignedTo && c.assignedTo !== args.assignedTo) {
+      await unassignCaseManagerTasks(ctx, args.id, c.assignedTo);
+    }
+
     await ctx.db.patch(args.id, { assignedTo: args.assignedTo });
 
     // Notify new assignee (only when assigning, not when clearing)

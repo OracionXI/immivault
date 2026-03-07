@@ -9,8 +9,10 @@ export default defineSchema({
     plan: v.string(), // "free" | "pro" | "enterprise"
     agreementSignature: v.optional(v.string()),  // typed name or PNG data URL
     agreementSignedAt: v.optional(v.number()),   // epoch ms
+    deletedAt: v.optional(v.number()),           // epoch ms; set on soft-delete
   })
-    .index("by_slug", ["slug"]),
+    .index("by_slug", ["slug"])
+    .index("by_deleted_at", ["deletedAt"]),
 
   // ─── Staff Invitations ────────────────────────────────────────────────────
   invitations: defineTable({

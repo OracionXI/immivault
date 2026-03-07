@@ -145,6 +145,39 @@ export const updateSettings = authenticatedMutation({
   },
 });
 
+/**
+ * Internal: permanently cascade-deletes all Convex data for an organisation.
+ * Called by purgeExpiredOrgs after Clerk users have been removed.
+ */
+export const permanentDeleteOrg = internalMutation({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const { organisationId } = args;
+
+    const deleteAll = async (table: Parameters<typeof ctx.db.query>[0], indexName: string) => {
+      const rows = await (ctx.db.query(table) as any).withIndex(indexName, (q: any) =>
+        q.eq("organisationId", organisationId)
+      ).collect();
+      await Promise.all(rows.map((r: { _id: Parameters<typeof ctx.db.delete>[0] }) => ctx.db.delete(r._id)));
+    };
+
+    await deleteAll("users", "by_org");
+    await deleteAll("cases", "by_org");
+    await deleteAll("tasks", "by_org");
+    await deleteAll("documents", "by_org");
+    await deleteAll("clients", "by_org");
+    await deleteAll("comments", "by_org");
+    await deleteAll("invoices", "by_org");
+    await deleteAll("invitations", "by_org");
+    await deleteAll("appointments", "by_org");
+    await deleteAll("notifications", "by_org");
+    await deleteAll("automationRules", "by_org");
+    await deleteAll("organisationSettings", "by_org");
+
+    await ctx.db.delete(organisationId);
+  },
+});
+
 /** Clears the deletedAt timestamp, restoring the organisation. Admin only. */
 export const reactivateOrg = authenticatedMutation({
   args: {},

@@ -169,6 +169,8 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                         {comments.map((comment) => {
                                             const authorName = getAuthorName(comment.authorId);
                                             const isOwn = comment.authorId === me?._id;
+                                            const isAdmin = me?.role === "admin";
+                                            const canDelete = isOwn || isAdmin;
                                             const isEditing = editingId === comment._id;
                                             return (
                                                 <div key={comment._id} className="flex gap-3 group">
@@ -181,20 +183,24 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                             <span className="text-[11px] text-muted-foreground">
                                                                 {new Date(comment._creationTime).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                                             </span>
-                                                            {isOwn && !isEditing && (
+                                                            {(isOwn || canDelete) && !isEditing && (
                                                                 <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button
-                                                                        className="text-muted-foreground hover:text-foreground p-0.5 rounded"
-                                                                        onClick={() => { setEditingId(comment._id); setEditBody(comment.body); }}
-                                                                    >
-                                                                        <Pencil className="h-3 w-3" />
-                                                                    </button>
-                                                                    <button
-                                                                        className="text-muted-foreground hover:text-destructive p-0.5 rounded"
-                                                                        onClick={() => deleteComment({ id: comment._id })}
-                                                                    >
-                                                                        <Trash2 className="h-3 w-3" />
-                                                                    </button>
+                                                                    {isOwn && (
+                                                                        <button
+                                                                            className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                                                                            onClick={() => { setEditingId(comment._id); setEditBody(comment.body); }}
+                                                                        >
+                                                                            <Pencil className="h-3 w-3" />
+                                                                        </button>
+                                                                    )}
+                                                                    {canDelete && (
+                                                                        <button
+                                                                            className="text-muted-foreground hover:text-destructive p-0.5 rounded"
+                                                                            onClick={() => deleteComment({ id: comment._id })}
+                                                                        >
+                                                                            <Trash2 className="h-3 w-3" />
+                                                                        </button>
+                                                                    )}
                                                                 </span>
                                                             )}
                                                         </div>
