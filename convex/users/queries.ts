@@ -71,6 +71,21 @@ export const getById = internalQuery({
 });
 
 /**
+ * Internal: list all active admin users in an organisation.
+ * Used by the onCaseCreated notification action.
+ */
+export const listAdminsByOrg = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .collect();
+    return users.filter((u) => u.role === "admin" && u.status === "active");
+  },
+});
+
+/**
  * Internal: look up a user by their Clerk user ID.
  * Used in the webhook handler.
  */

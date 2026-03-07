@@ -124,7 +124,7 @@ export default function ReportsPage() {
                                     status: cs.status,
                                     priority: cs.priority,
                                     caseNumber: cs.caseNumber,
-                                    assigneeName: userMap.get(cs.assignedTo) ?? "—",
+                                    assigneeName: cs.assignedTo ? (userMap.get(cs.assignedTo) ?? "—") : "—",
                                 })),
                             invoices
                                 .filter((i) => i.clientId === row._id)

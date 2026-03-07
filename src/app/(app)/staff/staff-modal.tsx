@@ -35,7 +35,7 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
 
     useEffect(() => {
         if (staff) {
-            setForm({ role: staff.role, status: staff.status });
+            setForm({ role: staff.role, status: staff.status === "pending_onboarding" ? "active" : staff.status });
         }
     }, [staff, open]);
 

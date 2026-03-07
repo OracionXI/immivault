@@ -144,3 +144,16 @@ export const updateSettings = authenticatedMutation({
     await ctx.db.patch(settings._id, args);
   },
 });
+
+/** Clears the deletedAt timestamp, restoring the organisation. Admin only. */
+export const reactivateOrg = authenticatedMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    const org = await ctx.db.get(ctx.user.organisationId);
+    if (!org) throw new ConvexError({ code: "NOT_FOUND", message: "Organisation not found." });
+    await ctx.db.patch(ctx.user.organisationId, { deletedAt: undefined });
+  },
+});

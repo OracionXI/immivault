@@ -42,7 +42,7 @@ export default function AutomationsPage() {
     const handleAdd = async () => {
         setSaving(true);
         try {
-            await createRule({ ...form, status: "active" });
+            await createRule({ ...form });
             setModalOpen(false);
             setForm(emptyForm);
         } finally {

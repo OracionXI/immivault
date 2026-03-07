@@ -61,7 +61,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
             setForm({
                 title: task.title,
                 description: task.description ?? "",
-                assignedTo: task.assignedTo,
+                assignedTo: task.assignedTo ? (task.assignedTo as string) : "",
                 priority: task.priority,
                 status: task.status,
                 dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "",
@@ -97,7 +97,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
             const payload = {
                 title: form.title,
                 description: form.description || undefined,
-                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : null,
+                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
                 priority: form.priority,
                 status: form.status,
                 dueDate: form.dueDate ? new Date(form.dueDate).getTime() : undefined,

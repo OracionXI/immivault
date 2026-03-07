@@ -119,7 +119,7 @@ export default function DashboardPage() {
                                     <div className="min-w-0 flex-1">
                                         <p className="text-sm font-medium truncate">{t.title}</p>
                                         <p className="text-xs text-muted-foreground">
-                                            {userMap.get(t.assignedTo) ?? "—"}
+                                            {t.assignedTo ? (userMap.get(t.assignedTo) ?? "—") : "—"}
                                             {t.dueDate ? ` · Due: ${formatTs(t.dueDate)}` : ""}
                                         </p>
                                     </div>

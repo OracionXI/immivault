@@ -1,6 +1,7 @@
 import { authenticatedQuery } from "../lib/auth";
-import { v } from "convex/values";
-import { ConvexError } from "convex/values";
+import { internalQuery } from "../_generated/server";
+import { v, ConvexError } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { getVisibleCaseIds } from "../lib/visibility";
 
 /**
@@ -23,7 +24,7 @@ export const list = authenticatedQuery({
     }
 
     const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-    const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id)));
+    const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id as Id<"cases">)));
     return cases.filter(
       (c): c is NonNullable<typeof c> => c !== null && c.organisationId === organisationId
     );
@@ -44,7 +45,7 @@ export const listAll = authenticatedQuery({
     }
 
     const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-    const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id)));
+    const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id as Id<"cases">)));
     return cases.filter(
       (c): c is NonNullable<typeof c> => c !== null && c.organisationId === organisationId
     );
@@ -60,6 +61,35 @@ export const get = authenticatedQuery({
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
     }
     return c;
+  },
+});
+
+/** Internal: get a case by ID without auth checks. Used by notification actions. */
+export const getById = internalQuery({
+  args: { id: v.id("cases") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/** Internal: cases with deadline approaching within a time window. Used by deadline cron. */
+export const listApproachingDeadline = internalQuery({
+  args: { start: v.number(), end: v.number() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("cases")
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("status"), "Completed"),
+          q.neq(q.field("status"), "Archived"),
+          q.neq(q.field("status"), "Rejected"),
+          q.gte(q.field("deadline"), args.start),
+          q.lte(q.field("deadline"), args.end)
+        )
+      )
+      .collect();
+    // Return only cases with an assignee and no deadline notification already sent
+    return all.filter((c) => c.assignedTo && !c.deadlineNotifiedAt);
   },
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Upload, Eye } from "lucide-react";
 import { UploadModal } from "./upload-modal";
 import { useRole } from "@/hooks/use-role";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type ConvexDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.list>>>[number];
 type DisplayDocument = ConvexDocument & { clientName: string; caseName: string; uploadedDisplay: string };
@@ -35,6 +36,20 @@ export default function DocumentsPage() {
     const [viewer, setViewer] = useState<{ open: boolean; doc: ConvexDocument | null }>({
         open: false, doc: null,
     });
+
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
+    // Auto-open DocumentViewer when navigated from a notification (?doc=documentId)
+    useEffect(() => {
+        const docId = searchParams.get("doc");
+        if (!docId || rawDocuments.length === 0) return;
+        const doc = rawDocuments.find((x) => x._id === docId);
+        if (doc) {
+            setViewer({ open: true, doc });
+            router.replace("/documents", { scroll: false });
+        }
+    }, [searchParams, rawDocuments, router]);
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),

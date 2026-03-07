@@ -44,7 +44,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
         title: "",
         clientId: "",
         visaType: "",
-        status: "Active" as "Active" | "Pending" | "On Hold" | "Completed" | "Rejected",
+        status: "Active" as "Active" | "Pending" | "On Hold" | "Completed" | "Rejected" | "Archived",
         assignedTo: "",
         priority: "Medium" as "Low" | "Medium" | "High" | "Urgent",
         notes: "",
@@ -89,7 +89,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                 clientId: form.clientId as Id<"clients">,
                 visaType: form.visaType,
                 status: form.status,
-                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : null,
+                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
                 priority: form.priority,
                 notes: form.notes || undefined,
             };

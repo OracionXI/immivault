@@ -32,3 +32,26 @@ export const sendTaskReminders = internalAction({
     }
   },
 });
+
+/**
+ * Scheduled daily at 06:00 UTC.
+ * Sends deadline-approaching notifications for cases due within the next 48 hours.
+ */
+export const sendCaseDeadlineReminders = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const windowEnd = now + 2 * DAY_MS; // 48 hours from now
+
+    const cases = await ctx.runQuery(internal.cases.queries.listApproachingDeadline, {
+      start: now,
+      end: windowEnd,
+    });
+
+    for (const c of cases) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseDeadline, {
+        caseId: c._id,
+      });
+    }
+  },
+});

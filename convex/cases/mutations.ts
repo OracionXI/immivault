@@ -1,4 +1,6 @@
 import { authenticatedMutation } from "../lib/auth";
+import { internalMutation } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAdmin, requireAtLeastCaseManager } from "../lib/rbac";
@@ -66,11 +68,28 @@ export const create = authenticatedMutation({
     const rand = Math.floor(Math.random() * 9000 + 1000);
     const caseNumber = `IMV-${ymd}-${rand}`;
 
-    return await ctx.db.insert("cases", {
+    const id = await ctx.db.insert("cases", {
       ...args,
       caseNumber,
       organisationId: ctx.user.organisationId,
     });
+
+    // Notify all admins (except creator) that a new case was created
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseCreated, {
+      caseId: id,
+      creatorId: ctx.user._id,
+    });
+
+    // Also notify the assignee if one was set at creation time
+    if (args.assignedTo) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {
+        caseId: id,
+        newAssigneeId: args.assignedTo,
+        assignerId: ctx.user._id,
+      });
+    }
+
+    return id;
   },
 });
 
@@ -107,6 +126,8 @@ export const update = authenticatedMutation({
 
     const patch: Record<string, unknown> = { ...fields };
 
+    let newAssigneeId: string | null = null;
+
     // Only admins can change the assignment
     if (ctx.user.role !== "case_manager") {
       if (assignedTo === null) {
@@ -114,11 +135,29 @@ export const update = authenticatedMutation({
       } else if (assignedTo !== undefined) {
         await requireCaseManagerTarget(ctx, assignedTo, ctx.user.organisationId);
         patch.assignedTo = assignedTo;
+        if (assignedTo !== c.assignedTo) {
+          newAssigneeId = assignedTo;
+        }
       }
     }
-    // For case managers, assignedTo is silently ignored — they can edit other fields freely
 
     await ctx.db.patch(id, patch as any);
+
+    // Fire notifications after the patch
+    if (newAssigneeId) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {
+        caseId: id,
+        newAssigneeId: newAssigneeId as any,
+        assignerId: ctx.user._id,
+      });
+    }
+    if (fields.status && fields.status !== c.status) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseStatusChanged, {
+        caseId: id,
+        changedById: ctx.user._id,
+        newStatus: fields.status,
+      });
+    }
   },
 });
 
@@ -155,6 +194,15 @@ export const updateStatus = authenticatedMutation({
     }
 
     await ctx.db.patch(args.id, patch as any);
+
+    // Notify assignee of status change
+    if (args.status !== c.status) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseStatusChanged, {
+        caseId: args.id,
+        changedById: ctx.user._id,
+        newStatus: args.status,
+      });
+    }
   },
 });
 
@@ -184,5 +232,22 @@ export const assign = authenticatedMutation({
       await requireCaseManagerTarget(ctx, args.assignedTo, ctx.user.organisationId);
     }
     await ctx.db.patch(args.id, { assignedTo: args.assignedTo });
+
+    // Notify new assignee (only when assigning, not when clearing)
+    if (args.assignedTo && args.assignedTo !== c.assignedTo) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {
+        caseId: args.id,
+        newAssigneeId: args.assignedTo,
+        assignerId: ctx.user._id,
+      });
+    }
+  },
+});
+
+/** Internal: mark a case as having had its deadline notification sent. */
+export const setDeadlineNotified = internalMutation({
+  args: { id: v.id("cases") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { deadlineNotifiedAt: Date.now() });
   },
 });

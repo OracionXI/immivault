@@ -1,5 +1,6 @@
 import { internalMutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAtLeastCaseManager } from "../lib/rbac";
@@ -83,11 +84,22 @@ export const create = authenticatedMutation({
 
     const taskId = await buildTaskId(ctx, ctx.user.organisationId);
 
-    return await ctx.db.insert("tasks", {
+    const id = await ctx.db.insert("tasks", {
       ...args,
       taskId,
       organisationId: ctx.user.organisationId,
     });
+
+    // Notify new assignee (skip if creator assigned to themselves)
+    if (args.assignedTo) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskAssigned, {
+        taskId: id,
+        newAssigneeId: args.assignedTo,
+        assignerId: ctx.user._id,
+      });
+    }
+
+    return id;
   },
 });
 
@@ -121,12 +133,16 @@ export const update = authenticatedMutation({
     }
 
     const patch: Record<string, unknown> = { ...fields };
+    let newAssigneeId: string | null = null;
 
     if (assignedTo === null) {
       patch.assignedTo = undefined; // clear the assignee
     } else if (assignedTo !== undefined) {
       await requireNonAdminTarget(ctx, assignedTo, ctx.user.organisationId);
       patch.assignedTo = assignedTo;
+      if (assignedTo !== task.assignedTo) {
+        newAssigneeId = assignedTo;
+      }
     }
 
     // Track completedAt
@@ -137,6 +153,23 @@ export const update = authenticatedMutation({
     }
 
     await ctx.db.patch(id, patch as any);
+
+    // Notify new assignee
+    if (newAssigneeId) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskAssigned, {
+        taskId: id,
+        newAssigneeId: newAssigneeId as any,
+        assignerId: ctx.user._id,
+      });
+    }
+    // Notify assignee of status change (by someone else)
+    if (fields.status && fields.status !== task.status) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskStatusChanged, {
+        taskId: id,
+        changedById: ctx.user._id,
+        newStatus: fields.status,
+      });
+    }
   },
 });
 
@@ -165,12 +198,22 @@ export const updateStatus = authenticatedMutation({
     }
 
     await ctx.db.patch(args.id, patch as any);
+
+    // Notify assignee of status change (by someone else)
+    if (args.status !== task.status) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskStatusChanged, {
+        taskId: args.id,
+        changedById: ctx.user._id,
+        newStatus: args.status,
+      });
+    }
   },
 });
 
 /**
  * Internal cron target: escalate priority to "Urgent" for all tasks
  * whose due date has passed and are not yet completed.
+ * Also fires overdue notifications for each affected task.
  */
 export const markOverdueUrgent = internalMutation({
   args: {},
@@ -188,7 +231,15 @@ export const markOverdueUrgent = internalMutation({
       .collect();
 
     await Promise.all(
-      overdue.map((task) => ctx.db.patch(task._id, { priority: "Urgent" }))
+      overdue.map(async (task) => {
+        await ctx.db.patch(task._id, { priority: "Urgent" });
+        // Fire overdue notification (only fires once since task becomes Urgent and won't match again)
+        if (task.assignedTo) {
+          await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskOverdue, {
+            taskId: task._id,
+          });
+        }
+      })
     );
   },
 });

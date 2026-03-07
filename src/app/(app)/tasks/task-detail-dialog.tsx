@@ -71,8 +71,8 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
     // People: anyone assigned to any task on the parent case
     const linkedUserIds = new Set<string>(
         tasksByCase
-            .map((t) => t.assignedTo)
-            .filter((id): id is string => !!id)
+            .map((t) => t.assignedTo as string | undefined)
+            .filter((id): id is string => Boolean(id))
     );
     const mentionUsers: MentionableUser[] = orgUsers
         .filter((u) => linkedUserIds.has(u._id))

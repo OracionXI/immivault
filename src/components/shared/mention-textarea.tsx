@@ -29,11 +29,41 @@ export interface MentionTextareaProps {
     autoFocus?: boolean;
 }
 
-// ─── Mention token format: @[Display Name](user:id) or @[Name](doc:id) ───────
+// ─── Token formats ────────────────────────────────────────────────────────────
+// Storage (sent via onChange / saved to Convex): @[Name](user:id) or @[Name](doc:id)
+// Display (shown in the textarea):               @[Name]
+//
+// The mentionMap bridges them: name → { type, id }
 
 type MentionItem =
     | { kind: "user"; id: string; name: string }
     | { kind: "doc"; id: string; name: string };
+
+type MentionEntry = { type: "user" | "doc"; id: string };
+
+/** Convert storage-encoded string → display string, populating mentionMap as a side-effect. */
+function decodeForDisplay(
+    encoded: string,
+    mentionMap: Map<string, MentionEntry>
+): string {
+    return encoded.replace(/@\[([^\]]+)\]\((user|doc):([^)]+)\)/g, (_, name, type, id) => {
+        mentionMap.set(name, { type: type as "user" | "doc", id });
+        return `@[${name}]`;
+    });
+}
+
+/** Convert display string → storage string using the mentionMap. */
+function encodeForStorage(
+    display: string,
+    mentionMap: Map<string, MentionEntry>
+): string {
+    // Match @[Name] that is NOT already followed by (type:id)
+    return display.replace(/@\[([^\]]+)\](?!\()/g, (match, name) => {
+        const entry = mentionMap.get(name);
+        if (!entry) return match;
+        return `@[${name}](${entry.type}:${entry.id})`;
+    });
+}
 
 /**
  * Detects whether the user is currently typing a @mention at the cursor.
@@ -59,7 +89,7 @@ function getMentionQuery(
 }
 
 /**
- * Replaces the active @query with the full mention token.
+ * Replaces the active @query with the given token string.
  */
 function insertToken(
     value: string,
@@ -85,6 +115,26 @@ export function MentionTextarea({
     autoFocus,
 }: MentionTextareaProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // Map from mention display name → { type, id } for encode/decode
+    const mentionMapRef = useRef<Map<string, MentionEntry>>(new Map());
+
+    // Internal display value shown in the textarea (decoded, no IDs)
+    const [display, setDisplay] = useState(() =>
+        decodeForDisplay(value, mentionMapRef.current)
+    );
+
+    // Track the last encoded value we emitted so we can detect external resets
+    const lastEncodedRef = useRef(value);
+
+    // Sync display when the parent changes value externally (e.g., field reset or load)
+    useEffect(() => {
+        if (value !== lastEncodedRef.current) {
+            const newDisplay = decodeForDisplay(value, mentionMapRef.current);
+            setDisplay(newDisplay);
+            lastEncodedRef.current = value;
+        }
+    }, [value]);
+
     const [mentionState, setMentionState] = useState<{ query: string; atIndex: number } | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
 
@@ -109,15 +159,29 @@ export function MentionTextarea({
     const selectItem = useCallback(
         (item: MentionItem) => {
             if (!mentionState) return;
-            const token =
-                item.kind === "user"
-                    ? `@[${item.name}](user:${item.id}) `
-                    : `@[${item.name}](doc:${item.id}) `;
-            const cursorPos = textareaRef.current?.selectionStart ?? value.length;
-            const { newValue, newCursor } = insertToken(value, mentionState.atIndex, cursorPos, token);
-            onChange(newValue);
+
+            // Register in mentionMap so we can encode later
+            mentionMapRef.current.set(item.name, { type: item.kind, id: item.id });
+
+            // Insert the human-readable display token: @[Name]
+            const displayToken = `@[${item.name}] `;
+            const cursorPos = textareaRef.current?.selectionStart ?? display.length;
+            const { newValue: newDisplay, newCursor } = insertToken(
+                display,
+                mentionState.atIndex,
+                cursorPos,
+                displayToken
+            );
+
+            setDisplay(newDisplay);
             setMentionState(null);
-            // Restore cursor after React re-renders the textarea value
+
+            // Emit the storage-encoded version to the parent
+            const encoded = encodeForStorage(newDisplay, mentionMapRef.current);
+            lastEncodedRef.current = encoded;
+            onChange(encoded);
+
+            // Restore cursor after React re-renders the textarea
             setTimeout(() => {
                 const el = textareaRef.current;
                 if (!el) return;
@@ -126,16 +190,22 @@ export function MentionTextarea({
                 el.selectionEnd = newCursor;
             }, 0);
         },
-        [mentionState, value, onChange]
+        [mentionState, display, onChange]
     );
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
-        onChange(newValue);
-        const cursor = e.target.selectionStart ?? newValue.length;
-        const state = getMentionQuery(newValue, cursor);
+        const newDisplay = e.target.value;
+        setDisplay(newDisplay);
+
+        const cursor = e.target.selectionStart ?? newDisplay.length;
+        const state = getMentionQuery(newDisplay, cursor);
         setMentionState(state);
         if (state) setActiveIndex(0);
+
+        // Emit the storage-encoded version to the parent
+        const encoded = encodeForStorage(newDisplay, mentionMapRef.current);
+        lastEncodedRef.current = encoded;
+        onChange(encoded);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -176,7 +246,7 @@ export function MentionTextarea({
         <div className="relative">
             <Textarea
                 ref={textareaRef}
-                value={value}
+                value={display}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
