@@ -38,7 +38,7 @@ export const update = authenticatedMutation({
   },
 });
 
-/** Only the comment author can delete their own comment. */
+/** Admin can delete any comment; others can only delete their own. */
 export const remove = authenticatedMutation({
   args: { id: v.id("comments") },
   handler: async (ctx, args) => {
@@ -46,7 +46,8 @@ export const remove = authenticatedMutation({
     if (!comment || comment.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Comment not found." });
     }
-    if (comment.authorId !== ctx.user._id) {
+    const isAdmin = ctx.user.role === "admin";
+    if (!isAdmin && comment.authorId !== ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only delete your own comments." });
     }
     await ctx.db.delete(args.id);

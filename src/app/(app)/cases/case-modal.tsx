@@ -84,19 +84,29 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
         if (!validate()) return;
         setLoading(true);
         try {
-            const payload = {
-                title: form.title,
-                clientId: form.clientId as Id<"clients">,
-                visaType: form.visaType,
-                status: form.status,
-                assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
-                priority: form.priority,
-                notes: form.notes || undefined,
-            };
+            const assignedToId = form.assignedTo ? (form.assignedTo as Id<"users">) : undefined;
             if (caseItem) {
-                await updateCase({ id: caseItem._id, ...payload });
+                // null signals "clear the assignee"; undefined means "leave unchanged"
+                await updateCase({
+                    id: caseItem._id,
+                    title: form.title,
+                    clientId: form.clientId as Id<"clients">,
+                    visaType: form.visaType,
+                    status: form.status,
+                    assignedTo: assignedToId ?? null,
+                    priority: form.priority,
+                    notes: form.notes || undefined,
+                });
             } else {
-                await createCase(payload);
+                await createCase({
+                    title: form.title,
+                    clientId: form.clientId as Id<"clients">,
+                    visaType: form.visaType,
+                    status: form.status,
+                    assignedTo: assignedToId,
+                    priority: form.priority,
+                    notes: form.notes || undefined,
+                });
             }
             onOpenChange(false);
         } finally {

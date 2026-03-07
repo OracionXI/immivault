@@ -74,6 +74,17 @@ export const getById = internalQuery({
  * Internal: list all active admin users in an organisation.
  * Used by the onCaseCreated notification action.
  */
+/** Internal: all users in an org (no auth). Used by purgeExpiredOrgs. */
+export const listByOrgInternal = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .collect();
+  },
+});
+
 export const listAdminsByOrg = internalQuery({
   args: { organisationId: v.id("organisations") },
   handler: async (ctx, args) => {

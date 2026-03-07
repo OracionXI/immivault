@@ -34,6 +34,18 @@ export const getFirst = internalQuery({
 });
 
 /**
+ * Internal: orgs that were soft-deleted more than `cutoff` ms ago.
+ * Used by the daily purge cron to find orgs eligible for permanent deletion.
+ */
+export const listExpired = internalQuery({
+  args: { cutoff: v.number() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("organisations").collect();
+    return all.filter((o) => o.deletedAt !== undefined && o.deletedAt <= args.cutoff);
+  },
+});
+
+/**
  * Returns the organisation settings for the current user's org.
  */
 export const getSettings = authenticatedQuery({
