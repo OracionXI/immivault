@@ -47,7 +47,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
         description: "",
         assignedTo: "",
         priority: "Medium" as "Low" | "Medium" | "High" | "Urgent",
-        status: "To Do" as "To Do" | "In Progress" | "In Review" | "Completed",
+        status: "To Do" as "To Do" | "In Progress" | "In Review" | "On Hold" | "Completed" | "Rejected",
         dueDate: "",
         caseId: "",
     });
@@ -222,7 +222,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                             <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {["To Do", "In Progress", "In Review", "Completed"].map((s) => (
+                                    {["To Do", "In Progress", "In Review", "On Hold", "Completed", "Rejected"].map((s) => (
                                         <SelectItem key={s} value={s}>{s}</SelectItem>
                                     ))}
                                 </SelectContent>

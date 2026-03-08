@@ -5,14 +5,7 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAdmin, requireAtLeastCaseManager } from "../lib/rbac";
 
-const statusValidator = v.union(
-  v.literal("Active"),
-  v.literal("Pending"),
-  v.literal("On Hold"),
-  v.literal("Completed"),
-  v.literal("Rejected"),
-  v.literal("Archived")
-);
+const statusValidator = v.string();
 
 const priorityValidator = v.union(
   v.literal("Low"),
@@ -63,6 +56,7 @@ export const create = authenticatedMutation({
     title: v.string(),
     clientId: v.id("clients"),
     visaType: v.string(),
+    issue: v.optional(v.string()),
     status: statusValidator,
     priority: priorityValidator,
     assignedTo: v.optional(v.id("users")),
@@ -121,6 +115,7 @@ export const update = authenticatedMutation({
     title: v.optional(v.string()),
     clientId: v.optional(v.id("clients")),
     visaType: v.optional(v.string()),
+    issue: v.optional(v.string()),
     status: v.optional(statusValidator),
     priority: v.optional(priorityValidator),
     // null = explicitly clear the assignee; undefined = leave unchanged

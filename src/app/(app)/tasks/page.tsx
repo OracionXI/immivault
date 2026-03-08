@@ -21,10 +21,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
 const TASK_COLUMNS: KanbanColumn[] = [
-    { id: "To Do",       title: "To Do",       color: "border-blue-400" },
-    { id: "In Progress", title: "In Progress",  color: "border-amber-400" },
-    { id: "In Review",   title: "In Review",    color: "border-violet-400" },
+    { id: "To Do",       title: "To Do",       color: "border-blue-400"    },
+    { id: "In Progress", title: "In Progress",  color: "border-amber-400"   },
+    { id: "In Review",   title: "In Review",    color: "border-violet-400"  },
+    { id: "On Hold",     title: "On Hold",      color: "border-orange-400"  },
     { id: "Completed",   title: "Completed",    color: "border-emerald-400" },
+    { id: "Rejected",    title: "Rejected",     color: "border-red-400"     },
 ];
 
 const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;

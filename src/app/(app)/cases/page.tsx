@@ -16,13 +16,23 @@ import { useSearchParams, useRouter } from "next/navigation";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 
-const KANBAN_COLUMNS: KanbanColumn[] = [
-    { id: "Active",    title: "Active",    color: "border-amber-400" },
-    { id: "Pending",   title: "Pending",   color: "border-blue-400" },
-    { id: "On Hold",   title: "On Hold",   color: "border-orange-400" },
-    { id: "Completed", title: "Completed", color: "border-emerald-400" },
-    { id: "Rejected",  title: "Rejected",  color: "border-red-400" },
-    { id: "Archived",  title: "Archived",  color: "border-gray-400" },
+const FIXED_STAGES: { name: string; color: string }[] = [
+    { name: "To Do",       color: "border-amber-400"   },
+    { name: "In Progress", color: "border-blue-400"    },
+    { name: "On Hold",     color: "border-orange-400"  },
+    { name: "Completed",   color: "border-emerald-400" },
+    { name: "Archive",     color: "border-slate-400"   },
+];
+
+const CUSTOM_STAGE_COLORS = [
+    "border-purple-400",
+    "border-pink-400",
+    "border-cyan-400",
+    "border-violet-400",
+    "border-rose-400",
+    "border-teal-400",
+    "border-indigo-400",
+    "border-lime-400",
 ];
 
 export default function CasesPage() {
@@ -30,9 +40,37 @@ export default function CasesPage() {
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const tasks = useQuery(api.tasks.queries.list) ?? [];
+    const orgSettings = useQuery(api.organisations.queries.getSettings);
     const updateStatus = useMutation(api.cases.mutations.updateStatus);
+    const updateSettings = useMutation(api.organisations.mutations.updateSettings);
     const removeCase = useMutation(api.cases.mutations.remove);
     const { isAdmin, isCaseManager, user } = useRole();
+
+    const customStageNames = (orgSettings?.caseStages ?? []).filter(
+        (s) => !FIXED_STAGES.some((f) => f.name === s)
+    );
+    // Build the full column map (all possible columns with their display metadata)
+    const allColumnDefs: KanbanColumn[] = [
+        ...FIXED_STAGES.map(({ name, color }) => ({ id: name, title: name, color })),
+        ...customStageNames.map((name, i) => ({
+            id: name,
+            title: name,
+            color: CUSTOM_STAGE_COLORS[i % CUSTOM_STAGE_COLORS.length],
+        })),
+    ];
+    const columnDefMap = new Map(allColumnDefs.map((c) => [c.id, c]));
+
+    // Apply saved column order (admin may have reordered); append any new columns not in saved order
+    const savedOrder = orgSettings?.caseColumnOrder;
+    const kanbanColumns: KanbanColumn[] = savedOrder
+        ? [
+              ...savedOrder.flatMap((id) => {
+                  const col = columnDefMap.get(id);
+                  return col ? [col] : [];
+              }),
+              ...allColumnDefs.filter((c) => !savedOrder.includes(c.id)),
+          ]
+        : allColumnDefs;
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
@@ -113,7 +151,11 @@ export default function CasesPage() {
     };
 
     const handleItemMove = async (itemId: string, newStatus: string) => {
-        await updateStatus({ id: itemId as Id<"cases">, status: newStatus as ConvexCase["status"] });
+        await updateStatus({ id: itemId as Id<"cases">, status: newStatus });
+    };
+
+    const handleColumnReorder = async (newOrder: string[]) => {
+        await updateSettings({ caseColumnOrder: newOrder });
     };
 
     const handleDelete = async () => {
@@ -158,15 +200,16 @@ export default function CasesPage() {
             </div>
 
             <KanbanBoard
-                columns={KANBAN_COLUMNS}
+                columns={kanbanColumns}
                 items={kanbanItems}
                 statusKey="status"
-                disabledStatuses={["Archived"]}
+                disabledStatuses={["Archive", "Archived"]}
                 onItemClick={handleItemClick}
                 onItemEdit={(isAdmin || isCaseManager) ? handleItemEdit : undefined}
                 canEditItem={isCaseManager ? (item) => item.assignedToId === user?._id : undefined}
                 onItemDelete={isAdmin ? handleItemDelete : undefined}
                 onItemMove={handleItemMove}
+                onColumnReorder={isAdmin ? handleColumnReorder : undefined}
             />
 
             {(isAdmin || isCaseManager) && (

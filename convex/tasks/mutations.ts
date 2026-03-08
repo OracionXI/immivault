@@ -9,7 +9,9 @@ const statusValidator = v.union(
   v.literal("To Do"),
   v.literal("In Progress"),
   v.literal("In Review"),
-  v.literal("Completed")
+  v.literal("On Hold"),
+  v.literal("Completed"),
+  v.literal("Rejected")
 );
 
 const priorityValidator = v.union(

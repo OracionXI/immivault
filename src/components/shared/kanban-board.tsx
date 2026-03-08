@@ -39,6 +39,8 @@ interface KanbanBoardProps {
     onItemEdit?: (item: KanbanItem) => void;
     onItemDelete?: (item: KanbanItem) => void;
     onItemMove?: (itemId: string, newStatus: string) => void;
+    /** Called with new ordered column ids when admin reorders columns. */
+    onColumnReorder?: (newOrder: string[]) => void;
     statusKey?: string;
     /** Items whose status is in this list are grayed out and cannot be dragged. */
     disabledStatuses?: string[];
@@ -96,16 +98,22 @@ export function KanbanBoard({
     onItemEdit,
     onItemDelete,
     onItemMove,
+    onColumnReorder,
     statusKey = "status",
     disabledStatuses = [],
     canEditItem,
     dragDisabled = false,
 }: KanbanBoardProps) {
     const [boardItems, setBoardItems] = useState(items);
+    const [boardColumns, setBoardColumns] = useState(columns);
 
     useEffect(() => {
         setBoardItems(items);
     }, [items]);
+
+    useEffect(() => {
+        setBoardColumns(columns);
+    }, [columns]);
 
     const getColumnItems = useCallback(
         (columnId: string) =>
@@ -115,6 +123,18 @@ export function KanbanBoard({
 
     const handleDragEnd = (result: DropResult) => {
         if (!result.destination) return;
+
+        // Column reorder
+        if (result.type === "COLUMN") {
+            const reordered = Array.from(boardColumns);
+            const [moved] = reordered.splice(result.source.index, 1);
+            reordered.splice(result.destination.index, 0, moved);
+            setBoardColumns(reordered);
+            onColumnReorder?.(reordered.map((c) => c.id));
+            return;
+        }
+
+        // Item move
         const { draggableId, destination } = result;
         const newStatus = destination.droppableId;
         setBoardItems((prev) =>
@@ -130,13 +150,41 @@ export function KanbanBoard({
     return (
         <DragDropContext onDragEnd={handleDragEnd}>
             <ScrollArea className="w-full">
-                <div className="flex gap-4 pb-4 min-w-max">
-                    {columns.map((column) => {
+                <Droppable droppableId="board" type="COLUMN" direction="horizontal">
+                    {(boardProvided) => (
+                <div
+                    ref={boardProvided.innerRef}
+                    {...boardProvided.droppableProps}
+                    className="flex gap-4 pb-4 min-w-max"
+                >
+                    {boardColumns.map((column, colIndex) => {
                         const colItems = getColumnItems(column.id);
                         return (
-                            <div key={column.id} className="w-[300px] shrink-0 flex flex-col">
+                            <Draggable
+                                key={column.id}
+                                draggableId={`col-${column.id}`}
+                                index={colIndex}
+                                isDragDisabled={!onColumnReorder}
+                            >
+                                {(colDraggable, colSnapshot) => (
+                            <div
+                                ref={colDraggable.innerRef}
+                                {...colDraggable.draggableProps}
+                                className="group/col w-[300px] shrink-0 flex flex-col"
+                            >
                                 {/* Column Header */}
-                                <div className="flex items-center gap-2 mb-3 px-1">
+                                <div className={cn(
+                                    "flex items-center gap-2 mb-3 px-1 rounded-lg transition-colors",
+                                    colSnapshot.isDragging && "bg-accent/40"
+                                )}>
+                                    {onColumnReorder && (
+                                        <div
+                                            {...colDraggable.dragHandleProps}
+                                            className="opacity-0 group-hover/col:opacity-40 hover:!opacity-70 transition-opacity cursor-grab active:cursor-grabbing shrink-0"
+                                        >
+                                            <GripVertical className="h-4 w-4 text-muted-foreground" />
+                                        </div>
+                                    )}
                                     <div
                                         className="h-2.5 w-2.5 rounded-full shrink-0"
                                         style={{ backgroundColor: column.color || "#6b7280" }}
@@ -328,9 +376,14 @@ export function KanbanBoard({
                                     )}
                                 </Droppable>
                             </div>
+                                )}
+                            </Draggable>
                         );
                     })}
+                    {boardProvided.placeholder}
                 </div>
+                    )}
+                </Droppable>
                 <ScrollBar orientation="horizontal" />
             </ScrollArea>
         </DragDropContext>

@@ -63,6 +63,56 @@ export const create = authenticatedMutation({
   },
 });
 
+/** Admin or Case Manager: update document metadata (name, type, case).
+ *  If caseId changes, clientId is re-derived from the new case. */
+export const update = authenticatedMutation({
+  args: {
+    id: v.id("documents"),
+    name: v.string(),
+    type: v.union(
+      v.literal("Identity"),
+      v.literal("Employment"),
+      v.literal("Immigration"),
+      v.literal("Education"),
+      v.literal("Financial"),
+      v.literal("Supporting")
+    ),
+    caseId: v.id("cases"),
+  },
+  handler: async (ctx, args) => {
+    requireAtLeastCaseManager(ctx);
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
+    }
+
+    const newCase = await ctx.db.get(args.caseId);
+    if (!newCase || newCase.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+    }
+
+    // Case managers can only edit docs on their own cases (both old and new)
+    if (ctx.user.role === "case_manager") {
+      if (doc.caseId) {
+        const oldCase = await ctx.db.get(doc.caseId);
+        if (!oldCase || oldCase.assignedTo !== ctx.user._id) {
+          throw new ConvexError({ code: "FORBIDDEN", message: "You can only edit documents from your own cases." });
+        }
+      }
+      if (newCase.assignedTo !== ctx.user._id) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "You can only move documents to your own cases." });
+      }
+    }
+
+    await ctx.db.patch(args.id, {
+      name: args.name.trim(),
+      type: args.type,
+      caseId: args.caseId,
+      clientId: newCase.clientId,
+    });
+  },
+});
+
 /** Admin or Case Manager: delete a document and its storage file. */
 export const remove = authenticatedMutation({
   args: { id: v.id("documents") },

@@ -80,14 +80,8 @@ export default defineSchema({
     title: v.string(),
     clientId: v.id("clients"),
     visaType: v.string(),
-    status: v.union(
-      v.literal("Active"),
-      v.literal("Pending"),
-      v.literal("On Hold"),
-      v.literal("Completed"),
-      v.literal("Rejected"),
-      v.literal("Archived")
-    ),
+    issue: v.optional(v.string()),
+    status: v.string(),                               // custom stage name (set by org in settings)
     priority: v.union(
       v.literal("Low"),
       v.literal("Medium"),
@@ -343,6 +337,10 @@ export default defineSchema({
   organisationSettings: defineTable({
     organisationId: v.id("organisations"),
     caseStages: v.optional(v.array(v.string())),
+    caseColumnOrder: v.optional(v.array(v.string())), // full ordered column ids saved by admin
+    caseTypes: v.optional(v.array(
+      v.object({ id: v.string(), name: v.string(), issues: v.array(v.string()) })
+    )),
     defaultCurrency: v.optional(v.string()),
     taxRate: v.optional(v.number()),
     emailFromName: v.optional(v.string()),
