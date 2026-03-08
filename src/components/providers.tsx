@@ -4,9 +4,15 @@ import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ConvexReactClient } from "convex/react";
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // When env vars are not yet configured (e.g. Vercel deploy without secrets),
+  // skip the Clerk/Convex providers so the build does not crash at prerender time.
+  // This matches the current dummy-auth mode where providers are not active anyway.
+  if (!convex) return <>{children}</>;
+
   return (
     <ClerkProvider
       appearance={{
@@ -107,7 +113,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         }
       }}
     >
-      <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+      <ConvexProviderWithClerk client={convex!} useAuth={useAuth}>
         {children}
       </ConvexProviderWithClerk>
     </ClerkProvider>
