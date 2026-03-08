@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, GitBranch, Calendar, Building2, Mail, Zap } from "lucide-react";
+import { User, GitBranch, Layers, Calendar, Building2, Mail, Zap } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
 const settingsTabs = [
     { title: "Profile",         href: "/settings",                 icon: User,      adminOnly: false },
     { title: "Case Stages",     href: "/settings/case-stages",     icon: GitBranch, adminOnly: true  },
+    { title: "Case Types",      href: "/settings/case-types",      icon: Layers,    adminOnly: true  },
     { title: "Booking",         href: "/settings/booking",         icon: Calendar,  adminOnly: true  },
     { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
     { title: "Email Templates", href: "/settings/email-templates", icon: Mail,      adminOnly: true  },

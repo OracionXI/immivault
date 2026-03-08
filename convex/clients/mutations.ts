@@ -45,8 +45,8 @@ export const create = authenticatedMutation({
       caseNumber: buildCaseNumber(),
       title: `${args.firstName} ${args.lastName} — New Case`,
       clientId,
-      visaType: "TBD",
-      status: "Pending",
+      visaType: "None",
+      status: "To Do",
       priority: "Medium",
       // assignedTo intentionally omitted — unassigned by default
     });
@@ -98,9 +98,9 @@ export const update = authenticatedMutation({
       .collect();
 
     if (isArchiving) {
-      // Cascade archive: cases → Archived, tasks → hidden
+      // Cascade archive: cases → Archive, tasks → hidden
       for (const c of linkedCases) {
-        await ctx.db.patch(c._id, { status: "Archived" });
+        await ctx.db.patch(c._id, { status: "Archive" });
 
         const caseTasks = await ctx.db
           .query("tasks")
@@ -111,9 +111,9 @@ export const update = authenticatedMutation({
         }
       }
     } else if (isUnarchiving) {
-      // Cascade unarchive: cases → Pending, tasks → visible + To Do + unassigned
+      // Cascade unarchive: cases → To Do, tasks → visible + To Do + unassigned
       for (const c of linkedCases) {
-        await ctx.db.patch(c._id, { status: "Pending" });
+        await ctx.db.patch(c._id, { status: "To Do" });
 
         const caseTasks = await ctx.db
           .query("tasks")

@@ -118,6 +118,10 @@ export const completeOnboarding = mutation({
 export const updateSettings = authenticatedMutation({
   args: {
     caseStages: v.optional(v.array(v.string())),
+    caseColumnOrder: v.optional(v.array(v.string())),
+    caseTypes: v.optional(v.array(
+      v.object({ id: v.string(), name: v.string(), issues: v.array(v.string()) })
+    )),
     defaultCurrency: v.optional(v.string()),
     taxRate: v.optional(v.number()),
     emailFromName: v.optional(v.string()),

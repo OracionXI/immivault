@@ -349,9 +349,15 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                     </div>
                                 </Detail>
 
-                                <Detail label="Visa Type">
+                                <Detail label="Type">
                                     <span className="text-sm font-mono font-medium bg-muted rounded px-1.5 py-0.5">
-                                        {caseItem.visaType}
+                                        {caseItem.visaType || "None"}
+                                    </span>
+                                </Detail>
+
+                                <Detail label="Issue">
+                                    <span className="text-sm font-mono font-medium bg-muted rounded px-1.5 py-0.5">
+                                        {caseItem.issue ?? "None"}
                                     </span>
                                 </Detail>
 

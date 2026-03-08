@@ -36,15 +36,21 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
     const updateCase = useMutation(api.cases.mutations.update);
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const settings = useQuery(api.organisations.queries.getSettings);
 
     // Cases can only be assigned to case managers
     const caseManagers = users.filter((u) => u.role === "case_manager" && u.status === "active");
+    const caseTypes = settings?.caseTypes ?? [];
+    const fixedStages = ["To Do", "In Progress", "On Hold", "Completed", "Archive"];
+    const customStages = (settings?.caseStages ?? []).filter((s) => !fixedStages.includes(s));
+    const allStages = [...fixedStages, ...customStages];
 
     const [form, setForm] = useState({
         title: "",
         clientId: "",
-        visaType: "",
-        status: "Active" as "Active" | "Pending" | "On Hold" | "Completed" | "Rejected" | "Archived",
+        visaType: "None",
+        issue: "None",
+        status: "To Do" as string,
         assignedTo: "",
         priority: "Medium" as "Low" | "Medium" | "High" | "Urgent",
         notes: "",
@@ -58,24 +64,35 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
             setForm({
                 title: caseItem.title,
                 clientId: caseItem.clientId,
-                visaType: caseItem.visaType,
+                visaType: caseItem.visaType || "None",
+                issue: caseItem.issue || "None",
                 status: caseItem.status,
                 assignedTo: caseItem.assignedTo ?? "",
                 priority: caseItem.priority,
                 notes: caseItem.notes ?? "",
             });
         } else {
-            setForm({ title: "", clientId: "", visaType: "", status: "Active", assignedTo: "", priority: "Medium", notes: "" });
+            setForm({ title: "", clientId: "", visaType: "None", issue: "None", status: "To Do", assignedTo: "", priority: "Medium", notes: "" });
         }
         setErrors({});
         setAssigneePopoverOpen(false);
     }, [caseItem, open]);
 
+    // When type changes, reset issue to "None"
+    const handleTypeChange = (value: string) => {
+        setForm((prev) => ({ ...prev, visaType: value, issue: "None" }));
+    };
+
+    // Issues available for the selected type (empty if "None" or type not found)
+    const availableIssues =
+        form.visaType !== "None"
+            ? (caseTypes.find((t) => t.name === form.visaType)?.issues ?? [])
+            : [];
+
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
         if (!form.clientId) errs.clientId = "Client is required";
-        if (!form.visaType.trim()) errs.visaType = "Visa type is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -92,6 +109,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                     title: form.title,
                     clientId: form.clientId as Id<"clients">,
                     visaType: form.visaType,
+                    issue: form.issue !== "None" ? form.issue : undefined,
                     status: form.status,
                     assignedTo: assignedToId ?? null,
                     priority: form.priority,
@@ -102,6 +120,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                     title: form.title,
                     clientId: form.clientId as Id<"clients">,
                     visaType: form.visaType,
+                    issue: form.issue !== "None" ? form.issue : undefined,
                     status: form.status,
                     assignedTo: assignedToId,
                     priority: form.priority,
@@ -142,23 +161,62 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                             {errors.clientId && <p className="text-xs text-destructive">{errors.clientId}</p>}
                         </div>
                         <div className="grid gap-2">
-                            <Label>Visa Type *</Label>
-                            <Input value={form.visaType} onChange={(e) => setForm({ ...form, visaType: e.target.value })} placeholder="e.g., H-1B" />
-                            {errors.visaType && <p className="text-xs text-destructive">{errors.visaType}</p>}
+                            <Label>Type</Label>
+                            <Select value={form.visaType} onValueChange={handleTypeChange}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="None">None</SelectItem>
+                                    {caseTypes.map((t) => (
+                                        <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {caseTypes.length === 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    Configure types in Settings → Case Settings.
+                                </p>
+                            )}
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label>Issue</Label>
+                            <Select
+                                value={form.issue}
+                                onValueChange={(v) => setForm({ ...form, issue: v })}
+                                disabled={form.visaType === "None" || availableIssues.length === 0}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select issue" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="None">None</SelectItem>
+                                    {availableIssues.map((iss) => (
+                                        <SelectItem key={iss} value={iss}>{iss}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {form.visaType !== "None" && availableIssues.length === 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    No issues configured for this type.
+                                </p>
+                            )}
+                        </div>
                         <div className="grid gap-2">
                             <Label>Status</Label>
                             <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {["Active", "Pending", "On Hold", "Completed", "Rejected"].map((s) => (
+                                    {allStages.map((s) => (
                                         <SelectItem key={s} value={s}>{s}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Assigned To</Label>
                             <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>

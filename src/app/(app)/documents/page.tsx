@@ -10,30 +10,31 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { DocumentViewer } from "@/components/shared/document-viewer";
 import { Button } from "@/components/ui/button";
-import { Trash2, Upload, Eye } from "lucide-react";
+import { Trash2, Upload, Eye, Pencil } from "lucide-react";
 import { UploadModal } from "./upload-modal";
+import { EditDocumentModal } from "./edit-document-modal";
 import { useRole } from "@/hooks/use-role";
 import { useSearchParams, useRouter } from "next/navigation";
 
-type ConvexDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.list>>>[number];
-type DisplayDocument = ConvexDocument & { clientName: string; caseName: string; uploadedDisplay: string };
+type EnrichedDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.listEnriched>>>[number];
+type DisplayDocument = EnrichedDocument & { uploadedDisplay: string };
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default function DocumentsPage() {
-    const rawDocuments = useQuery(api.documents.queries.list) ?? [];
-    const clients = useQuery(api.clients.queries.listAll) ?? [];
-    const cases = useQuery(api.cases.queries.listAll) ?? [];
+    // Single query — client/case names already joined server-side
+    const rawDocuments = useQuery(api.documents.queries.listEnriched) ?? [];
     const removeDocument = useMutation(api.documents.mutations.remove);
     const { isStaff } = useRole();
 
     const [uploadOpen, setUploadOpen] = useState(false);
+    const [editDoc, setEditDoc] = useState<EnrichedDocument | null>(null);
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: Id<"documents"> | null; name: string }>({
         open: false, id: null, name: "",
     });
-    const [viewer, setViewer] = useState<{ open: boolean; doc: ConvexDocument | null }>({
+    const [viewer, setViewer] = useState<{ open: boolean; doc: EnrichedDocument | null }>({
         open: false, doc: null,
     });
 
@@ -51,24 +52,9 @@ export default function DocumentsPage() {
         }
     }, [searchParams, rawDocuments, router]);
 
-    const clientMap = useMemo(
-        () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
-        [clients]
-    );
-
-    const caseMap = useMemo(
-        () => new Map(cases.map((c) => [c._id, c.title])),
-        [cases]
-    );
-
     const documents = useMemo<DisplayDocument[]>(
-        () => rawDocuments.map((d) => ({
-            ...d,
-            clientName: clientMap.get(d.clientId) ?? "—",
-            caseName: d.caseId ? (caseMap.get(d.caseId) ?? "—") : "—",
-            uploadedDisplay: formatTs(d._creationTime),
-        })),
-        [rawDocuments, clientMap, caseMap]
+        () => rawDocuments.map((d) => ({ ...d, uploadedDisplay: formatTs(d._creationTime) })),
+        [rawDocuments]
     );
 
     const handleDelete = async () => {
@@ -98,14 +84,26 @@ export default function DocumentsPage() {
                         <Eye className="h-3.5 w-3.5" />
                     </Button>
                     {!isStaff && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => setDeleteDialog({ open: true, id: d._id, name: d.name })}
-                        >
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Edit"
+                                onClick={() => setEditDoc(d)}
+                            >
+                                <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title="Delete"
+                                onClick={() => setDeleteDialog({ open: true, id: d._id, name: d.name })}
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                        </>
                     )}
                 </div>
             ),
@@ -140,6 +138,11 @@ export default function DocumentsPage() {
                 }}
             />
             <UploadModal open={uploadOpen} onOpenChange={setUploadOpen} />
+            <EditDocumentModal
+                open={editDoc !== null}
+                onOpenChange={(open) => { if (!open) setEditDoc(null); }}
+                document={editDoc}
+            />
             <ConfirmDialog
                 open={deleteDialog.open}
                 onOpenChange={(open) => setDeleteDialog({ open, id: deleteDialog.id, name: deleteDialog.name })}
