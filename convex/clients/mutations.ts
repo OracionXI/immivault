@@ -25,7 +25,6 @@ export const create = authenticatedMutation({
     address: v.optional(v.string()),
     status: v.union(
       v.literal("Active"),
-      v.literal("Pending"),
       v.literal("Inactive"),
       v.literal("Archived")
     ),
@@ -56,8 +55,10 @@ export const create = authenticatedMutation({
 });
 
 /** Admin-only: update client details.
- *  Archiving:   cascades cases → Archived, tasks → hidden.
- *  Unarchiving: cascades cases → Pending, tasks → visible, To Do, unassigned. */
+ *  Inactive:    cascades tasks → hidden (cases stay, just filtered from views).
+ *  Reactivate:  cascades tasks → visible again (status/assignedTo preserved).
+ *  Archiving:   cascades cases → Archive, tasks → hidden.
+ *  Unarchiving: cascades cases → To Do, tasks → visible + To Do + unassigned. */
 export const update = authenticatedMutation({
   args: {
     id: v.id("clients"),
@@ -71,7 +72,6 @@ export const update = authenticatedMutation({
     status: v.optional(
       v.union(
         v.literal("Active"),
-        v.literal("Pending"),
         v.literal("Inactive"),
         v.literal("Archived")
       )
@@ -87,7 +87,10 @@ export const update = authenticatedMutation({
     }
 
     const wasArchived = client.status === "Archived";
+    const wasInactive = client.status === "Inactive";
     const isArchiving = args.status === "Archived";
+    const isInactivating = args.status === "Inactive" && client.status !== "Inactive";
+    const isReactivating = wasInactive && args.status === "Active";
     const isUnarchiving = wasArchived && args.status !== undefined && args.status !== "Archived";
 
     await ctx.db.patch(id, fields);
@@ -101,7 +104,6 @@ export const update = authenticatedMutation({
       // Cascade archive: cases → Archive, tasks → hidden
       for (const c of linkedCases) {
         await ctx.db.patch(c._id, { status: "Archive" });
-
         const caseTasks = await ctx.db
           .query("tasks")
           .withIndex("by_case", (q) => q.eq("caseId", c._id))
@@ -114,7 +116,6 @@ export const update = authenticatedMutation({
       // Cascade unarchive: cases → To Do, tasks → visible + To Do + unassigned
       for (const c of linkedCases) {
         await ctx.db.patch(c._id, { status: "To Do" });
-
         const caseTasks = await ctx.db
           .query("tasks")
           .withIndex("by_case", (q) => q.eq("caseId", c._id))
@@ -125,6 +126,28 @@ export const update = authenticatedMutation({
             status: "To Do",
             assignedTo: undefined,
           });
+        }
+      }
+    } else if (isInactivating) {
+      // Cascade inactive: tasks → hidden (cases stay in DB, filtered at query time)
+      for (const c of linkedCases) {
+        const caseTasks = await ctx.db
+          .query("tasks")
+          .withIndex("by_case", (q) => q.eq("caseId", c._id))
+          .collect();
+        for (const t of caseTasks) {
+          await ctx.db.patch(t._id, { hidden: true });
+        }
+      }
+    } else if (isReactivating) {
+      // Cascade reactivate: tasks → visible (preserve their status and assignedTo)
+      for (const c of linkedCases) {
+        const caseTasks = await ctx.db
+          .query("tasks")
+          .withIndex("by_case", (q) => q.eq("caseId", c._id))
+          .collect();
+        for (const t of caseTasks) {
+          await ctx.db.patch(t._id, { hidden: false });
         }
       }
     }

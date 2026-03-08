@@ -6,7 +6,7 @@ import { getVisibleCaseIds } from "../lib/visibility";
 
 /**
  * Visible cases scoped by role:
- *   admin        → all cases in org
+ *   admin        → all cases in org (excluding Inactive-client cases)
  *   case_manager → cases directly assigned to them
  *   staff        → cases that contain tasks assigned to them
  */
@@ -15,39 +15,59 @@ export const list = authenticatedQuery({
   handler: async (ctx) => {
     const { role, _id: userId, organisationId } = ctx.user;
 
+    const inactiveClients = await ctx.db
+      .query("clients")
+      .withIndex("by_org_and_status", (q) =>
+        q.eq("organisationId", organisationId).eq("status", "Inactive")
+      )
+      .collect();
+    const inactiveClientIds = new Set(inactiveClients.map((c) => c._id));
+
     if (role === "admin") {
-      return await ctx.db
+      const all = await ctx.db
         .query("cases")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
         .order("desc")
         .collect();
+      return all.filter((c) => !inactiveClientIds.has(c.clientId));
     }
 
     const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
     const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id as Id<"cases">)));
     return cases.filter(
-      (c): c is NonNullable<typeof c> => c !== null && c.organisationId === organisationId
+      (c): c is NonNullable<typeof c> =>
+        c !== null && c.organisationId === organisationId && !inactiveClientIds.has(c.clientId)
     );
   },
 });
 
-/** All visible cases — for dropdown pickers. */
+/** All visible cases — for dropdown pickers. Excludes Inactive-client cases. */
 export const listAll = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
     const { role, _id: userId, organisationId } = ctx.user;
 
+    const inactiveClients = await ctx.db
+      .query("clients")
+      .withIndex("by_org_and_status", (q) =>
+        q.eq("organisationId", organisationId).eq("status", "Inactive")
+      )
+      .collect();
+    const inactiveClientIds = new Set(inactiveClients.map((c) => c._id));
+
     if (role === "admin") {
-      return await ctx.db
+      const all = await ctx.db
         .query("cases")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
         .collect();
+      return all.filter((c) => !inactiveClientIds.has(c.clientId));
     }
 
     const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
     const cases = await Promise.all([...visibleCaseIds].map((id) => ctx.db.get(id as Id<"cases">)));
     return cases.filter(
-      (c): c is NonNullable<typeof c> => c !== null && c.organisationId === organisationId
+      (c): c is NonNullable<typeof c> =>
+        c !== null && c.organisationId === organisationId && !inactiveClientIds.has(c.clientId)
     );
   },
 });

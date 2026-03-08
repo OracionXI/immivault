@@ -95,7 +95,6 @@ export default function ClientsPage() {
                     placeholder: "All Statuses",
                     options: [
                         { label: "Active", value: "Active" },
-                        { label: "Pending", value: "Pending" },
                         { label: "Inactive", value: "Inactive" },
                         { label: "Archived", value: "Archived" },
                     ],

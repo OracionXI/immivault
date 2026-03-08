@@ -63,7 +63,6 @@ export default defineSchema({
     address: v.optional(v.string()),
     status: v.union(
       v.literal("Active"),
-      v.literal("Pending"),
       v.literal("Inactive"),
       v.literal("Archived")
     ),
