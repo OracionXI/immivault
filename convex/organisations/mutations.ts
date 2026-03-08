@@ -12,12 +12,11 @@ import { ConvexError } from "convex/values";
 export const getOrCreateDefault = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db.query("organisations").first();
-    if (existing) return existing._id;
-
+    // Always create a fresh org for each new admin signup.
+    // Slug is made unique with a timestamp so concurrent signups don't collide.
     const orgId = await ctx.db.insert("organisations", {
       name: "Pending Setup",
-      slug: "pending-setup",
+      slug: `pending-setup-${Date.now()}`,
       plan: "free",
     });
 

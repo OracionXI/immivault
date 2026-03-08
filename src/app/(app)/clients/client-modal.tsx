@@ -27,7 +27,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
 
     const [form, setForm] = useState({
         firstName: "", lastName: "", email: "", phone: "", nationality: "",
-        status: "Active" as "Active" | "Pending" | "Inactive" | "Archived",
+        status: "Active" as "Active" | "Inactive" | "Archived",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
@@ -121,7 +121,6 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="Active">Active</SelectItem>
-                                    <SelectItem value="Pending">Pending</SelectItem>
                                     <SelectItem value="Inactive">Inactive</SelectItem>
                                     <SelectItem value="Archived">Archived</SelectItem>
                                 </SelectContent>
