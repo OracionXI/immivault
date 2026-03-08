@@ -113,7 +113,9 @@ export default defineSchema({
       v.literal("To Do"),
       v.literal("In Progress"),
       v.literal("In Review"),
-      v.literal("Completed")
+      v.literal("On Hold"),
+      v.literal("Completed"),
+      v.literal("Rejected")
     ),
     priority: v.union(
       v.literal("Low"),

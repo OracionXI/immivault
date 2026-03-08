@@ -150,7 +150,9 @@ Kanban board with columns. **5 columns are fixed and always present:**
 | Completed | Emerald | Sets `completedAt` timestamp; expires linked documents |
 | Archive | Slate | User-facing archive stage |
 
-Admins can add custom columns in Settings → Case Stages. Custom columns appear after the fixed 5.
+Admins can add custom columns in Settings → Case Stages. Custom columns appear after the fixed 5 by default, or in the admin-saved order.
+
+Cases in the **Archive** column (status `"Archive"` or `"Archived"`) are **grayed out** and cannot be dragged.
 
 #### Features by Role
 
@@ -160,6 +162,7 @@ Admins can add custom columns in Settings → Case Stages. Custom columns appear
 | Edit case (modal) | ✅ | ✅ (own assigned) | ❌ |
 | Delete case | ✅ | ❌ | ❌ |
 | Drag case to new column | ✅ | ✅ (own assigned) | ❌ |
+| Reorder Kanban columns | ✅ | ❌ | ❌ |
 | View case detail dialog | ✅ | ✅ | ✅ |
 | Add / edit comments | ✅ | ✅ | ✅ |
 | Delete any comment | ✅ | ❌ | ❌ |
@@ -192,7 +195,7 @@ Admins can add custom columns in Settings → Case Stages. Custom columns appear
 **Access:** All roles (read), Admin/Case Manager (write)
 
 #### Layout
-Kanban board with **4 fixed columns:** To Do → In Progress → In Review → Completed.
+Kanban board with **6 fixed columns:** To Do → In Progress → In Review → On Hold → Completed → Rejected.
 
 #### Features by Role
 
@@ -289,6 +292,7 @@ Table view: Document name, type, related case, client, upload date, status.
 | Feature | Admin | Case Manager | Staff |
 |---------|-------|--------------|-------|
 | Upload document | ✅ | ✅ (own cases only) | ❌ |
+| Edit document metadata | ✅ | ✅ (own cases only) | ❌ |
 | Delete document | ✅ | ✅ (own cases only) | ❌ |
 | View / download | ✅ | ✅ | ✅ |
 
@@ -332,6 +336,8 @@ Non-admins accessing admin-only paths are redirected to `/settings` (Profile).
 **Custom stages** — admin can add unlimited additional columns.
 
 Storage: `organisationSettings.caseStages` stores **only custom stage names**. Fixed stages are always prepended in the UI and never saved to DB.
+
+**Column order persistence:** When an admin drags columns to reorder them, the new order is saved as `organisationSettings.caseColumnOrder` (array of all column ids). On next load, columns are rendered in this saved order; any new columns not in the saved order are appended at the end.
 
 #### Case Types Logic
 
@@ -381,6 +387,7 @@ Storage: `organisationSettings.caseStages` stores **only custom stage names**. F
 |----------|--------------|-----------|
 | `documents.generateUploadUrl` | Case Manager+ | Returns signed Convex Storage URL |
 | `documents.create` | Case Manager+ | Derives clientId from case; status = Verified; triggers notification |
+| `documents.update` | Case Manager+ | Edits name, type, caseId (no file re-upload); re-derives clientId if caseId changes; case manager restricted to own cases |
 | `documents.remove` | Case Manager+ | Deletes storage blob + DB record |
 
 ### Comments
@@ -403,7 +410,7 @@ Storage: `organisationSettings.caseStages` stores **only custom stage names**. F
 
 | Mutation | Role Required | Key Logic |
 |----------|--------------|-----------|
-| `organisations.updateSettings` | Admin | Updates caseStages, caseTypes, config |
+| `organisations.updateSettings` | Admin | Updates caseStages, caseTypes, caseColumnOrder, and other config |
 | `organisations.completeOnboarding` | Raw (signup flow) | Sets org name, slug, agreement signature; activates user |
 | `organisations.reactivateOrg` | Admin | Clears `deletedAt` soft-delete flag |
 
@@ -528,6 +535,8 @@ When admin unarchives a client:
 | Only comment author can edit; admin can delete any | Backend (`comments.update/remove`) |
 | Settings tabs (except Profile) are admin-only | Frontend (`useRole`) + layout guard |
 | Fixed Kanban stages cannot be removed | Frontend only (UI enforcement) |
+| Admin column order is persisted across sessions | `organisationSettings.caseColumnOrder` (backend) |
+| Archived cases (`"Archive"` / `"Archived"`) are read-only on the Kanban | Frontend (`disabledStatuses` prop) |
 | Org data fully isolated by `organisationId` | All Convex queries |
 | Inactive/pending users are blocked from the API | `authenticatedMutation` wrapper |
 | Tasks require `caseId` + `dueDate` | Frontend validation + backend |
