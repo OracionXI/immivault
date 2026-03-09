@@ -13,6 +13,7 @@ export default function SignupPage() {
                     elements: {
                         socialButtonsBlock: { display: "none" },
                         dividerRow: { display: "none" },
+                        formFieldInput: { color: "black" },
                     },
                 }}
             />
