@@ -1,14 +1,15 @@
 "use client";
 
-import { SignUp } from "@clerk/nextjs";
+import { SignIn } from "@clerk/nextjs";
 
-export default function SignupPage() {
+export default function LoginPage() {
     return (
         <div className="w-full flex justify-center">
-            <SignUp
-                routing="hash"
-                fallbackRedirectUrl="/onboarding"
-                signInUrl="/login"
+            <SignIn
+                routing="path"
+                path="/login"
+                fallbackRedirectUrl="/dashboard"
+                signUpUrl="/signup"
                 appearance={{
                     elements: {
                         socialButtonsBlock: { display: "none" },
@@ -19,4 +20,3 @@ export default function SignupPage() {
         </div>
     );
 }
-

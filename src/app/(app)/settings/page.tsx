@@ -7,26 +7,41 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Save, Loader2 } from "lucide-react";
+import { useRole } from "@/hooks/use-role";
 
 export default function ProfilePage() {
+    const { user, isAdmin } = useRole();
     const org = useQuery(api.organisations.queries.mine);
     const settings = useQuery(api.organisations.queries.getSettings);
+    const updateProfile = useMutation(api.users.mutations.updateProfile);
     const updateSettings = useMutation(api.organisations.mutations.updateSettings);
 
-    const [form, setForm] = useState({
+    // Personal profile state
+    const [profileForm, setProfileForm] = useState({ fullName: "" });
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [profileSaved, setProfileSaved] = useState(false);
+
+    // Org settings state (admin only)
+    const [settingsForm, setSettingsForm] = useState({
         defaultCurrency: "USD",
         taxRate: 0,
         emailFromName: "",
         emailFromAddress: "",
     });
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
+    const [settingsSaving, setSettingsSaving] = useState(false);
+    const [settingsSaved, setSettingsSaved] = useState(false);
 
-    // Populate form once settings load
+    useEffect(() => {
+        if (user) {
+            setProfileForm({ fullName: user.fullName ?? "" });
+        }
+    }, [user]);
+
     useEffect(() => {
         if (settings) {
-            setForm({
+            setSettingsForm({
                 defaultCurrency: settings.defaultCurrency ?? "USD",
                 taxRate: settings.taxRate ?? 0,
                 emailFromName: settings.emailFromName ?? "",
@@ -35,26 +50,77 @@ export default function ProfilePage() {
         }
     }, [settings]);
 
-    const handleSave = async () => {
-        setSaving(true);
-        setSaved(false);
+    const handleProfileSave = async () => {
+        setProfileSaving(true);
+        setProfileSaved(false);
         try {
-            await updateSettings({
-                defaultCurrency: form.defaultCurrency,
-                taxRate: Number(form.taxRate),
-                emailFromName: form.emailFromName || undefined,
-                emailFromAddress: form.emailFromAddress || undefined,
-            });
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2500);
+            await updateProfile({ fullName: profileForm.fullName });
+            setProfileSaved(true);
+            setTimeout(() => setProfileSaved(false), 2500);
         } finally {
-            setSaving(false);
+            setProfileSaving(false);
         }
     };
 
+    const handleSettingsSave = async () => {
+        setSettingsSaving(true);
+        setSettingsSaved(false);
+        try {
+            await updateSettings({
+                defaultCurrency: settingsForm.defaultCurrency,
+                taxRate: Number(settingsForm.taxRate),
+                emailFromName: settingsForm.emailFromName || undefined,
+                emailFromAddress: settingsForm.emailFromAddress || undefined,
+            });
+            setSettingsSaved(true);
+            setTimeout(() => setSettingsSaved(false), 2500);
+        } finally {
+            setSettingsSaving(false);
+        }
+    };
+
+    const roleLabel =
+        user?.role === "admin" ? "Admin"
+        : user?.role === "case_manager" ? "Case Manager"
+        : "Staff";
+
     return (
         <div className="space-y-6">
-            {/* Organisation identity (read-only — managed by Clerk) */}
+            {/* Personal profile — all users */}
+            <Card>
+                <CardHeader><CardTitle>My Profile</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid gap-2">
+                        <Label>Full Name</Label>
+                        <Input
+                            value={profileForm.fullName}
+                            onChange={(e) => setProfileForm({ fullName: e.target.value })}
+                            placeholder="Your full name"
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label>Email</Label>
+                            <Input value={user?.email ?? ""} disabled className="bg-muted/50" />
+                            <p className="text-xs text-muted-foreground">
+                                Email is managed via your Clerk account.
+                            </p>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Role</Label>
+                            <div className="flex items-center h-9">
+                                <Badge variant="outline" className="capitalize">{roleLabel}</Badge>
+                            </div>
+                        </div>
+                    </div>
+                    <Button onClick={handleProfileSave} disabled={profileSaving} className="gap-2">
+                        {profileSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {profileSaved ? "Saved!" : "Save Profile"}
+                    </Button>
+                </CardContent>
+            </Card>
+
+            {/* Organisation identity (read-only) */}
             <Card>
                 <CardHeader><CardTitle>Organisation</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -78,68 +144,71 @@ export default function ProfilePage() {
                 </CardContent>
             </Card>
 
-            {/* Billing defaults */}
-            <Card>
-                <CardHeader><CardTitle>Billing Defaults</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label>Default Currency</Label>
-                            <Input
-                                value={form.defaultCurrency}
-                                onChange={(e) => setForm({ ...form, defaultCurrency: e.target.value.toUpperCase() })}
-                                placeholder="USD"
-                                maxLength={3}
-                            />
-                        </div>
-                        <div className="grid gap-2">
-                            <Label>Default Tax Rate (%)</Label>
-                            <Input
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={0.1}
-                                value={form.taxRate}
-                                onChange={(e) => setForm({ ...form, taxRate: Number(e.target.value) })}
-                            />
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Admin-only: billing & email settings */}
+            {isAdmin && (
+                <>
+                    <Card>
+                        <CardHeader><CardTitle>Billing Defaults</CardTitle></CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label>Default Currency</Label>
+                                    <Input
+                                        value={settingsForm.defaultCurrency}
+                                        onChange={(e) => setSettingsForm({ ...settingsForm, defaultCurrency: e.target.value.toUpperCase() })}
+                                        placeholder="USD"
+                                        maxLength={3}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>Default Tax Rate (%)</Label>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step={0.1}
+                                        value={settingsForm.taxRate}
+                                        onChange={(e) => setSettingsForm({ ...settingsForm, taxRate: Number(e.target.value) })}
+                                    />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
 
-            {/* Email sender identity */}
-            <Card>
-                <CardHeader><CardTitle>Email Sender Identity</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label>From Name</Label>
-                            <Input
-                                value={form.emailFromName}
-                                onChange={(e) => setForm({ ...form, emailFromName: e.target.value })}
-                                placeholder="e.g. Chen Immigration Law"
-                            />
-                        </div>
-                        <div className="grid gap-2">
-                            <Label>From Email Address</Label>
-                            <Input
-                                type="email"
-                                value={form.emailFromAddress}
-                                onChange={(e) => setForm({ ...form, emailFromAddress: e.target.value })}
-                                placeholder="e.g. noreply@yourfirm.com"
-                            />
-                        </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                        Used as the sender identity for outgoing emails (Phase 4 — Resend integration).
-                    </p>
-                </CardContent>
-            </Card>
+                    <Card>
+                        <CardHeader><CardTitle>Email Sender Identity</CardTitle></CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label>From Name</Label>
+                                    <Input
+                                        value={settingsForm.emailFromName}
+                                        onChange={(e) => setSettingsForm({ ...settingsForm, emailFromName: e.target.value })}
+                                        placeholder="e.g. Chen Immigration Law"
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>From Email Address</Label>
+                                    <Input
+                                        type="email"
+                                        value={settingsForm.emailFromAddress}
+                                        onChange={(e) => setSettingsForm({ ...settingsForm, emailFromAddress: e.target.value })}
+                                        placeholder="e.g. noreply@yourfirm.com"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Used as the sender identity for outgoing emails (Phase 4 — Resend integration).
+                            </p>
+                        </CardContent>
+                    </Card>
 
-            <Button onClick={handleSave} disabled={saving} className="gap-2">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {saved ? "Saved!" : "Save Changes"}
-            </Button>
+                    <Button onClick={handleSettingsSave} disabled={settingsSaving} className="gap-2">
+                        {settingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {settingsSaved ? "Saved!" : "Save Settings"}
+                    </Button>
+                </>
+            )}
         </div>
     );
 }

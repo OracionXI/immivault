@@ -160,6 +160,20 @@ export const remove = internalMutation({
   },
 });
 
+/** Updates the current user's own display name. Available to all authenticated users. */
+export const updateProfile = authenticatedMutation({
+  args: {
+    fullName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const fullName = args.fullName.trim();
+    if (fullName.length < 2) {
+      throw new ConvexError({ code: "VALIDATION", message: "Full name must be at least 2 characters." });
+    }
+    await ctx.db.patch(ctx.user._id, { fullName });
+  },
+});
+
 /** Admin-only: update a staff member's role and activation status. */
 export const updateMember = authenticatedMutation({
   args: {
