@@ -15,12 +15,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     return (
         <div className="flex min-h-screen w-full overflow-hidden bg-white">
 
-            {/* ── Left (40%): form panel ── */}
-            <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-1/2 lg:shrink-0">
-                {children}
-            </div>
-
-            {/* ── Right (60%): marketing + animated globe ── */}
+            {/* ── Left (60%): marketing + animated globe ── */}
             <div
                 className="relative hidden flex-1 flex-col justify-between overflow-hidden lg:flex"
                 style={{ background: "linear-gradient(145deg, #0d1424 0%, #0f1c38 55%, #0b1628 100%)" }}
@@ -92,6 +87,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                         Trusted by immigration attorneys and law firms globally
                     </p>
                 </div>
+            </div>
+
+            {/* ── Right (40%): form panel ── */}
+            <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-1/2 lg:shrink-0">
+                {children}
             </div>
         </div>
     );
