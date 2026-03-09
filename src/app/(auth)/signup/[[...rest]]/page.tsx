@@ -1,16 +1,24 @@
 "use client";
 
 import { useSignUp } from "@clerk/nextjs/legacy";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function SignupPage() {
+function SignupForm() {
     const { isLoaded, signUp } = useSignUp();
     const router = useRouter();
+    const searchParams = useSearchParams();
+
+    useEffect(() => {
+        const ticket = searchParams.get("__clerk_ticket");
+        if (ticket) {
+            router.replace(`/invite?__clerk_ticket=${ticket}`);
+        }
+    }, [searchParams, router]);
 
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
@@ -131,5 +139,13 @@ export default function SignupPage() {
                 </p>
             </form>
         </div>
+    );
+}
+
+export default function SignupPage() {
+    return (
+        <Suspense>
+            <SignupForm />
+        </Suspense>
     );
 }

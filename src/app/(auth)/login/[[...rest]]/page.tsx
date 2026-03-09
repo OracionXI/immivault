@@ -205,7 +205,7 @@ export default function LoginPage() {
                             value={code}
                             onChange={(e) => setCode(e.target.value)}
                             placeholder="123456"
-                            className="h-10 tracking-widest"
+                            className="h-10 text-black tracking-widest"
                             autoFocus
                         />
                     </div>

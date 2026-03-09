@@ -4,10 +4,13 @@ import { NextResponse } from "next/server";
 const isPublicRoute = createRouteMatcher([
   "/login(.*)",
   "/signup(.*)",
+  "/verify(.*)",
   "/forgot-password(.*)",
+  "/invite(.*)",
   "/auth/(.*)",
   "/pay/(.*)",
   "/onboarding(.*)",
+  "/waiting(.*)",
 ]);
 
 const isAuthRoute = createRouteMatcher([
