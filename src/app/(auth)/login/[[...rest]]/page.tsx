@@ -6,8 +6,7 @@ export default function LoginPage() {
     return (
         <div className="w-full flex justify-center">
             <SignIn
-                routing="path"
-                path="/login"
+                routing="hash"
                 fallbackRedirectUrl="/dashboard"
                 signUpUrl="/signup"
                 appearance={{
