@@ -23,6 +23,7 @@ function SignupForm() {
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
+    const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
@@ -36,6 +37,7 @@ function SignupForm() {
                 firstName,
                 lastName,
                 emailAddress: email,
+                username,
                 password,
             });
             await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
@@ -91,6 +93,23 @@ function SignupForm() {
                             className="h-10 text-black"
                         />
                     </div>
+                </div>
+
+                <div className="space-y-1.5">
+                    <Label htmlFor="username" className="text-sm font-medium text-gray-700">
+                        Username
+                    </Label>
+                    <Input
+                        id="username"
+                        type="text"
+                        autoComplete="username"
+                        required
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
+                        placeholder="johndoe"
+                        className="h-10 text-black"
+                    />
+                    <p className="text-xs text-gray-400">Must be unique across all accounts.</p>
                 </div>
 
                 <div className="space-y-1.5">

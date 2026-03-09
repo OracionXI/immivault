@@ -15,7 +15,7 @@ export default function VerifyPage() {
     const [error, setError] = useState("");
 
     async function handleVerify() {
-        if (!isLoaded) return;
+        if (!isLoaded || !signUp) return;
         setLoading(true);
         setError("");
         try {
@@ -23,6 +23,8 @@ export default function VerifyPage() {
             if (result.status === "complete") {
                 await setActive({ session: result.createdSessionId });
                 router.push("/onboarding");
+            } else {
+                setError("Verification incomplete. Please try again or request a new code.");
             }
         } catch (err: unknown) {
             const clerkError = err as { errors?: { message: string }[] };
@@ -33,8 +35,32 @@ export default function VerifyPage() {
     }
 
     async function handleResend() {
-        if (!isLoaded) return;
-        await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+        if (!isLoaded || !signUp) return;
+        try {
+            await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+        } catch (err: unknown) {
+            const clerkError = err as { errors?: { message: string }[] };
+            setError(clerkError.errors?.[0]?.message ?? "Failed to resend code.");
+        }
+    }
+
+    // If signUp is gone (e.g. page was refreshed), guide user back
+    if (isLoaded && !signUp) {
+        return (
+            <div className="w-full max-w-sm space-y-5">
+                <div>
+                    <h1 className="text-[1.375rem] font-semibold tracking-tight text-gray-900">
+                        Session expired
+                    </h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Your sign-up session is no longer active. Please start again.
+                    </p>
+                </div>
+                <Button className="w-full" onClick={() => router.push("/signup")}>
+                    Back to sign up
+                </Button>
+            </div>
+        );
     }
 
     return (
@@ -76,7 +102,7 @@ export default function VerifyPage() {
                 <Button
                     type="submit"
                     className="w-full"
-                    disabled={loading || code.length < 6 || !isLoaded}
+                    disabled={loading || code.length < 6 || !isLoaded || !signUp}
                 >
                     {loading ? "Verifying…" : "Verify email"}
                 </Button>
