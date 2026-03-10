@@ -12,6 +12,7 @@ export default function VerifyPage() {
     const { signUp, setActive, isLoaded } = useSignUp();
     const [code, setCode] = useState("");
     const [loading, setLoading] = useState(false);
+    const [redirecting, setRedirecting] = useState(false);
     const [error, setError] = useState("");
 
     async function handleVerify() {
@@ -21,6 +22,7 @@ export default function VerifyPage() {
         try {
             const result = await signUp.attemptEmailAddressVerification({ code });
             if (result.status === "complete") {
+                setRedirecting(true);
                 await setActive({ session: result.createdSessionId });
                 router.push("/onboarding");
             } else {
@@ -102,9 +104,9 @@ export default function VerifyPage() {
                 <Button
                     type="submit"
                     className="w-full"
-                    disabled={loading || code.length < 6 || !isLoaded || !signUp}
+                    disabled={loading || redirecting || code.length < 6 || !isLoaded || !signUp}
                 >
-                    {loading ? "Verifying…" : "Verify email"}
+                    {redirecting ? "Redirecting…" : loading ? "Verifying…" : "Verify email"}
                 </Button>
 
                 <p className="text-center text-sm text-gray-500">

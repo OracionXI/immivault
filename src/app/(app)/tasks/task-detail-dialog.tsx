@@ -141,7 +141,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                 </div>
                                 {task.description ? (
                                     <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
-                                        {task.description}
+                                        <MentionBody body={task.description} />
                                     </p>
                                 ) : (
                                     <p className="text-sm text-muted-foreground italic">No description provided.</p>

@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { DocumentViewer } from "@/components/shared/document-viewer";
 import { Button } from "@/components/ui/button";
-import { Trash2, Upload, Eye, Pencil } from "lucide-react";
+import { Trash2, Upload, Eye, Pencil, X } from "lucide-react";
 import { UploadModal } from "./upload-modal";
 import { EditDocumentModal } from "./edit-document-modal";
 import { useRole } from "@/hooks/use-role";
@@ -23,9 +23,16 @@ function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function DocumentsPage() {
     // Single query — client/case names already joined server-side
-    const rawDocuments = useQuery(api.documents.queries.listEnriched) ?? [];
+    const documentsQuery = useQuery(api.documents.queries.listEnriched);
+    const rawDocuments = documentsQuery ?? [];
     const removeDocument = useMutation(api.documents.mutations.remove);
     const { isStaff } = useRole();
 
@@ -40,6 +47,9 @@ export default function DocumentsPage() {
 
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    // Case filter: pre-populated from ?case=caseId
+    const [caseIdFilter, setCaseIdFilter] = useState<string>(() => searchParams.get("case") ?? "");
 
     // Auto-open DocumentViewer when navigated from a notification (?doc=documentId)
     useEffect(() => {
@@ -57,6 +67,16 @@ export default function DocumentsPage() {
         [rawDocuments]
     );
 
+    // Apply case pre-filter before passing to DataTable
+    const filteredDocuments = useMemo(
+        () => caseIdFilter ? documents.filter((d) => d.caseId === caseIdFilter) : documents,
+        [documents, caseIdFilter]
+    );
+
+    const filteredCaseName = caseIdFilter
+        ? (rawDocuments.find((d) => d.caseId === caseIdFilter)?.caseName ?? "Selected case")
+        : null;
+
     const handleDelete = async () => {
         if (deleteDialog.id) {
             await removeDocument({ id: deleteDialog.id });
@@ -70,6 +90,7 @@ export default function DocumentsPage() {
         { key: "caseName", label: "Case", sortable: true },
         { key: "clientName", label: "Client", sortable: true },
         { key: "uploadedDisplay", label: "Uploaded", sortable: true },
+        { key: "fileSize", label: "Size", render: (d) => <span className="text-muted-foreground">{typeof d.fileSize === "number" ? formatFileSize(d.fileSize) : "—"}</span> },
         { key: "status", label: "Status", render: (d) => <StatusBadge status={d.status} /> },
         {
             key: "actions", label: "Actions", render: (d) => (
@@ -119,11 +140,26 @@ export default function DocumentsPage() {
                 actionIcon={isStaff ? undefined : <Upload className="h-4 w-4" />}
                 onAction={isStaff ? undefined : () => setUploadOpen(true)}
             />
+            {filteredCaseName && (
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Filtered by case:</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium">
+                        {filteredCaseName}
+                        <button
+                            onClick={() => setCaseIdFilter("")}
+                            className="text-primary/70 hover:text-primary transition-colors"
+                        >
+                            <X className="h-3 w-3" />
+                        </button>
+                    </span>
+                </div>
+            )}
             <DataTable
-                data={documents as unknown as Record<string, unknown>[]}
+                data={filteredDocuments as unknown as Record<string, unknown>[]}
                 columns={columns as unknown as Column<Record<string, unknown>>[]}
                 searchKey="name"
                 searchPlaceholder="Search documents..."
+                loading={documentsQuery === undefined}
                 filterDropdown={{
                     key: "type",
                     placeholder: "All Types",

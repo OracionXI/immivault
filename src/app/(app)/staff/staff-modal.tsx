@@ -16,9 +16,11 @@ interface StaffModalProps {
     staff: ConvexUser | null;
 }
 
-const ROLES = ["admin", "case_manager", "staff"] as const;
+// Admin is intentionally excluded — each org has exactly one admin (set at signup).
+const ASSIGNABLE_ROLES = ["case_manager", "staff"] as const;
+type AssignableRole = typeof ASSIGNABLE_ROLES[number];
 
-const ROLE_LABELS: Record<typeof ROLES[number], string> = {
+const ROLE_LABELS: Record<"admin" | AssignableRole, string> = {
     admin: "Admin",
     case_manager: "Case Manager",
     staff: "Staff",
@@ -28,23 +30,34 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
     const updateMember = useMutation(api.users.mutations.updateMember);
 
     const [form, setForm] = useState({
-        role: "staff" as typeof ROLES[number],
+        role: "staff" as AssignableRole,
         status: "active" as "active" | "inactive",
     });
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    const isAdmin = staff?.role === "admin";
 
     useEffect(() => {
         if (staff) {
-            setForm({ role: staff.role, status: staff.status === "pending_onboarding" ? "active" : staff.status });
+            setError("");
+            setForm({
+                role: staff.role === "admin" ? "staff" : staff.role,
+                status: staff.status === "pending_onboarding" ? "active" : staff.status,
+            });
         }
     }, [staff, open]);
 
     const handleSubmit = async () => {
         if (!staff) return;
         setLoading(true);
+        setError("");
         try {
             await updateMember({ id: staff._id, role: form.role, status: form.status });
             onOpenChange(false);
+        } catch (err: unknown) {
+            const convexErr = err as { data?: { message?: string }; message?: string };
+            setError(convexErr?.data?.message ?? convexErr?.message ?? "Failed to update member.");
         } finally {
             setLoading(false);
         }
@@ -64,18 +77,31 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
                         <div className="grid gap-4">
                             <div className="grid gap-2">
                                 <Label>Role</Label>
-                                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as typeof form.role })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {ROLES.map((r) => (
-                                            <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                {isAdmin ? (
+                                    <div className="flex h-9 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                                        Admin <span className="ml-2 text-xs">(cannot be changed)</span>
+                                    </div>
+                                ) : (
+                                    <Select
+                                        value={form.role}
+                                        onValueChange={(v) => setForm({ ...form, role: v as AssignableRole })}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {ASSIGNABLE_ROLES.map((r) => (
+                                                <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                             </div>
                             <div className="grid gap-2">
                                 <Label>Status</Label>
-                                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                                <Select
+                                    value={form.status}
+                                    onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}
+                                    disabled={isAdmin}
+                                >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="active">Active</SelectItem>
@@ -84,11 +110,19 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
                                 </Select>
                             </div>
                         </div>
+
+                        {error && (
+                            <p className="mt-3 text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
+                                {error}
+                            </p>
+                        )}
                     </div>
                 )}
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={loading}>Save Changes</Button>
+                    <Button onClick={handleSubmit} disabled={loading || isAdmin}>
+                        {loading ? "Saving…" : "Save Changes"}
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
