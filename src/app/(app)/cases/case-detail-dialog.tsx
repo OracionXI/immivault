@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -14,7 +15,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentViewer } from "@/components/shared/document-viewer";
 import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
 import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
-import { Pencil, Trash2, UserRound, CalendarDays, FileText, MessageSquare, Send, CheckSquare, Eye, X } from "lucide-react";
+import { Pencil, Trash2, UserRound, CalendarDays, FileText, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
@@ -37,6 +38,7 @@ function formatTs(ts: number) {
 }
 
 export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, onEdit }: CaseDetailDialogProps) {
+    const router = useRouter();
     const [newComment, setNewComment] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                     </div>
                                     {caseItem.notes ? (
                                         <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
-                                            {caseItem.notes}
+                                            <MentionBody body={caseItem.notes} />
                                         </p>
                                     ) : (
                                         <p className="text-sm text-muted-foreground italic">No notes provided.</p>
@@ -155,6 +157,15 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                 {tasks.length}
                                             </span>
                                         )}
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="ml-auto h-6 px-2 text-xs text-muted-foreground gap-1 hover:text-foreground"
+                                            onClick={() => { onClose(); router.push(`/tasks?case=${caseItem._id}`); }}
+                                        >
+                                            See all
+                                            <ArrowRight className="h-3 w-3" />
+                                        </Button>
                                     </div>
                                     {tasks.length === 0 ? (
                                         <p className="text-sm text-muted-foreground italic">No tasks for this case.</p>
@@ -183,6 +194,15 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                 {caseDocs.length}
                                             </span>
                                         )}
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="ml-auto h-6 px-2 text-xs text-muted-foreground gap-1 hover:text-foreground"
+                                            onClick={() => { onClose(); router.push(`/documents?case=${caseItem._id}`); }}
+                                        >
+                                            See all
+                                            <ArrowRight className="h-3 w-3" />
+                                        </Button>
                                     </div>
                                     {caseDocs.length === 0 ? (
                                         <p className="text-sm text-muted-foreground italic">No documents for this case.</p>

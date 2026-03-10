@@ -36,10 +36,10 @@ const CUSTOM_STAGE_COLORS = [
 ];
 
 export default function CasesPage() {
-    const rawCases = useQuery(api.cases.queries.list) ?? [];
+    const casesQuery = useQuery(api.cases.queries.list);
+    const rawCases = casesQuery ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
-    const tasks = useQuery(api.tasks.queries.list) ?? [];
     const orgSettings = useQuery(api.organisations.queries.getSettings);
     const updateStatus = useMutation(api.cases.mutations.updateStatus);
     const updateSettings = useMutation(api.organisations.mutations.updateSettings);
@@ -80,18 +80,6 @@ export default function CasesPage() {
         () => new Map(users.map((u) => [u._id, u.fullName])),
         [users]
     );
-    const tasksByCase = useMemo(() => {
-        const map = new Map<string, string[]>();
-        for (const t of tasks) {
-            if (!t.caseId) continue;
-            const chips = map.get(t.caseId) ?? [];
-            const label = `${t.taskId}: ${t.title.length > 22 ? t.title.slice(0, 22) + "…" : t.title}`;
-            chips.push(label);
-            map.set(t.caseId, chips);
-        }
-        return map;
-    }, [tasks]);
-
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCase, setEditingCase] = useState<ConvexCase | null>(null);
     const [viewCase, setViewCase] = useState<ConvexCase | null>(null);
@@ -124,7 +112,6 @@ export default function CasesPage() {
                 assignee: c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : "Unassigned",
                 assignedToId: c.assignedTo ?? null,
                 dueDate: c.deadline ? new Date(c.deadline).toISOString().split("T")[0] : undefined,
-                taskChips: tasksByCase.get(c._id) ?? [],
             }))
             .filter((item) => {
                 if (!q) return true;
@@ -134,7 +121,7 @@ export default function CasesPage() {
                     (item.assignee?.toLowerCase() ?? "").includes(q)
                 );
             });
-    }, [rawCases, clientMap, userMap, tasksByCase, search]);
+    }, [rawCases, clientMap, userMap, search]);
 
     const handleItemClick = (item: KanbanItem) => {
         const c = rawCases.find((x) => x._id === item.id);
@@ -199,18 +186,34 @@ export default function CasesPage() {
                 )}
             </div>
 
-            <KanbanBoard
-                columns={kanbanColumns}
-                items={kanbanItems}
-                statusKey="status"
-                disabledStatuses={["Archive", "Archived"]}
-                onItemClick={handleItemClick}
-                onItemEdit={(isAdmin || isCaseManager) ? handleItemEdit : undefined}
-                canEditItem={isCaseManager ? (item) => item.assignedToId === user?._id : undefined}
-                onItemDelete={isAdmin ? handleItemDelete : undefined}
-                onItemMove={handleItemMove}
-                onColumnReorder={isAdmin ? handleColumnReorder : undefined}
-            />
+            {casesQuery === undefined ? (
+                <div className="flex gap-4 overflow-hidden">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="flex-shrink-0 w-72 space-y-3">
+                            <div className="h-6 w-24 rounded bg-muted animate-pulse" />
+                            {Array.from({ length: 3 }).map((_, j) => (
+                                <div key={j} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                    <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
+                                    <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <KanbanBoard
+                    columns={kanbanColumns}
+                    items={kanbanItems}
+                    statusKey="status"
+                    disabledStatuses={["Archive", "Archived"]}
+                    onItemClick={handleItemClick}
+                    onItemEdit={(isAdmin || isCaseManager) ? handleItemEdit : undefined}
+                    canEditItem={isCaseManager ? (item) => item.assignedToId === user?._id : undefined}
+                    onItemDelete={isAdmin ? handleItemDelete : undefined}
+                    onItemMove={handleItemMove}
+                    onColumnReorder={isAdmin ? handleColumnReorder : undefined}
+                />
+            )}
 
             {(isAdmin || isCaseManager) && (
                 <CaseModal

@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea } from "@/components/shared/mention-textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -55,6 +55,15 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const [loading, setLoading] = useState(false);
     const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
     const [casePopoverOpen, setCasePopoverOpen] = useState(false);
+
+    // Must be after form state so form.caseId is available for the conditional arg
+    const caseDocs = useQuery(
+        api.documents.queries.listByCase,
+        form.caseId ? { caseId: form.caseId as Id<"cases"> } : "skip"
+    ) ?? [];
+
+    const mentionUsers = users.map((u) => ({ id: u._id, name: u.fullName }));
+    const mentionDocs = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
     useEffect(() => {
         if (task) {
@@ -137,11 +146,13 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
 
                     <div className="grid gap-2">
                         <Label>Description</Label>
-                        <Textarea
+                        <MentionTextarea
                             value={form.description}
-                            onChange={(e) => setForm({ ...form, description: e.target.value })}
-                            placeholder="Task details..."
+                            onChange={(v) => setForm({ ...form, description: v })}
+                            placeholder="Task details… type @ to mention a person or document"
                             rows={3}
+                            users={mentionUsers}
+                            docs={mentionDocs}
                         />
                     </div>
 

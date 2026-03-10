@@ -38,6 +38,7 @@ interface DataTableProps<T> {
     pageSize?: number;
     onRowClick?: (item: T) => void;
     filterDropdown?: FilterDropdown;
+    loading?: boolean;
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -48,6 +49,7 @@ export function DataTable<T extends Record<string, unknown>>({
     pageSize = 10,
     onRowClick,
     filterDropdown,
+    loading = false,
 }: DataTableProps<T>) {
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(0);
@@ -176,7 +178,17 @@ export function DataTable<T extends Record<string, unknown>>({
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {paged.length === 0 ? (
+                            {loading ? (
+                                Array.from({ length: 5 }).map((_, i) => (
+                                    <TableRow key={i}>
+                                        {columns.map((col) => (
+                                            <TableCell key={col.key}>
+                                                <div className="h-4 rounded bg-muted animate-pulse" />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))
+                            ) : paged.length === 0 ? (
                                 <TableRow>
                                     <TableCell
                                         colSpan={columns.length}

@@ -18,7 +18,8 @@ import {
 type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.list>>>[number] & { name: string };
 
 export default function ClientsPage() {
-    const rawClients = useQuery(api.clients.queries.list) ?? [];
+    const clientsQuery = useQuery(api.clients.queries.list);
+    const rawClients = clientsQuery ?? [];
     const removeClient = useMutation(api.clients.mutations.remove);
 
     // Add computed full name for DataTable search
@@ -90,6 +91,7 @@ export default function ClientsPage() {
                 columns={columns as unknown as Column<Record<string, unknown>>[]}
                 searchKey="name"
                 searchPlaceholder="Search clients..."
+                loading={clientsQuery === undefined}
                 filterDropdown={{
                     key: "status",
                     placeholder: "All Statuses",

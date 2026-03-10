@@ -305,24 +305,6 @@ export function KanbanBoard({
                                                                             </div>
                                                                         )}
 
-                                                                        {/* Task chips */}
-                                                                        {Array.isArray(item.taskChips) && (item.taskChips as string[]).length > 0 && (
-                                                                            <div className="flex flex-wrap gap-1 pl-5">
-                                                                                {(item.taskChips as string[]).slice(0, 3).map((chip, i) => (
-                                                                                    <span
-                                                                                        key={i}
-                                                                                        className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground leading-none truncate max-w-[160px]"
-                                                                                    >
-                                                                                        {chip}
-                                                                                    </span>
-                                                                                ))}
-                                                                                {(item.taskChips as string[]).length > 3 && (
-                                                                                    <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground leading-none">
-                                                                                        +{(item.taskChips as string[]).length - 3}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        )}
                                                                     </div>
 
                                                                     {/* Divider */}

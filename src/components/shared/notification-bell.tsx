@@ -8,7 +8,6 @@ import { Bell, Briefcase, CheckSquare, MessageSquare, AtSign, FileText } from "l
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -121,7 +120,7 @@ export function NotificationBell() {
             <p className="text-sm text-muted-foreground">No notifications yet</p>
           </div>
         ) : (
-          <ScrollArea className="max-h-96">
+          <div className="overflow-y-auto max-h-[min(24rem,calc(100dvh-10rem))]">
             <div className="divide-y divide-border">
               {notifications.map((notif) => (
                 <button
@@ -157,7 +156,7 @@ export function NotificationBell() {
                 </button>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </PopoverContent>
     </Popover>

@@ -32,7 +32,8 @@ const TASK_COLUMNS: KanbanColumn[] = [
 const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
 
 export default function TasksPage() {
-    const rawTasks = useQuery(api.tasks.queries.list) ?? [];
+    const tasksQuery = useQuery(api.tasks.queries.list);
+    const rawTasks = tasksQuery ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const updateStatus = useMutation(api.tasks.mutations.updateStatus);
@@ -59,6 +60,10 @@ export default function TasksPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
+    // Case filter: pre-populated from ?case=caseId (set by clicking "Tasks" on a case card)
+    const [caseIdFilter, setCaseIdFilter] = useState<string>(() => searchParams.get("case") ?? "");
+    const filteredCaseName = caseIdFilter ? (caseMap.get(caseIdFilter as Id<"cases">) ?? "Selected case") : null;
+
     // Auto-open a specific task when navigated from a notification (?open=taskId)
     useEffect(() => {
         const openId = searchParams.get("open");
@@ -73,6 +78,7 @@ export default function TasksPage() {
     const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();
         return rawTasks
+            .filter((t) => !caseIdFilter || t.caseId === caseIdFilter)
             .map((t) => ({
                 id: t._id,
                 title: t.title,
@@ -88,9 +94,9 @@ export default function TasksPage() {
                 if (priorityFilter !== "all" && item.priority !== priorityFilter) return false;
                 return true;
             });
-    }, [rawTasks, userMap, caseMap, search, assigneeFilter, priorityFilter]);
+    }, [rawTasks, userMap, caseMap, search, assigneeFilter, priorityFilter, caseIdFilter]);
 
-    const isFiltering = search || assigneeFilter !== "all" || priorityFilter !== "all";
+    const isFiltering = search || assigneeFilter !== "all" || priorityFilter !== "all" || caseIdFilter;
     const activeUsers = users.filter((u) => u.status === "active");
 
     const handleItemClick = (item: KanbanItem) => {
@@ -190,15 +196,46 @@ export default function TasksPage() {
                 </div>
             </div>
 
-            <KanbanBoard
-                columns={TASK_COLUMNS}
-                items={kanbanItems}
-                statusKey="status"
-                onItemClick={handleItemClick}
-                onItemEdit={isStaff ? undefined : handleItemEdit}
-                onItemDelete={isStaff ? undefined : handleItemDelete}
-                onItemMove={handleItemMove}
-            />
+            {filteredCaseName && (
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Filtered by case:</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium">
+                        {filteredCaseName}
+                        <button
+                            onClick={() => setCaseIdFilter("")}
+                            className="text-primary/70 hover:text-primary transition-colors"
+                        >
+                            <X className="h-3 w-3" />
+                        </button>
+                    </span>
+                </div>
+            )}
+
+            {tasksQuery === undefined ? (
+                <div className="flex gap-4 overflow-hidden">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="flex-shrink-0 w-72 space-y-3">
+                            <div className="h-6 w-24 rounded bg-muted animate-pulse" />
+                            {Array.from({ length: 3 }).map((_, j) => (
+                                <div key={j} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                    <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
+                                    <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <KanbanBoard
+                    columns={TASK_COLUMNS}
+                    items={kanbanItems}
+                    statusKey="status"
+                    onItemClick={handleItemClick}
+                    onItemEdit={isStaff ? undefined : handleItemEdit}
+                    onItemDelete={isStaff ? undefined : handleItemDelete}
+                    onItemMove={handleItemMove}
+                />
+            )}
 
             <TaskModal
                 open={modalOpen}

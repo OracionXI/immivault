@@ -193,6 +193,22 @@ export const updateMember = authenticatedMutation({
     if (!member || member.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "User not found." });
     }
+
+    // Single-admin constraint: prevent assigning admin to a non-admin member
+    if (args.role === "admin" && member.role !== "admin") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Each organisation can have only one admin.",
+      });
+    }
+    // Single-admin constraint: prevent demoting the only admin
+    if (member.role === "admin" && args.role !== "admin") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Cannot change the admin's role. Each organisation must have exactly one admin.",
+      });
+    }
+
     await ctx.db.patch(args.id, { role: args.role, status: args.status });
   },
 });

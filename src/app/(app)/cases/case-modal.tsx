@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea } from "@/components/shared/mention-textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -37,6 +37,10 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const settings = useQuery(api.organisations.queries.getSettings);
+    const caseDocs = useQuery(
+        api.documents.queries.listByCase,
+        caseItem ? { caseId: caseItem._id } : "skip"
+    ) ?? [];
 
     // Cases can only be assigned to case managers
     const caseManagers = users.filter((u) => u.role === "case_manager" && u.status === "active");
@@ -58,6 +62,9 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
     const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
+
+    const mentionUsers = users.map((u) => ({ id: u._id, name: u.fullName }));
+    const mentionDocs = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
     useEffect(() => {
         if (caseItem) {
@@ -274,7 +281,14 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                     </div>
                     <div className="grid gap-2">
                         <Label>Notes</Label>
-                        <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional notes..." rows={3} />
+                        <MentionTextarea
+                            value={form.notes}
+                            onChange={(v) => setForm({ ...form, notes: v })}
+                            placeholder="Additional notes… type @ to mention a person or document"
+                            rows={3}
+                            users={mentionUsers}
+                            docs={mentionDocs}
+                        />
                     </div>
                 </div>
                 <DialogFooter>

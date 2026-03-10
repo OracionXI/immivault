@@ -25,7 +25,8 @@ import {
 type ConvexUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.queries.listByOrg>>>[number];
 
 export default function StaffPage() {
-    const staff = useQuery(api.users.queries.listByOrg) ?? [];
+    const staffQuery = useQuery(api.users.queries.listByOrg);
+    const staff = staffQuery ?? [];
     const deleteStaff = useAction(api.users.actions.deleteStaff);
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -103,6 +104,7 @@ export default function StaffPage() {
                 columns={columns as unknown as Column<Record<string, unknown>>[]}
                 searchKey="fullName"
                 searchPlaceholder="Search staff..."
+                loading={staffQuery === undefined}
                 filterDropdown={{
                     key: "status",
                     placeholder: "All Staff",
