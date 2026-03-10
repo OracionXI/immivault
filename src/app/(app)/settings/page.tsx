@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Save, Loader2 } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
 
 export default function ProfilePage() {
+    const { user: clerkUser } = useUser();
     const { user, isAdmin } = useRole();
     const org = useQuery(api.organisations.queries.mine);
     const settings = useQuery(api.organisations.queries.getSettings);
@@ -54,7 +56,15 @@ export default function ProfilePage() {
         setProfileSaving(true);
         setProfileSaved(false);
         try {
-            await updateProfile({ fullName: profileForm.fullName });
+            const trimmed = profileForm.fullName.trim();
+            // Split into first / last for Clerk (last word = lastName)
+            const spaceIdx = trimmed.lastIndexOf(" ");
+            const firstName = spaceIdx > -1 ? trimmed.slice(0, spaceIdx) : trimmed;
+            const lastName = spaceIdx > -1 ? trimmed.slice(spaceIdx + 1) : "";
+            await Promise.all([
+                updateProfile({ fullName: trimmed }),
+                clerkUser?.update({ firstName, lastName }),
+            ]);
             setProfileSaved(true);
             setTimeout(() => setProfileSaved(false), 2500);
         } finally {

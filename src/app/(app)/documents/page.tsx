@@ -34,6 +34,9 @@ export default function DocumentsPage() {
     const documentsQuery = useQuery(api.documents.queries.listEnriched);
     const rawDocuments = documentsQuery ?? [];
     const removeDocument = useMutation(api.documents.mutations.remove);
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const docTypeOptions = (settings?.documentTypes ?? ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"])
+        .map((t) => ({ label: t, value: t }));
     const { isStaff } = useRole();
 
     const [uploadOpen, setUploadOpen] = useState(false);
@@ -163,14 +166,7 @@ export default function DocumentsPage() {
                 filterDropdown={{
                     key: "type",
                     placeholder: "All Types",
-                    options: [
-                        { label: "Identity", value: "Identity" },
-                        { label: "Employment", value: "Employment" },
-                        { label: "Immigration", value: "Immigration" },
-                        { label: "Education", value: "Education" },
-                        { label: "Financial", value: "Financial" },
-                        { label: "Supporting", value: "Supporting" },
-                    ],
+                    options: docTypeOptions,
                 }}
             />
             <UploadModal open={uploadOpen} onOpenChange={setUploadOpen} />

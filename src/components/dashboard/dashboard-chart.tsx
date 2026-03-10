@@ -27,12 +27,12 @@ import {
 
 type MetricKey = "revenue" | "cases" | "clients" | "appointments" | "tasksCompleted";
 
-const METRICS: { key: MetricKey; label: string; color: string; format: (v: number) => string }[] = [
-    { key: "revenue", label: "Revenue ($)", color: "#10b981", format: (v) => `$${v.toLocaleString()}` },
-    { key: "cases", label: "Cases Opened", color: "#f59e0b", format: (v) => String(v) },
-    { key: "clients", label: "Clients Added", color: "#3b82f6", format: (v) => String(v) },
-    { key: "appointments", label: "Appointments", color: "#8b5cf6", format: (v) => String(v) },
-    { key: "tasksCompleted", label: "Tasks Completed", color: "#ec4899", format: (v) => String(v) },
+const ALL_METRICS: { key: MetricKey; label: string; color: string; format: (v: number) => string; adminOnly?: boolean }[] = [
+    { key: "revenue",       label: "Revenue ($)",     color: "#10b981", format: (v) => `$${v.toLocaleString()}`, adminOnly: true },
+    { key: "cases",         label: "Cases Opened",    color: "#f59e0b", format: (v) => String(v) },
+    { key: "clients",       label: "Clients Added",   color: "#3b82f6", format: (v) => String(v), adminOnly: true },
+    { key: "appointments",  label: "Appointments",    color: "#8b5cf6", format: (v) => String(v) },
+    { key: "tasksCompleted",label: "Tasks Completed", color: "#ec4899", format: (v) => String(v) },
 ];
 
 const RANGES = [
@@ -57,7 +57,7 @@ function CustomTooltip({
         <div className="rounded-lg border bg-card p-3 shadow-md text-sm min-w-[140px]">
             <p className="font-semibold text-foreground mb-1.5">{label}</p>
             {payload.map((entry) => {
-                const metric = METRICS.find((m) => m.key === entry.dataKey);
+                const metric = ALL_METRICS.find((m) => m.key === entry.dataKey);
                 return (
                     <p key={entry.dataKey} style={{ color: entry.color }} className="flex justify-between gap-4">
                         <span>{metric?.label ?? entry.name}</span>
@@ -71,14 +71,20 @@ function CustomTooltip({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function DashboardChart() {
+interface DashboardChartProps {
+    isAdmin?: boolean;
+}
+
+export function DashboardChart({ isAdmin = true }: DashboardChartProps) {
+    const METRICS = ALL_METRICS.filter((m) => isAdmin || !m.adminOnly);
+
     const [range, setRange] = useState("6");
-    const [primaryMetric, setPrimaryMetric] = useState<MetricKey>("revenue");
-    const [secondaryMetric, setSecondaryMetric] = useState<MetricKey>("cases");
+    const [primaryMetric, setPrimaryMetric] = useState<MetricKey>(isAdmin ? "revenue" : "cases");
+    const [secondaryMetric, setSecondaryMetric] = useState<MetricKey>("tasksCompleted");
 
     const data = useQuery(api.dashboard.queries.chartData, { months: Number(range) });
 
-    const primary = METRICS.find((m) => m.key === primaryMetric)!;
+    const primary = METRICS.find((m) => m.key === primaryMetric) ?? METRICS[0];
     const secondary = METRICS.find((m) => m.key === secondaryMetric);
 
     // Determine if primary Y and secondary Y share the same scale
