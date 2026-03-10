@@ -19,8 +19,7 @@ interface UploadModalProps {
     onOpenChange: (open: boolean) => void;
 }
 
-const docTypes = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"] as const;
-type DocType = typeof docTypes[number];
+const DEFAULT_DOC_TYPES = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"];
 
 const ALLOWED_EXTENSIONS = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -28,10 +27,12 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 export function UploadModal({ open, onOpenChange }: UploadModalProps) {
     // listAll is RBAC-scoped: case managers only see their assigned cases
     const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const docTypes = settings?.documentTypes ?? DEFAULT_DOC_TYPES;
     const generateUploadUrl = useMutation(api.documents.mutations.generateUploadUrl);
     const createDocument = useMutation(api.documents.mutations.create);
 
-    const [form, setForm] = useState<{ name: string; type: DocType | ""; caseId: string }>({
+    const [form, setForm] = useState<{ name: string; type: string; caseId: string }>({
         name: "", type: "", caseId: "",
     });
     const [file, setFile] = useState<File | null>(null);
@@ -101,7 +102,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
             await createDocument({
                 caseId: form.caseId as Id<"cases">,
                 name: form.name.trim(),
-                type: form.type as DocType,
+                type: form.type,
                 storageId,
                 fileSize: file.size,
                 mimeType: file.type || "application/octet-stream",
@@ -173,7 +174,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Document Type *</Label>
-                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as DocType })}>
+                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                                 <SelectContent>
                                     {docTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}

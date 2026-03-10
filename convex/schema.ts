@@ -137,14 +137,7 @@ export default defineSchema({
     clientId: v.id("clients"),
     caseId: v.optional(v.id("cases")),
     name: v.string(),
-    type: v.union(
-      v.literal("Identity"),
-      v.literal("Employment"),
-      v.literal("Immigration"),
-      v.literal("Education"),
-      v.literal("Financial"),
-      v.literal("Supporting")
-    ),
+    type: v.string(),
     storageId: v.id("_storage"),
     fileSize: v.number(),
     mimeType: v.string(),
@@ -354,5 +347,6 @@ export default defineSchema({
     availableStartTime: v.optional(v.string()), // "HH:MM" 24h
     availableEndTime: v.optional(v.string()),   // "HH:MM" 24h
     availableDays: v.optional(v.array(v.string())), // ["Mon","Tue",...]
+    documentTypes: v.optional(v.array(v.string())),
   }).index("by_org", ["organisationId"]),
 });

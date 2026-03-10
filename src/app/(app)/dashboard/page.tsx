@@ -17,12 +17,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardChart } from "@/components/dashboard/dashboard-chart";
+import { BreakdownCharts } from "@/components/dashboard/breakdown-charts";
+import { useRole } from "@/hooks/use-role";
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default function DashboardPage() {
+    const { isAdmin } = useRole();
     const stats = useQuery(api.dashboard.queries.stats);
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
@@ -36,14 +39,15 @@ export default function DashboardPage() {
         [users]
     );
 
-    const statCards = [
-        { title: "Total Clients", value: stats?.totalClients ?? 0, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-        { title: "Active Cases", value: stats?.activeCases ?? 0, icon: Briefcase, color: "text-amber-500", bg: "bg-amber-500/10" },
-        { title: "Pending Tasks", value: stats?.pendingTasks ?? 0, icon: CheckSquare, color: "text-violet-500", bg: "bg-violet-500/10" },
-        { title: "Monthly Revenue", value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`, icon: DollarSign, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-        { title: "Upcoming Appointments", value: stats?.upcomingAppointments ?? 0, icon: Calendar, color: "text-sky-500", bg: "bg-sky-500/10" },
-        { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, color: "text-red-500", bg: "bg-red-500/10" },
+    const allStatCards = [
+        { title: "Total Clients",          value: stats?.totalClients ?? 0,                                icon: Users,        color: "text-blue-500",    bg: "bg-blue-500/10" },
+        { title: "Active Cases",           value: stats?.activeCases ?? 0,                                 icon: Briefcase,    color: "text-amber-500",   bg: "bg-amber-500/10" },
+        { title: "Completed Tasks",        value: stats?.completedTasks ?? 0,                              icon: CheckSquare,  color: "text-violet-500",  bg: "bg-violet-500/10" },
+        { title: "Monthly Revenue",        value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`,     icon: DollarSign,   color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true },
+        { title: "Upcoming Appointments",  value: stats?.upcomingAppointments ?? 0,                        icon: Calendar,     color: "text-sky-500",     bg: "bg-sky-500/10" },
+        { title: "Overdue Invoices",       value: stats?.overdueInvoices ?? 0,                             icon: AlertCircle,  color: "text-red-500",     bg: "bg-red-500/10",     adminOnly: true },
     ];
+    const statCards = allStatCards.filter((s) => !("adminOnly" in s) || isAdmin);
 
     const recentCases = stats?.recentCases ?? [];
     const pendingTasksList = stats?.pendingTasksList ?? [];
@@ -55,7 +59,7 @@ export default function DashboardPage() {
             <PageHeader title="Dashboard" description="Overview of your immigration practice" />
 
             {/* Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${isAdmin ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-4"}`}>
                 {statCards.map((stat) => (
                     <Card key={stat.title} className="hover:shadow-md transition-shadow">
                         <CardContent className="p-4">
@@ -72,7 +76,10 @@ export default function DashboardPage() {
             </div>
 
             {/* Trends Chart */}
-            <DashboardChart />
+            <DashboardChart isAdmin={isAdmin} />
+
+            {/* Case Status + Cases per Client — admin only */}
+            {isAdmin && <BreakdownCharts />}
 
             {/* Recent Cases + Pending Tasks */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

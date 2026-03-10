@@ -20,14 +20,7 @@ export const create = authenticatedMutation({
   args: {
     caseId: v.id("cases"),
     name: v.string(),
-    type: v.union(
-      v.literal("Identity"),
-      v.literal("Employment"),
-      v.literal("Immigration"),
-      v.literal("Education"),
-      v.literal("Financial"),
-      v.literal("Supporting")
-    ),
+    type: v.string(),
     storageId: v.id("_storage"),
     fileSize: v.number(),
     mimeType: v.string(),
@@ -69,14 +62,7 @@ export const update = authenticatedMutation({
   args: {
     id: v.id("documents"),
     name: v.string(),
-    type: v.union(
-      v.literal("Identity"),
-      v.literal("Employment"),
-      v.literal("Immigration"),
-      v.literal("Education"),
-      v.literal("Financial"),
-      v.literal("Supporting")
-    ),
+    type: v.string(),
     caseId: v.id("cases"),
   },
   handler: async (ctx, args) => {

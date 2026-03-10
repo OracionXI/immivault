@@ -132,6 +132,7 @@ export const updateSettings = authenticatedMutation({
     availableStartTime: v.optional(v.string()),
     availableEndTime: v.optional(v.string()),
     availableDays: v.optional(v.array(v.string())),
+    documentTypes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     if (ctx.user.role !== "admin") {

@@ -16,8 +16,7 @@ import { cn } from "@/lib/utils";
 
 type ConvexDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.list>>>[number];
 
-const docTypes = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"] as const;
-type DocType = typeof docTypes[number];
+const DEFAULT_DOC_TYPES = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"];
 
 interface EditDocumentModalProps {
     open: boolean;
@@ -27,9 +26,11 @@ interface EditDocumentModalProps {
 
 export function EditDocumentModal({ open, onOpenChange, document }: EditDocumentModalProps) {
     const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const docTypes = settings?.documentTypes ?? DEFAULT_DOC_TYPES;
     const updateDocument = useMutation(api.documents.mutations.update);
 
-    const [form, setForm] = useState<{ name: string; type: DocType | ""; caseId: string }>({
+    const [form, setForm] = useState<{ name: string; type: string; caseId: string }>({
         name: "", type: "", caseId: "",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -40,7 +41,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
         if (document) {
             setForm({
                 name: document.name,
-                type: document.type as DocType,
+                type: document.type,
                 caseId: document.caseId ?? "",
             });
         }
@@ -64,7 +65,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
             await updateDocument({
                 id: document._id,
                 name: form.name.trim(),
-                type: form.type as DocType,
+                type: form.type,
                 caseId: form.caseId as Id<"cases">,
             });
             onOpenChange(false);
@@ -97,7 +98,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Document Type *</Label>
-                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as DocType })}>
+                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                                 <SelectContent>
                                     {docTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
