@@ -139,7 +139,6 @@ export function Header() {
                             </div>
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => router.push("/settings")}>Profile</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => router.push("/settings")}>Settings</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">

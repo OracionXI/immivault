@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,11 +8,42 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Save, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Save, Loader2, Camera } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
+import Cropper from "react-easy-crop";
+import type { Area } from "react-easy-crop";
+
+/** Converts a crop area into a circular Blob via an offscreen canvas. */
+async function getCroppedBlob(imageSrc: string, cropArea: Area): Promise<Blob> {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.addEventListener("load", () => resolve(img));
+        img.addEventListener("error", reject);
+        img.src = imageSrc;
+    });
+    const canvas = document.createElement("canvas");
+    const size = Math.min(cropArea.width, cropArea.height);
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    // Circular clip
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(
+        image,
+        cropArea.x, cropArea.y, cropArea.width, cropArea.height,
+        0, 0, size, size,
+    );
+    return new Promise((resolve, reject) =>
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Canvas is empty")), "image/jpeg", 0.92)
+    );
+}
 
 export default function ProfilePage() {
     const { user: clerkUser } = useUser();
@@ -26,6 +57,45 @@ export default function ProfilePage() {
     const [profileForm, setProfileForm] = useState({ fullName: "" });
     const [profileSaving, setProfileSaving] = useState(false);
     const [profileSaved, setProfileSaved] = useState(false);
+
+    // Avatar crop state
+    const [avatarUploading, setAvatarUploading] = useState(false);
+    const [cropSrc, setCropSrc] = useState<string | null>(null);
+    const [crop, setCrop] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+    const avatarInputRef = useRef<HTMLInputElement>(null);
+
+    const onCropComplete = useCallback((_: Area, areaPixels: Area) => {
+        setCroppedAreaPixels(areaPixels);
+    }, []);
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => setCropSrc(reader.result as string);
+        reader.readAsDataURL(file);
+        e.target.value = "";
+    };
+
+    const handleCropConfirm = async () => {
+        if (!cropSrc || !croppedAreaPixels || !clerkUser) return;
+        setAvatarUploading(true);
+        setCropSrc(null);
+        try {
+            const blob = await getCroppedBlob(cropSrc, croppedAreaPixels);
+            const file = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+            await clerkUser.setProfileImage({ file });
+            toast.success("Profile picture updated.");
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setAvatarUploading(false);
+            setZoom(1);
+            setCrop({ x: 0, y: 0 });
+        }
+    };
 
     // Org settings state (admin only)
     const [settingsForm, setSettingsForm] = useState({
@@ -106,6 +176,91 @@ export default function ProfilePage() {
             <Card>
                 <CardHeader><CardTitle>My Profile</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
+                    {/* Profile picture */}
+                    <div className="flex items-center gap-5">
+                        {/* Avatar with camera overlay button */}
+                        <div className="relative shrink-0">
+                            <Avatar className="h-20 w-20">
+                                <AvatarImage src={clerkUser?.imageUrl} alt={clerkUser?.fullName ?? "Avatar"} />
+                                <AvatarFallback className="bg-primary text-primary-foreground text-xl font-semibold">
+                                    {(clerkUser?.firstName?.[0] ?? "") + (clerkUser?.lastName?.[0] ?? "") || "U"}
+                                </AvatarFallback>
+                            </Avatar>
+
+                            {/* Uploading spinner overlay */}
+                            {avatarUploading && (
+                                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
+                                    <Loader2 className="h-5 w-5 animate-spin text-white" />
+                                </div>
+                            )}
+
+                            {/* Camera button — bottom-right overlay */}
+                            {!avatarUploading && (
+                                <button
+                                    type="button"
+                                    onClick={() => avatarInputRef.current?.click()}
+                                    className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md ring-2 ring-background transition-opacity hover:opacity-90"
+                                    aria-label="Change profile photo"
+                                >
+                                    <Camera className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        <div>
+                            <p className="text-sm font-medium text-foreground">{clerkUser?.fullName ?? "Your name"}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Click the camera icon to update your photo</p>
+                        </div>
+
+                        <input
+                            ref={avatarInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleFileSelect}
+                        />
+                    </div>
+
+                    {/* Crop dialog */}
+                    <Dialog open={!!cropSrc} onOpenChange={(open) => { if (!open) setCropSrc(null); }}>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Crop profile photo</DialogTitle>
+                            </DialogHeader>
+                            <div className="relative h-72 w-full overflow-hidden rounded-xl bg-black">
+                                {cropSrc && (
+                                    <Cropper
+                                        image={cropSrc}
+                                        crop={crop}
+                                        zoom={zoom}
+                                        aspect={1}
+                                        cropShape="round"
+                                        showGrid={false}
+                                        onCropChange={setCrop}
+                                        onZoomChange={setZoom}
+                                        onCropComplete={onCropComplete}
+                                    />
+                                )}
+                            </div>
+                            <div className="flex items-center gap-3 px-1">
+                                <span className="text-xs text-muted-foreground shrink-0">Zoom</span>
+                                <input
+                                    type="range"
+                                    min={1}
+                                    max={3}
+                                    step={0.01}
+                                    value={zoom}
+                                    onChange={(e) => setZoom(Number(e.target.value))}
+                                    className="w-full accent-primary"
+                                />
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setCropSrc(null)}>Cancel</Button>
+                                <Button onClick={handleCropConfirm}>Apply</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
                     <div className="grid gap-2">
                         <Label>Full Name</Label>
                         <Input
