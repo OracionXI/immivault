@@ -66,7 +66,7 @@ export const generateArchivalReport = internalAction({
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("ImmiVault — Case Archival Report", 14, 12);
+    doc.text("Ordena — Case Archival Report", 14, 12);
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");

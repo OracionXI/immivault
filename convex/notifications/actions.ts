@@ -13,7 +13,7 @@ function renderHtml(title: string, body: string): string {
 <h2 style="color:#1d4ed8">${title}</h2>
 ${body}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
-<p style="font-size:12px;color:#6b7280">ImmiVault — Immigration Case Management</p>
+<p style="font-size:12px;color:#6b7280">Ordena — Immigration Case Management</p>
 </body></html>`;
 }
 
@@ -25,8 +25,8 @@ async function sendEmailOptional(
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return; // Resend not configured yet — skip silently
 
-  const fromName = process.env.EMAIL_FROM_NAME ?? "ImmiVault";
-  const fromAddr = process.env.EMAIL_FROM_ADDRESS ?? "noreply@immivault.app";
+  const fromName = process.env.EMAIL_FROM_NAME ?? "Ordena";
+  const fromAddr = process.env.EMAIL_FROM_ADDRESS ?? "noreply@ordena.app";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -66,7 +66,7 @@ export const sendCaseAssigned = internalAction({
         `<p>Hi ${args.assigneeName},</p>
          <p>You have been assigned to the following case:</p>
          <p><strong>${args.caseTitle}</strong> (${args.caseNumber})</p>
-         <p>Log in to ImmiVault to review the case details and get started.</p>`
+         <p>Log in to Ordena to review the case details and get started.</p>`
       )
     );
   },
@@ -171,7 +171,7 @@ export const sendTaskDueReminder = internalAction({
          <p>This is a reminder that the following task is due tomorrow:</p>
          <p><strong>${args.taskTitle}</strong></p>
          <p><strong>Due:</strong> ${fmtDue}</p>
-         <p>Log in to ImmiVault to update the task status.</p>`
+         <p>Log in to Ordena to update the task status.</p>`
       )
     );
   },
@@ -209,7 +209,7 @@ export const onCaseCreated = internalAction({
           `<p>Hi ${admin.fullName},</p>
            <p>A new case has been created in your organisation:</p>
            <p><strong>${c.title}</strong> (${c.caseNumber})</p>
-           <p>Log in to ImmiVault to review the case details.</p>`
+           <p>Log in to Ordena to review the case details.</p>`
         )
       );
     }
@@ -248,7 +248,7 @@ export const onCaseAssigned = internalAction({
         `<p>Hi ${assignee.fullName},</p>
          <p>You have been assigned to the following case:</p>
          <p><strong>${c.title}</strong> (${c.caseNumber})</p>
-         <p>Log in to ImmiVault to review the case details and get started.</p>`
+         <p>Log in to Ordena to review the case details and get started.</p>`
       )
     );
   },
@@ -289,7 +289,7 @@ export const onCaseStatusChanged = internalAction({
             `<p>Hi ${assignee.fullName},</p>
              <p>The status of your case has been updated:</p>
              <p><strong>${c.title}</strong> (${c.caseNumber}) → <strong>${args.newStatus}</strong></p>
-             <p>Log in to ImmiVault for more details.</p>`
+             <p>Log in to Ordena for more details.</p>`
           )
         );
       }
@@ -391,7 +391,7 @@ export const onTaskAssigned = internalAction({
         `<p>Hi ${assignee.fullName},</p>
          <p>You have been assigned the following task:</p>
          <p><strong>${task.title}</strong> (${task.taskId})</p>
-         <p>Log in to ImmiVault to view the task details.</p>`
+         <p>Log in to Ordena to view the task details.</p>`
       )
     );
   },
@@ -432,7 +432,7 @@ export const onTaskStatusChanged = internalAction({
             `<p>Hi ${assignee.fullName},</p>
              <p>The status of your task has been updated:</p>
              <p><strong>${task.title}</strong> (${task.taskId}) → <strong>${args.newStatus}</strong></p>
-             <p>Log in to ImmiVault for more details.</p>`
+             <p>Log in to Ordena for more details.</p>`
           )
         );
       }
@@ -564,7 +564,7 @@ export const onComment = internalAction({
             `<p>Hi ${assignee.fullName},</p>
              <p>${commenter.fullName} commented on <strong>${entityName}</strong>:</p>
              <blockquote style="border-left:3px solid #e5e7eb;margin:12px 0;padding:8px 16px;color:#374151">${preview}</blockquote>
-             <p>Log in to ImmiVault to view the full comment.</p>`
+             <p>Log in to Ordena to view the full comment.</p>`
           )
         );
       }
@@ -603,7 +603,7 @@ export const onComment = internalAction({
           "You Were Mentioned",
           `<p>Hi ${mentioned.fullName},</p>
            <p>${commenter.fullName} mentioned you in a comment on <strong>${entityName}</strong>.</p>
-           <p>Log in to ImmiVault to view the comment.</p>`
+           <p>Log in to Ordena to view the comment.</p>`
         )
       );
     }
@@ -647,7 +647,7 @@ export const onDocumentUploaded = internalAction({
         `<p>Hi ${assignee.fullName},</p>
          <p>${uploaderName} uploaded a new document to your case:</p>
          <p><strong>${doc.name}</strong> on case <strong>${c.title}</strong> (${c.caseNumber})</p>
-         <p>Log in to ImmiVault to view the document.</p>`
+         <p>Log in to Ordena to view the document.</p>`
       )
     );
   },

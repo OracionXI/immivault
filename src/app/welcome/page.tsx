@@ -62,19 +62,16 @@ export default function WelcomePage() {
             <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 text-center">
                 {/* Logo */}
                 <div className="logo-enter mb-8">
-                    <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-primary shadow-2xl">
-                        <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-primary-foreground" stroke="currentColor" strokeWidth={1.75}>
-                            <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" strokeLinejoin="round" />
-                            <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                    <div className="relative flex h-20 w-auto items-center justify-center">
+                        <img src="/ordena_logo.png" alt="Ordena" className="h-20 w-auto [mix-blend-mode:multiply]" />
                         {/* Glow ring */}
-                        <div className="absolute inset-0 rounded-2xl ring-4 ring-primary/20" />
+                        <div className="absolute inset-0 rounded-2xl ring-4 ring-primary/10" />
                     </div>
                 </div>
 
                 {/* Headline */}
                 <h1 className="headline text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                    Welcome to ImmiVault
+                    Welcome to Ordena
                     {firstName ? `, ${firstName}` : ""}!
                 </h1>
 

@@ -36,7 +36,7 @@ function renderHtml(title: string, body: string): string {
 <h2 style="color:#1d4ed8">${title}</h2>
 ${body}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
-<p style="font-size:12px;color:#6b7280">ImmiVault — Immigration Case Management</p>
+<p style="font-size:12px;color:#6b7280">Ordena — Immigration Case Management</p>
 </body></html>`;
 }
 
@@ -127,9 +127,9 @@ describe("renderHtml", () => {
         expect(html).toContain("My body content");
     });
 
-    it("includes ImmiVault footer", () => {
+    it("includes Ordena footer", () => {
         const html = renderHtml("T", "B");
-        expect(html).toContain("ImmiVault");
+        expect(html).toContain("Ordena");
     });
 
     it("produces valid HTML structure", () => {

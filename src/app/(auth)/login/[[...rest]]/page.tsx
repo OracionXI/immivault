@@ -116,7 +116,7 @@ export default function LoginPage() {
                         <h1 className="text-[1.75rem] font-bold tracking-tight text-gray-900">
                             Welcome back
                         </h1>
-                        <p className="text-sm text-gray-500">Sign in to your ImmiVault account</p>
+                        <p className="text-sm text-gray-500">Sign in to your Ordena account</p>
                     </div>
 
                     <div className="space-y-4">

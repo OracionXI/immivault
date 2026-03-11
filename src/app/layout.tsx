@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ImmiVault — Immigration Case Management",
+  title: "Ordena - Simply Organized",
   description: "Professional immigration case management platform for attorneys and law firms.",
 };
 
