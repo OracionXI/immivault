@@ -16,21 +16,18 @@ interface StaffModalProps {
     staff: ConvexUser | null;
 }
 
-// Admin is intentionally excluded — each org has exactly one admin (set at signup).
-const ASSIGNABLE_ROLES = ["case_manager", "staff"] as const;
-type AssignableRole = typeof ASSIGNABLE_ROLES[number];
-
-const ROLE_LABELS: Record<"admin" | AssignableRole, string> = {
-    admin: "Admin",
-    case_manager: "Case Manager",
-    staff: "Staff",
-};
+const DEFAULT_ROLES = [
+    { id: "case_manager", name: "Case Manager" },
+    { id: "staff",        name: "Staff" },
+];
 
 export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
     const updateMember = useMutation(api.users.mutations.updateMember);
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const customRoles = settings?.customRoles ?? DEFAULT_ROLES;
 
     const [form, setForm] = useState({
-        role: "staff" as AssignableRole,
+        roleId: "staff",
         status: "active" as "active" | "inactive",
     });
     const [loading, setLoading] = useState(false);
@@ -41,8 +38,10 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
     useEffect(() => {
         if (staff) {
             setError("");
+            // Use stored roleId if available; otherwise fall back to role (permission tier)
+            const roleId = staff.roleId ?? (staff.role !== "admin" ? staff.role : "staff");
             setForm({
-                role: staff.role === "admin" ? "staff" : staff.role,
+                roleId,
                 status: staff.status === "pending_onboarding" ? "active" : staff.status,
             });
         }
@@ -53,7 +52,7 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
         setLoading(true);
         setError("");
         try {
-            await updateMember({ id: staff._id, role: form.role, status: form.status });
+            await updateMember({ id: staff._id, roleId: form.roleId, status: form.status });
             onOpenChange(false);
         } catch (err: unknown) {
             const convexErr = err as { data?: { message?: string }; message?: string };
@@ -83,13 +82,13 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
                                     </div>
                                 ) : (
                                     <Select
-                                        value={form.role}
-                                        onValueChange={(v) => setForm({ ...form, role: v as AssignableRole })}
+                                        value={form.roleId}
+                                        onValueChange={(v) => setForm({ ...form, roleId: v })}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            {ASSIGNABLE_ROLES.map((r) => (
-                                                <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                                            {customRoles.map((r) => (
+                                                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>

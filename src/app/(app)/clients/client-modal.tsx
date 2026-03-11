@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -75,6 +77,8 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                 await createClient(payload);
             }
             onOpenChange(false);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setLoading(false);
         }

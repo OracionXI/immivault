@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Save, Loader2 } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function ProfilePage() {
     const { user: clerkUser } = useUser();
@@ -67,6 +69,8 @@ export default function ProfilePage() {
             ]);
             setProfileSaved(true);
             setTimeout(() => setProfileSaved(false), 2500);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setProfileSaving(false);
         }
@@ -84,6 +88,8 @@ export default function ProfilePage() {
             });
             setSettingsSaved(true);
             setTimeout(() => setSettingsSaved(false), 2500);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setSettingsSaving(false);
         }
@@ -116,7 +122,7 @@ export default function ProfilePage() {
                                 Email is managed via your Clerk account.
                             </p>
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid gap-2 self-start">
                             <Label>Role</Label>
                             <div className="flex items-center h-9">
                                 <Badge variant="outline" className="capitalize">{roleLabel}</Badge>

@@ -71,10 +71,7 @@ export const deleteStaff = action({
 export const inviteStaff = action({
   args: {
     email: v.string(),
-    role: v.union(
-      v.literal("case_manager"),
-      v.literal("staff")
-    ),
+    roleId: v.string(), // custom role ID or "case_manager"/"staff" for built-ins
   },
   handler: async (ctx, args) => {
     // ── Auth & role guard ────────────────────────────────────────────────────
@@ -93,6 +90,20 @@ export const inviteStaff = action({
       throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
     }
 
+    // ── Resolve permission tier from org's customRoles ───────────────────────
+    const settings = await ctx.runQuery(internal.organisations.queries.getSettingsInternal, {
+      organisationId: user.organisationId,
+    });
+    const customRoles = settings?.customRoles ?? [
+      { id: "case_manager", permissionLevel: "case_manager" as const, name: "Case Manager", isDefault: true },
+      { id: "staff",        permissionLevel: "staff"        as const, name: "Staff",         isDefault: true },
+    ];
+    const customRole = customRoles.find((r: { id: string }) => r.id === args.roleId);
+    if (!customRole) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Role not found in organisation settings." });
+    }
+    const permissionLevel = (customRole as { permissionLevel: "case_manager" | "staff" }).permissionLevel;
+
     // ── Rate limit: 10 invitations per hour per org ──────────────────────────
     await ctx.runMutation(internal.users.mutations.recordInviteRateLimit, {
       organisationId: user.organisationId,
@@ -102,7 +113,8 @@ export const inviteStaff = action({
     await ctx.runMutation(internal.users.mutations.createInvite, {
       organisationId: user.organisationId,
       email: args.email,
-      role: args.role,
+      role: permissionLevel,
+      roleId: args.roleId,
       invitedBy: user._id,
     });
 
@@ -118,8 +130,11 @@ export const inviteStaff = action({
       body: JSON.stringify({
         email_address: args.email,
         // Webhook reads these to assign org + role when the user signs up.
+        // convexRole carries the permission tier (backwards compat).
+        // convexRoleId carries the display role ID for custom roles.
         public_metadata: {
-          convexRole: args.role,
+          convexRole: permissionLevel,
+          convexRoleId: args.roleId,
           convexOrgId: user.organisationId,
         },
       }),

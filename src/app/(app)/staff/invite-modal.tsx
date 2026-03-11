@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useAction } from "convex/react";
+import { useState, useEffect } from "react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getErrorMessage } from "@/lib/errors";
 import { CheckCircle2 } from "lucide-react";
 
 interface InviteModalProps {
@@ -15,24 +16,34 @@ interface InviteModalProps {
     onOpenChange: (open: boolean) => void;
 }
 
-// "admin" excluded — new invitees can be promoted after joining.
-const ROLES = ["case_manager", "staff"] as const;
-
-const ROLE_LABELS: Record<typeof ROLES[number], string> = {
-    case_manager: "Case Manager",
-    staff: "Staff",
-};
+const DEFAULT_ROLES = [
+    { id: "case_manager", name: "Case Manager" },
+    { id: "staff",        name: "Staff" },
+];
 
 export function InviteModal({ open, onOpenChange }: InviteModalProps) {
     const inviteStaff = useAction(api.users.actions.inviteStaff);
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const customRoles = settings?.customRoles ?? DEFAULT_ROLES;
 
-    const [form, setForm] = useState({ email: "", role: "staff" as typeof ROLES[number] });
+    const defaultRoleId = customRoles[0]?.id ?? "staff";
+
+    const [form, setForm] = useState({ email: "", roleId: defaultRoleId });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState(false);
 
+    // Keep default in sync if roles load after mount
+    useEffect(() => {
+        if (customRoles.length > 0 && !customRoles.find((r) => r.id === form.roleId)) {
+            setForm((prev) => ({ ...prev, roleId: customRoles[0].id }));
+        }
+    }, [customRoles, form.roleId]);
+
+    const selectedRole = customRoles.find((r) => r.id === form.roleId);
+
     const reset = () => {
-        setForm({ email: "", role: "staff" });
+        setForm({ email: "", roleId: customRoles[0]?.id ?? "staff" });
         setError("");
         setSuccess(false);
     };
@@ -46,10 +57,10 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
         setError("");
         setLoading(true);
         try {
-            await inviteStaff({ email: form.email, role: form.role });
+            await inviteStaff({ email: form.email, roleId: form.roleId });
             setSuccess(true);
         } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : "Failed to send invitation.");
+            setError(getErrorMessage(e));
         } finally {
             setLoading(false);
         }
@@ -69,7 +80,7 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
                         <p className="text-sm text-muted-foreground">
                             <span className="font-medium">{form.email}</span> will receive an email
                             invitation to join your organisation as{" "}
-                            <span className="capitalize">{form.role}</span>.
+                            <span className="font-medium">{selectedRole?.name ?? form.roleId}</span>.
                         </p>
                         <Button className="mt-2" onClick={() => handleOpenChange(false)}>Done</Button>
                     </div>
@@ -89,13 +100,13 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
                             <div className="grid gap-2">
                                 <Label>Role</Label>
                                 <Select
-                                    value={form.role}
-                                    onValueChange={(v) => setForm({ ...form, role: v as typeof form.role })}
+                                    value={form.roleId}
+                                    onValueChange={(v) => setForm({ ...form, roleId: v })}
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {ROLES.map((r) => (
-                                            <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                                        {customRoles.map((r) => (
+                                            <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -108,7 +119,7 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
-                            <Button onClick={handleSubmit} disabled={loading || !form.email}>
+                            <Button onClick={handleSubmit} disabled={loading || !form.email || customRoles.length === 0}>
                                 {loading ? "Sending…" : "Send Invitation"}
                             </Button>
                         </DialogFooter>

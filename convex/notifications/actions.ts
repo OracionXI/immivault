@@ -254,7 +254,7 @@ export const onCaseAssigned = internalAction({
   },
 });
 
-/** Case status changed — notify the case assignee (skip if changer = assignee). */
+/** Case status changed — notify the case assignee (if not self) and all admins (if not self). */
 export const onCaseStatusChanged = internalAction({
   args: {
     caseId: v.id("cases"),
@@ -263,32 +263,55 @@ export const onCaseStatusChanged = internalAction({
   },
   handler: async (ctx, args) => {
     const c = await ctx.runQuery(internal.cases.queries.getById, { id: args.caseId });
-    if (!c || !c.assignedTo) return;
-    if (c.assignedTo === args.changedById) return; // self-change — skip
+    if (!c) return;
 
-    const assignee = await ctx.runQuery(internal.users.queries.getById, { id: c.assignedTo });
-    if (!assignee) return;
+    const notified = new Set<string>([args.changedById]);
 
-    await ctx.runMutation(internal.notifications.mutations.insert, {
+    // Notify the assigned case manager (if they didn't make the change)
+    if (c.assignedTo && !notified.has(c.assignedTo)) {
+      notified.add(c.assignedTo);
+      const assignee = await ctx.runQuery(internal.users.queries.getById, { id: c.assignedTo });
+      if (assignee) {
+        await ctx.runMutation(internal.notifications.mutations.insert, {
+          organisationId: c.organisationId,
+          recipientId: c.assignedTo,
+          type: "case_status_changed",
+          title: "Case status updated",
+          message: `Case ${c.title} has been moved to ${args.newStatus}`,
+          entityType: "case",
+          entityId: c._id,
+        });
+        await sendEmailOptional(
+          assignee.email,
+          `Case Status Updated: ${c.title}`,
+          renderHtml(
+            "Case Status Updated",
+            `<p>Hi ${assignee.fullName},</p>
+             <p>The status of your case has been updated:</p>
+             <p><strong>${c.title}</strong> (${c.caseNumber}) → <strong>${args.newStatus}</strong></p>
+             <p>Log in to ImmiVault for more details.</p>`
+          )
+        );
+      }
+    }
+
+    // Also notify all admins in the org who didn't make the change
+    const admins = await ctx.runQuery(internal.users.queries.listAdminsByOrg, {
       organisationId: c.organisationId,
-      recipientId: c.assignedTo,
-      type: "case_status_changed",
-      title: "Case status updated",
-      message: `Case ${c.title} has been moved to ${args.newStatus}`,
-      entityType: "case",
-      entityId: c._id,
     });
-    await sendEmailOptional(
-      assignee.email,
-      `Case Status Updated: ${c.title}`,
-      renderHtml(
-        "Case Status Updated",
-        `<p>Hi ${assignee.fullName},</p>
-         <p>The status of your case has been updated:</p>
-         <p><strong>${c.title}</strong> (${c.caseNumber}) → <strong>${args.newStatus}</strong></p>
-         <p>Log in to ImmiVault for more details.</p>`
-      )
-    );
+    for (const admin of admins) {
+      if (notified.has(admin._id)) continue;
+      notified.add(admin._id);
+      await ctx.runMutation(internal.notifications.mutations.insert, {
+        organisationId: c.organisationId,
+        recipientId: admin._id,
+        type: "case_status_changed",
+        title: "Case status updated",
+        message: `Case ${c.title} has been moved to ${args.newStatus}`,
+        entityType: "case",
+        entityId: c._id,
+      });
+    }
   },
 });
 
@@ -374,7 +397,7 @@ export const onTaskAssigned = internalAction({
   },
 });
 
-/** Task status changed by someone else — notify the assignee. */
+/** Task status changed — notify the assignee (if not self) and the parent case's manager (if not already notified). */
 export const onTaskStatusChanged = internalAction({
   args: {
     taskId: v.id("tasks"),
@@ -383,32 +406,57 @@ export const onTaskStatusChanged = internalAction({
   },
   handler: async (ctx, args) => {
     const task = await ctx.runQuery(internal.tasks.queries.getById, { id: args.taskId });
-    if (!task || !task.assignedTo) return;
-    if (task.assignedTo === args.changedById) return; // self-change — skip
+    if (!task) return;
 
-    const assignee = await ctx.runQuery(internal.users.queries.getById, { id: task.assignedTo });
-    if (!assignee) return;
+    const notified = new Set<string>([args.changedById]);
 
-    await ctx.runMutation(internal.notifications.mutations.insert, {
-      organisationId: task.organisationId,
-      recipientId: task.assignedTo,
-      type: "task_status_changed",
-      title: "Task status updated",
-      message: `Task ${task.title} has been moved to ${args.newStatus}`,
-      entityType: "task",
-      entityId: task._id,
-    });
-    await sendEmailOptional(
-      assignee.email,
-      `Task Status Updated: ${task.title}`,
-      renderHtml(
-        "Task Status Updated",
-        `<p>Hi ${assignee.fullName},</p>
-         <p>The status of your task has been updated:</p>
-         <p><strong>${task.title}</strong> (${task.taskId}) → <strong>${args.newStatus}</strong></p>
-         <p>Log in to ImmiVault for more details.</p>`
-      )
-    );
+    // Notify the task assignee (if they didn't make the change)
+    if (task.assignedTo && !notified.has(task.assignedTo)) {
+      notified.add(task.assignedTo);
+      const assignee = await ctx.runQuery(internal.users.queries.getById, { id: task.assignedTo });
+      if (assignee) {
+        await ctx.runMutation(internal.notifications.mutations.insert, {
+          organisationId: task.organisationId,
+          recipientId: task.assignedTo,
+          type: "task_status_changed",
+          title: "Task status updated",
+          message: `Task ${task.title} has been moved to ${args.newStatus}`,
+          entityType: "task",
+          entityId: task._id,
+        });
+        await sendEmailOptional(
+          assignee.email,
+          `Task Status Updated: ${task.title}`,
+          renderHtml(
+            "Task Status Updated",
+            `<p>Hi ${assignee.fullName},</p>
+             <p>The status of your task has been updated:</p>
+             <p><strong>${task.title}</strong> (${task.taskId}) → <strong>${args.newStatus}</strong></p>
+             <p>Log in to ImmiVault for more details.</p>`
+          )
+        );
+      }
+    }
+
+    // Also notify the parent case's assigned case manager (if not already notified)
+    if (task.caseId) {
+      const parentCase = await ctx.runQuery(internal.cases.queries.getById, { id: task.caseId });
+      if (parentCase?.assignedTo && !notified.has(parentCase.assignedTo)) {
+        notified.add(parentCase.assignedTo);
+        const caseManager = await ctx.runQuery(internal.users.queries.getById, { id: parentCase.assignedTo });
+        if (caseManager) {
+          await ctx.runMutation(internal.notifications.mutations.insert, {
+            organisationId: task.organisationId,
+            recipientId: parentCase.assignedTo,
+            type: "task_status_changed",
+            title: "Task status updated",
+            message: `Task ${task.title} in case ${parentCase.title} has been moved to ${args.newStatus}`,
+            entityType: "task",
+            entityId: task._id,
+          });
+        }
+      }
+    }
   },
 });
 

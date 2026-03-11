@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 import { useSearchParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 
@@ -138,17 +140,29 @@ export default function CasesPage() {
     };
 
     const handleItemMove = async (itemId: string, newStatus: string) => {
-        await updateStatus({ id: itemId as Id<"cases">, status: newStatus });
+        try {
+            await updateStatus({ id: itemId as Id<"cases">, status: newStatus });
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        }
     };
 
     const handleColumnReorder = async (newOrder: string[]) => {
-        await updateSettings({ caseColumnOrder: newOrder });
+        try {
+            await updateSettings({ caseColumnOrder: newOrder });
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        }
     };
 
     const handleDelete = async () => {
         if (deleteDialog.id) {
-            await removeCase({ id: deleteDialog.id });
-            setDeleteDialog({ open: false, id: null });
+            try {
+                await removeCase({ id: deleteDialog.id });
+                setDeleteDialog({ open: false, id: null });
+            } catch (error) {
+                toast.error(getErrorMessage(error));
+            }
         }
     };
 

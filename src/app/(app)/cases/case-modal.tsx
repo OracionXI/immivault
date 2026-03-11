@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 
@@ -39,6 +41,10 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
     const settings = useQuery(api.organisations.queries.getSettings);
     const caseDocs = useQuery(
         api.documents.queries.listByCase,
+        caseItem ? { caseId: caseItem._id } : "skip"
+    ) ?? [];
+    const caseTasks = useQuery(
+        api.tasks.queries.listByCase,
         caseItem ? { caseId: caseItem._id } : "skip"
     ) ?? [];
 
@@ -63,7 +69,14 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
     const [loading, setLoading] = useState(false);
     const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
 
-    const mentionUsers = users.map((u) => ({ id: u._id, name: u.fullName }));
+    // Limit tagging to case assignee + staff assigned to tasks on this case
+    const linkedUserIds = new Set<string>(
+        [form.assignedTo, ...caseTasks.map((t) => t.assignedTo as string | undefined)]
+            .filter((id): id is string => Boolean(id))
+    );
+    const mentionUsers = users
+        .filter((u) => linkedUserIds.has(u._id))
+        .map((u) => ({ id: u._id, name: u.fullName }));
     const mentionDocs = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
     useEffect(() => {
@@ -135,6 +148,8 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                 });
             }
             onOpenChange(false);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setLoading(false);
         }

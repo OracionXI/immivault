@@ -3,6 +3,12 @@
 import { useState } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+
+const DEFAULT_ROLE_LABELS: Record<string, string> = {
+    admin: "Admin",
+    case_manager: "Case Manager",
+    staff: "Staff",
+};
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, type Column } from "@/components/shared/data-table";
@@ -27,6 +33,17 @@ type ConvexUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.querie
 export default function StaffPage() {
     const staffQuery = useQuery(api.users.queries.listByOrg);
     const staff = staffQuery ?? [];
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const customRoles = settings?.customRoles ?? [];
+
+    const getRoleLabel = (s: ConvexUser) => {
+        if (s.role === "admin") return "Admin";
+        if (s.roleId) {
+            const match = customRoles.find((r) => r.id === s.roleId);
+            if (match) return match.name;
+        }
+        return DEFAULT_ROLE_LABELS[s.role] ?? s.role;
+    };
     const deleteStaff = useAction(api.users.actions.deleteStaff);
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -66,7 +83,7 @@ export default function StaffPage() {
                 </div>
             ),
         },
-        { key: "role", label: "Role", sortable: true, render: (s) => <span className="capitalize">{s.role}</span> },
+        { key: "role", label: "Role", sortable: true, render: (s) => <span>{getRoleLabel(s)}</span> },
         { key: "status", label: "Status", render: (s) => <StatusBadge status={s.status} /> },
         {
             key: "actions", label: "Actions", render: (s) => (

@@ -17,6 +17,8 @@ import { MentionTextarea, MentionBody } from "@/components/shared/mention-textar
 import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
 import { Pencil, Trash2, UserRound, CalendarDays, FileText, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
 type ConvexDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.list>>>[number];
@@ -89,6 +91,8 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         setNewComment("");
         try {
             await addComment({ entityType: "case", entityId: caseItem._id, body: text });
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setSubmitting(false);
         }
@@ -274,7 +278,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                         {canDelete && (
                                                                             <button
                                                                                 className="text-muted-foreground hover:text-destructive p-0.5 rounded"
-                                                                                onClick={() => deleteComment({ id: comment._id })}
+                                                                                onClick={() => deleteComment({ id: comment._id }).catch((e) => toast.error(getErrorMessage(e)))}
                                                                             >
                                                                                 <Trash2 className="h-3 w-3" />
                                                                             </button>
@@ -301,9 +305,13 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                             disabled={!editBody.trim()}
                                                                             onClick={async () => {
                                                                                 if (!editBody.trim()) return;
-                                                                                await editComment({ id: comment._id, body: editBody.trim() });
-                                                                                setEditingId(null);
-                                                                                setEditBody("");
+                                                                                try {
+                                                                                    await editComment({ id: comment._id, body: editBody.trim() });
+                                                                                    setEditingId(null);
+                                                                                    setEditBody("");
+                                                                                } catch (e) {
+                                                                                    toast.error(getErrorMessage(e));
+                                                                                }
                                                                             }}
                                                                         >
                                                                             Save

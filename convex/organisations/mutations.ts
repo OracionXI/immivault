@@ -3,6 +3,13 @@ import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 
+/** Default roles seeded for every new organisation. Admin is always fixed; only
+ *  case_manager and staff are included here as configurable defaults. */
+export const DEFAULT_CUSTOM_ROLES = [
+  { id: "case_manager", name: "Case Manager", permissionLevel: "case_manager" as const, isDefault: true },
+  { id: "staff",        name: "Staff",         permissionLevel: "staff"        as const, isDefault: true },
+];
+
 /**
  * Gets the existing organisation or creates a default one.
  * Called by the user.created webhook for the first admin signup
@@ -25,6 +32,7 @@ export const getOrCreateDefault = internalMutation({
       defaultCurrency: "USD",
       taxRate: 0,
       bookingEnabled: false,
+      customRoles: DEFAULT_CUSTOM_ROLES,
     });
 
     return orgId;
@@ -133,6 +141,12 @@ export const updateSettings = authenticatedMutation({
     availableEndTime: v.optional(v.string()),
     availableDays: v.optional(v.array(v.string())),
     documentTypes: v.optional(v.array(v.string())),
+    customRoles: v.optional(v.array(v.object({
+      id: v.string(),
+      name: v.string(),
+      permissionLevel: v.union(v.literal("case_manager"), v.literal("staff")),
+      isDefault: v.boolean(),
+    }))),
   },
   handler: async (ctx, args) => {
     if (ctx.user.role !== "admin") {
