@@ -2,25 +2,22 @@ import type { Metadata } from "next";
 import { AnimatedGlobe } from "./_components/animated-globe";
 
 export const metadata: Metadata = {
-    title: "ImmiVault — Immigration Case Management",
+    title: "Ordena - Simply Organized",
 };
 
 const stats = [
     { value: "10,000+", label: "Cases managed" },
-    { value: "500+",    label: "Law firms" },
+    { value: "500+",    label: "Teams onboarded" },
     { value: "98%",     label: "Satisfaction" },
 ];
 
 function Logo() {
     return (
-        <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900">
-                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white" stroke="currentColor" strokeWidth={2}>
-                    <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" strokeLinejoin="round" />
-                    <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+        <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white ring-1 ring-black/10 overflow-hidden p-0.5">
+                <img src="/ordena_logo.png" alt="Ordena" className="h-full w-full object-contain" />
             </div>
-            <span className="text-sm font-semibold tracking-tight text-gray-900">ImmiVault</span>
+            <span className="text-sm font-semibold tracking-tight text-gray-900">Ordena</span>
         </div>
     );
 }
@@ -61,20 +58,17 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 {/* Top: branding */}
                 <div className="relative z-10 px-12 pt-11">
                     <div className="mb-10 flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20">
-                            <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px] text-white" stroke="currentColor" strokeWidth={2}>
-                                <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" strokeLinejoin="round" />
-                                <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/95 overflow-hidden p-0.5">
+                            <img src="/ordena_logo.png" alt="Ordena" className="h-full w-full object-contain" />
                         </div>
-                        <span className="text-sm font-semibold tracking-wide text-white/75">ImmiVault</span>
+                        <span className="text-sm font-semibold tracking-wide text-white/80">Ordena</span>
                     </div>
 
                     <h2 className="max-w-xs text-[1.75rem] font-semibold leading-snug tracking-tight text-white">
-                        Manage immigration<br />cases, worldwide.
+                        Simply organized.<br />Optimize workflow orchestration.
                     </h2>
-                    <p className="mt-3 max-w-[240px] text-sm leading-relaxed text-white/45">
-                        Track cases, clients, and deadlines across borders — all from one intelligent platform.
+                    <p className="mt-3 max-w-[260px] text-sm leading-relaxed text-white/45">
+                        Manage your clients, cases, and workflows in one place — so your team spends less time tracking and more time closing.
                     </p>
                 </div>
 
@@ -98,7 +92,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                         ))}
                     </div>
                     <p className="mt-5 text-center text-[11px] text-white/20">
-                        Trusted by immigration attorneys and law firms globally
+                        Trusted by teams who value clarity, speed, and control
                     </p>
                 </div>
             </div>

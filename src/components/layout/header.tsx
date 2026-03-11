@@ -15,7 +15,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Sun, Moon, Menu, Shield, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
+import { Sun, Moon, Menu, LayoutDashboard, Users, Briefcase, CheckSquare, FileText, Calendar, Receipt, CreditCard, BarChart3, UserCog, Settings } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -74,11 +74,11 @@ export function Header() {
                     </SheetTrigger>
                     <SheetContent side="left" className="w-[260px] p-0">
                         <SheetTitle className="sr-only">Mobile Navigation</SheetTitle>
-                        <div className="flex h-16 items-center gap-2 px-4 border-b border-border">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0">
-                                <Shield className="h-5 w-5" />
+                        <div className="flex h-16 items-center gap-2.5 px-4 border-b border-border">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-black/10 overflow-hidden p-0.5">
+                                <img src="/ordena_logo.png" alt="Ordena" className="h-full w-full object-contain" />
                             </div>
-                            <span className="text-lg font-bold tracking-tight">ImmiVault</span>
+                            <span className="text-[15px] font-bold tracking-tight">Ordena</span>
                         </div>
                         <nav className="flex flex-col gap-1 px-2 py-4">
                             {visibleItems.map((item) => {

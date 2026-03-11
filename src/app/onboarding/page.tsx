@@ -291,7 +291,7 @@ export default function OnboardingPage() {
                             className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-primary"
                         />
                         <p className="text-xs text-muted-foreground">
-                            This will be the name of your ImmiVault workspace.
+                            This will be the name of your Ordena workspace.
                         </p>
                     </div>
 
@@ -303,7 +303,7 @@ export default function OnboardingPage() {
                         <p className="text-sm text-foreground leading-relaxed">
                             By creating this organisation, I confirm that I am authorised to act as
                             its Administrator. I accept full responsibility for managing staff access,
-                            client data, and compliance with applicable laws and ImmiVault&apos;s
+                            client data, and compliance with applicable laws and Ordena&apos;s
                             Terms of Service.
                         </p>
                         <label className="flex items-start gap-3 cursor-pointer">

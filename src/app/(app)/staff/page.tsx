@@ -146,7 +146,7 @@ export default function StaffPage() {
                         <DialogDescription>
                             This will permanently delete{" "}
                             <span className="font-medium text-foreground">{deleteTarget?.fullName}</span>{" "}
-                            from both ImmiVault and Clerk. They will no longer be able to sign in.
+                            from both Ordena and Clerk. They will no longer be able to sign in.
                         </DialogDescription>
                     </DialogHeader>
                     {deleteError && (

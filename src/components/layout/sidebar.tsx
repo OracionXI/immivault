@@ -17,7 +17,6 @@ import {
     Settings,
     ChevronLeft,
     ChevronRight,
-    Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,14 +62,12 @@ export function Sidebar() {
             )}
         >
             {/* Logo */}
-            <div className="flex h-16 items-center gap-2 px-4 border-b border-border">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0">
-                    <Shield className="h-5 w-5" />
+            <div className="flex h-16 items-center gap-2.5 px-4 border-b border-border">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-black/10 overflow-hidden p-0.5">
+                    <img src="/ordena_logo.png" alt="Ordena" className="h-full w-full object-contain" />
                 </div>
                 {!collapsed && (
-                    <span className="text-lg font-bold tracking-tight">
-                        ImmiVault
-                    </span>
+                    <span className="text-[15px] font-bold tracking-tight">Ordena</span>
                 )}
             </div>
 

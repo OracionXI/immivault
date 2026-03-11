@@ -58,7 +58,7 @@ export function generateClientReport(
     doc.rect(0, 0, pageWidth, 40, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
-    doc.text("ImmiVault", 14, 18);
+    doc.text("Ordena", 14, 18);
     doc.setFontSize(12);
     doc.text("Client Report", 14, 28);
     doc.setFontSize(10);
@@ -148,5 +148,5 @@ export function generateClientReport(
         });
     }
 
-    doc.save(`ImmiVault_Report_${fullName.replace(/\s+/g, "_")}.pdf`);
+    doc.save(`Ordena_Report_${fullName.replace(/\s+/g, "_")}.pdf`);
 }
