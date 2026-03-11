@@ -102,6 +102,20 @@ export default function CasesPage() {
         }
     }, [searchParams, rawCases, router]);
 
+    // Close detail/edit modal instantly if the case is no longer accessible
+    useEffect(() => {
+        if (casesQuery === undefined) return;
+        if (viewCase && !rawCases.some((c) => c._id === viewCase._id)) {
+            setViewCase(null);
+            toast("Access removed", { description: "You no longer have access to this case." });
+        }
+        if (editingCase && !rawCases.some((c) => c._id === editingCase._id)) {
+            setEditingCase(null);
+            setModalOpen(false);
+            toast("Access removed", { description: "You no longer have access to this case." });
+        }
+    }, [rawCases, casesQuery, viewCase, editingCase]);
+
     const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();
         return rawCases
