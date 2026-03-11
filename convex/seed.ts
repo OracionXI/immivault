@@ -7,6 +7,7 @@
  * Run clearAllData to wipe all records before a fresh start.
  */
 import { mutation } from "./_generated/server";
+import { DEFAULT_CUSTOM_ROLES } from "./organisations/mutations";
 
 export const initCurrentUser = mutation({
   args: {},
@@ -36,6 +37,7 @@ export const initCurrentUser = mutation({
         defaultCurrency: "USD",
         taxRate: 0,
         bookingEnabled: false,
+        customRoles: DEFAULT_CUSTOM_ROLES,
       });
     }
 
@@ -92,6 +94,7 @@ export const repairOrg = mutation({
       defaultCurrency: "USD",
       taxRate: 0,
       bookingEnabled: false,
+      customRoles: DEFAULT_CUSTOM_ROLES,
     });
 
     // Re-link all orphaned rows in every org-scoped table

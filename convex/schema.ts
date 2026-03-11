@@ -19,6 +19,7 @@ export default defineSchema({
     organisationId: v.id("organisations"),
     email: v.string(),
     role: v.union(v.literal("case_manager"), v.literal("staff")),
+    roleId: v.optional(v.string()), // custom role ID (UUID or built-in key)
     invitedBy: v.id("users"),
     clerkInvitationId: v.optional(v.string()),
     used: v.boolean(),
@@ -41,6 +42,7 @@ export default defineSchema({
       v.literal("case_manager"),
       v.literal("staff")
     ),
+    roleId: v.optional(v.string()), // display role ID (custom UUID or built-in key)
     status: v.union(
       v.literal("active"),
       v.literal("inactive"),
@@ -348,5 +350,13 @@ export default defineSchema({
     availableEndTime: v.optional(v.string()),   // "HH:MM" 24h
     availableDays: v.optional(v.array(v.string())), // ["Mon","Tue",...]
     documentTypes: v.optional(v.array(v.string())),
+    // Custom roles: org-scoped role catalog. Each role maps to a permission tier.
+    // Built-ins (id="case_manager"/"staff") are renameable but not deletable.
+    customRoles: v.optional(v.array(v.object({
+      id: v.string(),
+      name: v.string(),
+      permissionLevel: v.union(v.literal("case_manager"), v.literal("staff")),
+      isDefault: v.boolean(),
+    }))),
   }).index("by_org", ["organisationId"]),
 });

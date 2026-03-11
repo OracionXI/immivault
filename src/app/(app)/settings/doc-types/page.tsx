@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +49,8 @@ export default function DocTypesPage() {
             setTypes(cleaned);
             setSaved(true);
             setTimeout(() => setSaved(false), 2500);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setSaving(false);
         }

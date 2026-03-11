@@ -23,6 +23,7 @@ export const syncFromClerk = internalMutation({
       v.literal("case_manager"),
       v.literal("staff")
     ),
+    roleId: v.optional(v.string()), // display role ID (custom UUID or built-in key)
     // Optional override: if provided, bypasses the role-based status default.
     status: v.optional(
       v.union(
@@ -60,6 +61,7 @@ export const syncFromClerk = internalMutation({
       avatarUrl: args.avatarUrl,
       organisationId: args.organisationId,
       role: args.role,
+      roleId: args.roleId ?? (args.role !== "admin" ? args.role : undefined),
       status,
     });
   },
@@ -100,6 +102,7 @@ export const createInvite = internalMutation({
     organisationId: v.id("organisations"),
     email: v.string(),
     role: v.union(v.literal("case_manager"), v.literal("staff")),
+    roleId: v.optional(v.string()),
     invitedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
@@ -109,6 +112,7 @@ export const createInvite = internalMutation({
       organisationId: args.organisationId,
       email: args.email,
       role: args.role,
+      roleId: args.roleId,
       invitedBy: args.invitedBy,
       used: false,
       expiresAt,
@@ -174,15 +178,13 @@ export const updateProfile = authenticatedMutation({
   },
 });
 
-/** Admin-only: update a staff member's role and activation status. */
+/** Admin-only: update a staff member's role and activation status.
+ *  `roleId` is the custom/display role ID. The permission tier (users.role)
+ *  is resolved from the org's customRoles settings. */
 export const updateMember = authenticatedMutation({
   args: {
     id: v.id("users"),
-    role: v.union(
-      v.literal("admin"),
-      v.literal("case_manager"),
-      v.literal("staff")
-    ),
+    roleId: v.string(), // custom role ID or "case_manager"/"staff" for built-ins
     status: v.union(v.literal("active"), v.literal("inactive")),
   },
   handler: async (ctx, args) => {
@@ -194,21 +196,32 @@ export const updateMember = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "User not found." });
     }
 
-    // Single-admin constraint: prevent assigning admin to a non-admin member
-    if (args.role === "admin" && member.role !== "admin") {
-      throw new ConvexError({
-        code: "CONFLICT",
-        message: "Each organisation can have only one admin.",
-      });
-    }
-    // Single-admin constraint: prevent demoting the only admin
-    if (member.role === "admin" && args.role !== "admin") {
+    // Admin cannot have their role changed via this path
+    if (member.role === "admin") {
       throw new ConvexError({
         code: "CONFLICT",
         message: "Cannot change the admin's role. Each organisation must have exactly one admin.",
       });
     }
 
-    await ctx.db.patch(args.id, { role: args.role, status: args.status });
+    // Resolve permission tier from the org's customRoles
+    const settings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .unique();
+    const customRoles = settings?.customRoles ?? [
+      { id: "case_manager", permissionLevel: "case_manager" as const, name: "Case Manager", isDefault: true },
+      { id: "staff",        permissionLevel: "staff"        as const, name: "Staff",         isDefault: true },
+    ];
+    const customRole = customRoles.find((r) => r.id === args.roleId);
+    if (!customRole) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Role not found in organisation settings." });
+    }
+
+    await ctx.db.patch(args.id, {
+      role: customRole.permissionLevel,
+      roleId: args.roleId,
+      status: args.status,
+    });
   },
 });

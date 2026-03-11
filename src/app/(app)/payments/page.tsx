@@ -3,6 +3,8 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, type Column } from "@/components/shared/data-table";
@@ -128,6 +130,8 @@ export default function PaymentsPage() {
             });
             setLinkModalOpen(false);
             setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "" });
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setLinkLoading(false);
         }

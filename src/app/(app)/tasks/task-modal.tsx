@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
@@ -61,8 +63,23 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
         api.documents.queries.listByCase,
         form.caseId ? { caseId: form.caseId as Id<"cases"> } : "skip"
     ) ?? [];
+    const caseTasksForMention = useQuery(
+        api.tasks.queries.listByCase,
+        form.caseId ? { caseId: form.caseId as Id<"cases"> } : "skip"
+    ) ?? [];
 
-    const mentionUsers = users.map((u) => ({ id: u._id, name: u.fullName }));
+    // Limit tagging to: case manager of parent case + assignees of all tasks in that case
+    const selectedCase = cases.find((c) => c._id === form.caseId);
+    const linkedUserIds = new Set<string>(
+        [
+            form.assignedTo,
+            selectedCase?.assignedTo as string | undefined,
+            ...caseTasksForMention.map((t) => t.assignedTo as string | undefined),
+        ].filter((id): id is string => Boolean(id))
+    );
+    const mentionUsers = users
+        .filter((u) => linkedUserIds.has(u._id))
+        .map((u) => ({ id: u._id, name: u.fullName }));
     const mentionDocs = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
     useEffect(() => {
@@ -118,6 +135,8 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                 await createTask(payload);
             }
             onOpenChange(false);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setLoading(false);
         }

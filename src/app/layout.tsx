@@ -38,7 +38,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
-            <Toaster position="top-right" richColors />
+            <Toaster position="bottom-right" richColors closeButton expand gap={8} />
           </ThemeProvider>
         </Providers>
       </body>

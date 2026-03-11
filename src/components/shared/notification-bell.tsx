@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
+import { useRef, useEffect } from "react";
 import { api } from "@/../convex/_generated/api";
 import type { Id } from "@/../convex/_generated/dataModel";
 import { useRouter } from "next/navigation";
@@ -9,6 +10,31 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+
+// ─── Sound ───────────────────────────────────────────────────────────────────
+
+function playNotificationSound() {
+  try {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => void ctx.close();
+  } catch {
+    // Audio unavailable — silently skip
+  }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,9 +78,28 @@ function relativeTime(ts: number): string {
 export function NotificationBell() {
   const router = useRouter();
   const unreadCount = useQuery(api.notifications.queries.getUnreadCount) ?? 0;
-  const notifications = useQuery(api.notifications.queries.list) ?? [];
+  const notificationsRaw = useQuery(api.notifications.queries.list);
+  const notifications = notificationsRaw ?? [];
   const markRead = useMutation(api.notifications.mutations.markRead);
   const markAllRead = useMutation(api.notifications.mutations.markAllRead);
+
+  // Toast when a new notification arrives after initial load
+  const seenIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (notificationsRaw === undefined) return; // still loading — don't initialise yet
+    if (seenIds.current === null) {
+      // First load — record existing IDs without toasting
+      seenIds.current = new Set(notificationsRaw.map((n) => n._id));
+      return;
+    }
+    for (const notif of notificationsRaw) {
+      if (!seenIds.current.has(notif._id)) {
+        toast(notif.title, { description: notif.message });
+        playNotificationSound();
+        seenIds.current.add(notif._id);
+      }
+    }
+  }, [notificationsRaw]);
 
   async function handleClick(notif: (typeof notifications)[number]) {
     if (!notif.read) {

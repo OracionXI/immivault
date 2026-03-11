@@ -57,7 +57,7 @@ http.route({
         image_url: string;
         email_addresses: { email_address: string; id: string }[];
         primary_email_address_id: string;
-        public_metadata: { convexRole?: string; convexOrgId?: string };
+        public_metadata: { convexRole?: string; convexRoleId?: string; convexOrgId?: string };
       };
 
       const primaryEmail = user.email_addresses.find(
@@ -99,7 +99,7 @@ http.route({
         );
       }
 
-      // Determine role from invitation metadata, defaulting to admin
+      // Determine role (permission tier) from invitation metadata, defaulting to admin
       const convexRole = user.public_metadata?.convexRole;
       const role: "admin" | "case_manager" | "staff" =
         convexRole === "case_manager"
@@ -107,6 +107,9 @@ http.route({
           : convexRole === "staff"
           ? "staff"
           : "admin";
+
+      // convexRoleId carries the custom display role ID (may differ from role tier)
+      const roleId = user.public_metadata?.convexRoleId ?? (role !== "admin" ? role : undefined);
 
       // Manual admin signups start as "pending_onboarding" — they must complete
       // the /onboarding form before accessing the app.
@@ -121,6 +124,7 @@ http.route({
         avatarUrl: user.image_url || undefined,
         organisationId,
         role,
+        roleId,
         status,
       });
     }

@@ -14,6 +14,8 @@ import { MentionTextarea, MentionBody } from "@/components/shared/mention-textar
 import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
 import { Pencil, Trash2, CalendarDays, FileText, MessageSquare, Send, Layers, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
 
@@ -91,6 +93,8 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
         setNewComment("");
         try {
             await addComment({ entityType: "task", entityId: task._id, body: text });
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setSubmitting(false);
         }
@@ -196,7 +200,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                                     {canDelete && (
                                                                         <button
                                                                             className="text-muted-foreground hover:text-destructive p-0.5 rounded"
-                                                                            onClick={() => deleteComment({ id: comment._id })}
+                                                                            onClick={() => deleteComment({ id: comment._id }).catch((e) => toast.error(getErrorMessage(e)))}
                                                                         >
                                                                             <Trash2 className="h-3 w-3" />
                                                                         </button>
@@ -223,9 +227,13 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                                         disabled={!editBody.trim()}
                                                                         onClick={async () => {
                                                                             if (!editBody.trim()) return;
-                                                                            await editComment({ id: comment._id, body: editBody.trim() });
-                                                                            setEditingId(null);
-                                                                            setEditBody("");
+                                                                            try {
+                                                                                await editComment({ id: comment._id, body: editBody.trim() });
+                                                                                setEditingId(null);
+                                                                                setEditBody("");
+                                                                            } catch (e) {
+                                                                                toast.error(getErrorMessage(e));
+                                                                            }
                                                                         }}
                                                                     >
                                                                         Save

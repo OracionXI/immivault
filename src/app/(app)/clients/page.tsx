@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2 } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -50,6 +52,8 @@ export default function ClientsPage() {
         try {
             await removeClient({ id: deleteDialog.client._id });
             closeDelete();
+        } catch (error) {
+            toast.error(getErrorMessage(error));
         } finally {
             setDeleting(false);
         }
