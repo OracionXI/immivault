@@ -76,6 +76,20 @@ export default function TasksPage() {
         }
     }, [searchParams, rawTasks, router]);
 
+    // Close detail/edit modal instantly if the task is no longer accessible
+    useEffect(() => {
+        if (tasksQuery === undefined) return;
+        if (viewTask && !rawTasks.some((t) => t._id === viewTask._id)) {
+            setViewTask(null);
+            toast("Access removed", { description: "You no longer have access to this task." });
+        }
+        if (editingTask && !rawTasks.some((t) => t._id === editingTask._id)) {
+            setEditingTask(null);
+            setModalOpen(false);
+            toast("Access removed", { description: "You no longer have access to this task." });
+        }
+    }, [rawTasks, tasksQuery, viewTask, editingTask]);
+
     const kanbanItems: KanbanItem[] = useMemo(() => {
         const q = search.trim().toLowerCase();
         return rawTasks

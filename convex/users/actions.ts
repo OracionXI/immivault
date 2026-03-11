@@ -109,18 +109,34 @@ export const inviteStaff = action({
       organisationId: user.organisationId,
     });
 
-    // ── Create Convex invite record (for tracking) ───────────────────────────
-    await ctx.runMutation(internal.users.mutations.createInvite, {
+    const secretKey = requireEnv("CLERK_SECRET_KEY");
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+
+    // ── Check for an existing pending invite ─────────────────────────────────
+    const existing = await ctx.runQuery(internal.users.queries.getInviteByEmail, {
       organisationId: user.organisationId,
       email: args.email,
-      role: permissionLevel,
-      roleId: args.roleId,
-      invitedBy: user._id,
     });
 
-    // ── Call Clerk REST API (/v1/invitations — no Clerk Orgs needed) ─────────
-    const secretKey = requireEnv("CLERK_SECRET_KEY");
+    if (existing) {
+      const age = Date.now() - existing._creationTime;
+      if (age < ONE_DAY) {
+        throw new ConvexError({
+          code: "INVITE_PENDING",
+          message: `An invitation was already sent to ${args.email}. Please wait 24 hours before resending.`,
+        });
+      }
+      // Older than 24 hours — revoke the stale Clerk invitation then clean up
+      if (existing.clerkInvitationId) {
+        await fetch(
+          `https://api.clerk.com/v1/invitations/${existing.clerkInvitationId}/revoke`,
+          { method: "POST", headers: { Authorization: `Bearer ${secretKey}` } }
+        ).catch(() => {}); // silently ignore if already consumed/expired
+      }
+      await ctx.runMutation(internal.users.mutations.deleteInvite, { id: existing._id });
+    }
 
+    // ── Call Clerk REST API (/v1/invitations — no Clerk Orgs needed) ─────────
     const res = await fetch("https://api.clerk.com/v1/invitations", {
       method: "POST",
       headers: {
@@ -145,13 +161,22 @@ export const inviteStaff = action({
         errors?: { code?: string; message: string; long_message?: string }[];
       };
       console.error("Clerk invitation error", res.status, JSON.stringify(errBody));
-      const clerkCode = errBody.errors?.[0]?.code ?? "";
-      const message = clerkCode.includes("duplicate") || clerkCode.includes("already")
-        ? `An invitation is already pending for ${args.email}. Revoke it in Clerk Dashboard → Users → Invitations before resending.`
-        : errBody.errors?.[0]?.long_message ??
-          errBody.errors?.[0]?.message ??
-          "Invitation failed. Please try again.";
+      const message =
+        errBody.errors?.[0]?.long_message ??
+        errBody.errors?.[0]?.message ??
+        "Invitation failed. Please try again.";
       throw new ConvexError({ code: "CLERK_ERROR", message });
     }
+
+    // ── Create Convex invite record (store Clerk invitation ID) ──────────────
+    const clerkData = await res.json().catch(() => ({})) as { id?: string };
+    await ctx.runMutation(internal.users.mutations.createInvite, {
+      organisationId: user.organisationId,
+      email: args.email,
+      role: permissionLevel,
+      roleId: args.roleId,
+      invitedBy: user._id,
+      clerkInvitationId: clerkData.id,
+    });
   },
 });

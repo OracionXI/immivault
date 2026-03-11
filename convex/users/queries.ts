@@ -111,3 +111,21 @@ export const getByClerkId = internalQuery({
       .unique();
   },
 });
+
+/** Returns the most recent pending invitation for an email within an org, or null. */
+export const getInviteByEmail = internalQuery({
+  args: { organisationId: v.id("organisations"), email: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("invitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("organisationId"), args.organisationId),
+          q.eq(q.field("used"), false)
+        )
+      )
+      .order("desc")
+      .first();
+  },
+});

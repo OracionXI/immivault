@@ -104,6 +104,7 @@ export const createInvite = internalMutation({
     role: v.union(v.literal("case_manager"), v.literal("staff")),
     roleId: v.optional(v.string()),
     invitedBy: v.id("users"),
+    clerkInvitationId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // 24-hour expiry
@@ -114,9 +115,18 @@ export const createInvite = internalMutation({
       role: args.role,
       roleId: args.roleId,
       invitedBy: args.invitedBy,
+      clerkInvitationId: args.clerkInvitationId,
       used: false,
       expiresAt,
     });
+  },
+});
+
+/** Internal: delete a pending invitation record by its ID. */
+export const deleteInvite = internalMutation({
+  args: { id: v.id("invitations") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
   },
 });
 
