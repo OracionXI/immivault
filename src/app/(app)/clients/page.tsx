@@ -83,70 +83,70 @@ export default function ClientsPage() {
 
     return (
         <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
-        <div className="space-y-6">
-            <PageHeader
-                title="Clients"
-                description="Manage your immigration clients"
-                actionLabel="Add Client"
-                onAction={() => { setEditingClient(null); setModalOpen(true); }}
-            />
-            <DataTable
-                data={clients as unknown as Record<string, unknown>[]}
-                columns={columns as unknown as Column<Record<string, unknown>>[]}
-                searchKey="name"
-                searchPlaceholder="Search clients..."
-                loading={clientsQuery === undefined}
-                filterDropdown={{
-                    key: "status",
-                    placeholder: "All Statuses",
-                    options: [
-                        { label: "Active", value: "Active" },
-                        { label: "Inactive", value: "Inactive" },
-                        { label: "Archived", value: "Archived" },
-                    ],
-                }}
-            />
-            <ClientModal
-                open={modalOpen}
-                onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingClient(null); }}
-                client={editingClient}
-            />
+            <div className="space-y-6">
+                <PageHeader
+                    title="Clients"
+                    description="Manage your clients with ease"
+                    actionLabel="Add Client"
+                    onAction={() => { setEditingClient(null); setModalOpen(true); }}
+                />
+                <DataTable
+                    data={clients as unknown as Record<string, unknown>[]}
+                    columns={columns as unknown as Column<Record<string, unknown>>[]}
+                    searchKey="name"
+                    searchPlaceholder="Search clients..."
+                    loading={clientsQuery === undefined}
+                    filterDropdown={{
+                        key: "status",
+                        placeholder: "All Statuses",
+                        options: [
+                            { label: "Active", value: "Active" },
+                            { label: "Inactive", value: "Inactive" },
+                            { label: "Archived", value: "Archived" },
+                        ],
+                    }}
+                />
+                <ClientModal
+                    open={modalOpen}
+                    onOpenChange={(open) => { setModalOpen(open); if (!open) setEditingClient(null); }}
+                    client={editingClient}
+                />
 
-            {/* Destructive delete confirmation — requires typing CONFIRM */}
-            <Dialog open={deleteDialog.open} onOpenChange={(open) => { if (!open) closeDelete(); }}>
-                <DialogContent className="sm:max-w-[440px]">
-                    <DialogHeader>
-                        <DialogTitle>Delete Client</DialogTitle>
-                        <DialogDescription className="pt-1">
-                            This will permanently delete{" "}
-                            <span className="font-semibold text-foreground">{deleteDialog.client?.name}</span>{" "}
-                            along with all associated cases, tasks, and documents. This action cannot be undone.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-3 py-2">
-                        <p className="text-sm text-muted-foreground">
-                            Type <span className="font-mono font-semibold text-destructive">CONFIRM</span> to proceed.
-                        </p>
-                        <Input
-                            value={confirmText}
-                            onChange={(e) => setConfirmText(e.target.value)}
-                            placeholder="CONFIRM"
-                            onKeyDown={(e) => { if (e.key === "Enter" && confirmText === "CONFIRM") handleDelete(); }}
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDelete} disabled={deleting}>Cancel</Button>
-                        <Button
-                            variant="destructive"
-                            onClick={handleDelete}
-                            disabled={confirmText !== "CONFIRM" || deleting}
-                        >
-                            {deleting ? "Deleting…" : "Delete Permanently"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div>
+                {/* Destructive delete confirmation — requires typing CONFIRM */}
+                <Dialog open={deleteDialog.open} onOpenChange={(open) => { if (!open) closeDelete(); }}>
+                    <DialogContent className="sm:max-w-[440px]">
+                        <DialogHeader>
+                            <DialogTitle>Delete Client</DialogTitle>
+                            <DialogDescription className="pt-1">
+                                This will permanently delete{" "}
+                                <span className="font-semibold text-foreground">{deleteDialog.client?.name}</span>{" "}
+                                along with all associated cases, tasks, and documents. This action cannot be undone.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-3 py-2">
+                            <p className="text-sm text-muted-foreground">
+                                Type <span className="font-mono font-semibold text-destructive">CONFIRM</span> to proceed.
+                            </p>
+                            <Input
+                                value={confirmText}
+                                onChange={(e) => setConfirmText(e.target.value)}
+                                placeholder="CONFIRM"
+                                onKeyDown={(e) => { if (e.key === "Enter" && confirmText === "CONFIRM") handleDelete(); }}
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={closeDelete} disabled={deleting}>Cancel</Button>
+                            <Button
+                                variant="destructive"
+                                onClick={handleDelete}
+                                disabled={confirmText !== "CONFIRM" || deleting}
+                            >
+                                {deleting ? "Deleting…" : "Delete Permanently"}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </div>
         </RoleGuard>
     );
 }

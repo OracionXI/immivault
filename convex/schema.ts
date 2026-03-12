@@ -96,6 +96,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),              // set when status → Completed
     archivedReportStorageId: v.optional(v.id("_storage")), // PDF stored after archival
     deadlineNotifiedAt: v.optional(v.number()),       // set after 48h deadline notification sent
+    updatedAt: v.optional(v.number()),                // epoch ms of last user-triggered update
+    updatedBy: v.optional(v.id("users")),             // user who last updated
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
@@ -127,6 +129,8 @@ export default defineSchema({
     dueDate: v.optional(v.number()),
     completedAt: v.optional(v.number()),              // set when status → Completed
     hidden: v.optional(v.boolean()),                  // true when parent client is Archived
+    updatedAt: v.optional(v.number()),                // epoch ms of last user-triggered update
+    updatedBy: v.optional(v.id("users")),             // user who last updated
   })
     .index("by_org", ["organisationId"])
     .index("by_case", ["caseId"])
@@ -313,9 +317,11 @@ export default defineSchema({
       v.literal("case_assigned"),
       v.literal("case_status_changed"),
       v.literal("case_deadline"),
+      v.literal("case_updated"),
       v.literal("task_assigned"),
       v.literal("task_status_changed"),
       v.literal("task_overdue"),
+      v.literal("task_updated"),
       v.literal("comment"),
       v.literal("mention"),
       v.literal("document_uploaded")

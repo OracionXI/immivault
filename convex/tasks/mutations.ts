@@ -134,7 +134,7 @@ export const update = authenticatedMutation({
       }
     }
 
-    const patch: Record<string, unknown> = { ...fields };
+    const patch: Record<string, unknown> = { ...fields, updatedAt: Date.now(), updatedBy: ctx.user._id };
     let newAssigneeId: string | null = null;
 
     if (assignedTo === null) {
@@ -156,6 +156,10 @@ export const update = authenticatedMutation({
 
     await ctx.db.patch(id, patch as any);
 
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskUpdated, {
+      taskId: id,
+      updatedById: ctx.user._id,
+    });
     // Notify new assignee
     if (newAssigneeId) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskAssigned, {
@@ -192,7 +196,7 @@ export const updateStatus = authenticatedMutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only update tasks assigned to you." });
     }
 
-    const patch: Record<string, unknown> = { status: args.status };
+    const patch: Record<string, unknown> = { status: args.status, updatedAt: Date.now(), updatedBy: ctx.user._id };
     if (args.status === "Completed" && task.status !== "Completed") {
       patch.completedAt = Date.now();
     } else if (args.status !== "Completed" && task.status === "Completed") {
@@ -201,6 +205,10 @@ export const updateStatus = authenticatedMutation({
 
     await ctx.db.patch(args.id, patch as any);
 
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskUpdated, {
+      taskId: args.id,
+      updatedById: ctx.user._id,
+    });
     // Notify assignee of status change (by someone else)
     if (args.status !== task.status) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskStatusChanged, {

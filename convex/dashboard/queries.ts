@@ -146,22 +146,40 @@ export const stats = authenticatedQuery({
  * Revenue and clients metrics return 0 for non-admins.
  */
 export const chartData = authenticatedQuery({
-  args: { months: v.optional(v.number()) },
+  args: { months: v.optional(v.number()), days: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
     const isAdmin = ctx.user.role === "admin";
-    const numMonths = args.months ?? 6;
     const now = new Date();
 
-    const buckets = Array.from({ length: numMonths }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (numMonths - 1 - i), 1);
-      return {
-        label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
-        start: d.getTime(),
-        end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime(),
-      };
-    });
+    let buckets: { label: string; start: number; end: number }[];
+
+    if (args.days) {
+      const numDays = args.days;
+      buckets = Array.from({ length: numDays }, (_, i) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - (numDays - 1 - i));
+        d.setHours(0, 0, 0, 0);
+        const end = new Date(d);
+        end.setHours(23, 59, 59, 999);
+        const label =
+          numDays <= 7
+            ? d.toLocaleDateString("en-US", { weekday: "short" })
+            : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        return { label, start: d.getTime(), end: end.getTime() };
+      });
+    } else {
+      const numMonths = args.months ?? 6;
+      buckets = Array.from({ length: numMonths }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (numMonths - 1 - i), 1);
+        return {
+          label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+          start: d.getTime(),
+          end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime(),
+        };
+      });
+    }
 
     const [allInvoices, allOrgCases, allOrgClients, allAppointments, allOrgTasks] = await Promise.all([
       isAdmin
@@ -249,5 +267,83 @@ export const chartBreakdown = authenticatedQuery({
     ).filter((x): x is { name: string; cases: number } => x !== null);
 
     return { casesByStatus, casesPerClient };
+  },
+});
+
+/**
+ * Enriched task list for the non-admin dashboard task table.
+ * - staff: only tasks assigned to them
+ * - case_manager: tasks assigned to them + all tasks in cases they manage
+ * - admin: all active org tasks (capped at 20)
+ * Returns tasks with assignee name, case title, and an `isMine` flag.
+ */
+export const dashboardTasks = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const orgId = ctx.user.organisationId;
+    const userId = ctx.user._id;
+    const role = ctx.user.role;
+
+    const allOrgTasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_org", (q) => q.eq("organisationId", orgId))
+      .collect();
+
+    const activeTasks = allOrgTasks.filter(
+      (t) => !t.hidden && t.status !== "Completed" && t.status !== "Rejected"
+    );
+
+    let scopedTasks: typeof activeTasks;
+
+    if (role === "staff") {
+      scopedTasks = activeTasks.filter((t) => t.assignedTo === userId);
+    } else if (role === "case_manager") {
+      const myCases = await ctx.db
+        .query("cases")
+        .withIndex("by_assigned", (q) => q.eq("assignedTo", userId))
+        .collect();
+      const myCaseIds = new Set(myCases.map((c) => c._id));
+      scopedTasks = activeTasks.filter(
+        (t) => t.assignedTo === userId || (t.caseId && myCaseIds.has(t.caseId))
+      );
+    } else {
+      scopedTasks = activeTasks;
+    }
+
+    scopedTasks = scopedTasks
+      .sort((a, b) => (a.dueDate ?? Infinity) - (b.dueDate ?? Infinity))
+      .slice(0, 20);
+
+    // Enrich with user names and case titles
+    const uniqueUserIds = [
+      ...new Set(scopedTasks.map((t) => t.assignedTo).filter((id): id is Id<"users"> => !!id)),
+    ];
+    const uniqueCaseIds = [
+      ...new Set(scopedTasks.map((t) => t.caseId).filter((id): id is Id<"cases"> => !!id)),
+    ];
+
+    const [userDocs, caseDocs] = await Promise.all([
+      Promise.all(uniqueUserIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqueCaseIds.map((id) => ctx.db.get(id))),
+    ]);
+
+    const userMap = new Map(
+      userDocs.filter((u): u is NonNullable<typeof u> => u !== null).map((u) => [u._id, u.fullName])
+    );
+    const caseMap = new Map(
+      caseDocs.filter((c): c is NonNullable<typeof c> => c !== null).map((c) => [c._id, c.title])
+    );
+
+    return scopedTasks.map((t) => ({
+      _id: t._id,
+      taskId: t.taskId,
+      title: t.title,
+      status: t.status,
+      priority: t.priority,
+      dueDate: t.dueDate ?? null,
+      assigneeName: t.assignedTo ? (userMap.get(t.assignedTo) ?? null) : null,
+      caseTitle: t.caseId ? (caseMap.get(t.caseId) ?? null) : null,
+      isMine: t.assignedTo === userId,
+    }));
   },
 });

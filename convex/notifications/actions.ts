@@ -610,6 +610,86 @@ export const onComment = internalAction({
   },
 });
 
+/** Case updated — notify all active case managers and staff in the org (except the updater). */
+export const onCaseUpdated = internalAction({
+  args: { caseId: v.id("cases"), updatedById: v.id("users") },
+  handler: async (ctx, args) => {
+    const c = await ctx.runQuery(internal.cases.queries.getById, { id: args.caseId });
+    if (!c) return;
+
+    const updater = await ctx.runQuery(internal.users.queries.getById, { id: args.updatedById });
+    const updaterName = updater?.fullName ?? "Someone";
+
+    const members = await ctx.runQuery(internal.users.queries.listNonAdminsByOrg, {
+      organisationId: c.organisationId,
+    });
+
+    for (const member of members) {
+      if (member._id === args.updatedById) continue;
+      await ctx.runMutation(internal.notifications.mutations.insert, {
+        organisationId: c.organisationId,
+        recipientId: member._id,
+        type: "case_updated",
+        title: "Case updated",
+        message: `${updaterName} updated case ${c.caseNumber} — ${c.title}`,
+        entityType: "case",
+        entityId: c._id,
+      });
+      await sendEmailOptional(
+        member.email,
+        `Case Updated: ${c.title}`,
+        renderHtml(
+          "Case Updated",
+          `<p>Hi ${member.fullName},</p>
+           <p>${updaterName} has made updates to the following case:</p>
+           <p><strong>${c.title}</strong> (${c.caseNumber})</p>
+           <p>Log in to Ordena to review the changes.</p>`
+        )
+      );
+    }
+  },
+});
+
+/** Task updated — notify all active case managers and staff in the org (except the updater). */
+export const onTaskUpdated = internalAction({
+  args: { taskId: v.id("tasks"), updatedById: v.id("users") },
+  handler: async (ctx, args) => {
+    const task = await ctx.runQuery(internal.tasks.queries.getById, { id: args.taskId });
+    if (!task) return;
+
+    const updater = await ctx.runQuery(internal.users.queries.getById, { id: args.updatedById });
+    const updaterName = updater?.fullName ?? "Someone";
+
+    const members = await ctx.runQuery(internal.users.queries.listNonAdminsByOrg, {
+      organisationId: task.organisationId,
+    });
+
+    for (const member of members) {
+      if (member._id === args.updatedById) continue;
+      await ctx.runMutation(internal.notifications.mutations.insert, {
+        organisationId: task.organisationId,
+        recipientId: member._id,
+        type: "task_updated",
+        title: "Task updated",
+        message: `${updaterName} updated task ${task.taskId} — ${task.title}`,
+        entityType: "task",
+        entityId: task._id,
+      });
+      await sendEmailOptional(
+        member.email,
+        `Task Updated: ${task.title}`,
+        renderHtml(
+          "Task Updated",
+          `<p>Hi ${member.fullName},</p>
+           <p>${updaterName} has made updates to the following task:</p>
+           <p><strong>${task.title}</strong> (${task.taskId})</p>
+           <p>Log in to Ordena to review the changes.</p>`
+        )
+      );
+    }
+  },
+});
+
 /** Document uploaded to a case — notify the case assignee (skip if uploader = assignee). */
 export const onDocumentUploaded = internalAction({
   args: {

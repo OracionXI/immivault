@@ -9,21 +9,23 @@ import { KanbanBoard, type KanbanColumn, type KanbanItem } from "@/components/sh
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { CaseModal } from "./case-modal";
 import { CaseDetailDialog } from "./case-detail-dialog";
+import { CasesTableView } from "./cases-table-view";
 import { Input } from "@/components/ui/input";
-import { Search, X } from "lucide-react";
+import { Search, X, LayoutDashboard, List } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 
 type ConvexCase = NonNullable<ReturnType<typeof useQuery<typeof api.cases.queries.list>>>[number];
+type ViewMode = "kanban" | "table";
 
 const FIXED_STAGES: { name: string; color: string }[] = [
-    { name: "To Do",       color: "border-amber-400"   },
-    { name: "In Progress", color: "border-blue-400"    },
-    { name: "On Hold",     color: "border-orange-400"  },
-    { name: "Completed",   color: "border-emerald-400" },
-    { name: "Archive",     color: "border-slate-400"   },
+    { name: "To Do", color: "border-amber-400" },
+    { name: "In Progress", color: "border-blue-400" },
+    { name: "On Hold", color: "border-orange-400" },
+    { name: "Completed", color: "border-emerald-400" },
+    { name: "Archive", color: "border-slate-400" },
 ];
 
 const CUSTOM_STAGE_COLORS = [
@@ -37,6 +39,11 @@ const CUSTOM_STAGE_COLORS = [
     "border-lime-400",
 ];
 
+const VIEW_MODES: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
+    { mode: "kanban", icon: LayoutDashboard, label: "Kanban" },
+    { mode: "table", icon: List, label: "Table" },
+];
+
 export default function CasesPage() {
     const casesQuery = useQuery(api.cases.queries.list);
     const rawCases = casesQuery ?? [];
@@ -48,10 +55,11 @@ export default function CasesPage() {
     const removeCase = useMutation(api.cases.mutations.remove);
     const { isAdmin, isCaseManager, user } = useRole();
 
+    const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+
     const customStageNames = (orgSettings?.caseStages ?? []).filter(
         (s) => !FIXED_STAGES.some((f) => f.name === s)
     );
-    // Build the full column map (all possible columns with their display metadata)
     const allColumnDefs: KanbanColumn[] = [
         ...FIXED_STAGES.map(({ name, color }) => ({ id: name, title: name, color })),
         ...customStageNames.map((name, i) => ({
@@ -62,16 +70,15 @@ export default function CasesPage() {
     ];
     const columnDefMap = new Map(allColumnDefs.map((c) => [c.id, c]));
 
-    // Apply saved column order (admin may have reordered); append any new columns not in saved order
     const savedOrder = orgSettings?.caseColumnOrder;
     const kanbanColumns: KanbanColumn[] = savedOrder
         ? [
-              ...savedOrder.flatMap((id) => {
-                  const col = columnDefMap.get(id);
-                  return col ? [col] : [];
-              }),
-              ...allColumnDefs.filter((c) => !savedOrder.includes(c.id)),
-          ]
+            ...savedOrder.flatMap((id) => {
+                const col = columnDefMap.get(id);
+                return col ? [col] : [];
+            }),
+            ...allColumnDefs.filter((c) => !savedOrder.includes(c.id)),
+        ]
         : allColumnDefs;
 
     const clientMap = useMemo(
@@ -82,6 +89,7 @@ export default function CasesPage() {
         () => new Map(users.map((u) => [u._id, u.fullName])),
         [users]
     );
+
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCase, setEditingCase] = useState<ConvexCase | null>(null);
     const [viewCase, setViewCase] = useState<ConvexCase | null>(null);
@@ -91,7 +99,6 @@ export default function CasesPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
-    // Auto-open a specific case when navigated from a notification (?open=caseId)
     useEffect(() => {
         const openId = searchParams.get("open");
         if (!openId || rawCases.length === 0) return;
@@ -102,7 +109,6 @@ export default function CasesPage() {
         }
     }, [searchParams, rawCases, router]);
 
-    // Close detail/edit modal instantly if the case is no longer accessible
     useEffect(() => {
         if (casesQuery === undefined) return;
         if (viewCase && !rawCases.some((c) => c._id === viewCase._id)) {
@@ -116,28 +122,34 @@ export default function CasesPage() {
         }
     }, [rawCases, casesQuery, viewCase, editingCase]);
 
-    const kanbanItems: KanbanItem[] = useMemo(() => {
+    // Filtered cases (shared across all view modes)
+    const filteredCases = useMemo(() => {
         const q = search.trim().toLowerCase();
-        return rawCases
-            .map((c) => ({
-                id: c._id,
-                title: c.title,
-                subtitle: clientMap.get(c.clientId) ?? "—",
-                status: c.status,
-                priority: c.priority,
-                assignee: c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : "Unassigned",
-                assignedToId: c.assignedTo ?? null,
-                dueDate: c.deadline ? new Date(c.deadline).toISOString().split("T")[0] : undefined,
-            }))
-            .filter((item) => {
-                if (!q) return true;
-                return (
-                    item.title.toLowerCase().includes(q) ||
-                    (item.subtitle?.toLowerCase() ?? "").includes(q) ||
-                    (item.assignee?.toLowerCase() ?? "").includes(q)
-                );
-            });
+        if (!q) return rawCases;
+        return rawCases.filter((c) => {
+            const clientName = clientMap.get(c.clientId) ?? "";
+            const assigneeName = c.assignedTo ? (userMap.get(c.assignedTo) ?? "") : "";
+            return (
+                c.title.toLowerCase().includes(q) ||
+                clientName.toLowerCase().includes(q) ||
+                assigneeName.toLowerCase().includes(q)
+            );
+        });
     }, [rawCases, clientMap, userMap, search]);
+
+    const kanbanItems: KanbanItem[] = useMemo(() =>
+        filteredCases.map((c) => ({
+            id: c._id,
+            title: c.title,
+            subtitle: clientMap.get(c.clientId) ?? "—",
+            status: c.status,
+            priority: c.priority,
+            assignee: c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : "Unassigned",
+            assignedToId: c.assignedTo ?? null,
+            dueDate: c.deadline ? new Date(c.deadline).toISOString().split("T")[0] : undefined,
+        })),
+        [filteredCases, clientMap, userMap]
+    );
 
     const handleItemClick = (item: KanbanItem) => {
         const c = rawCases.find((x) => x._id === item.id);
@@ -184,7 +196,7 @@ export default function CasesPage() {
         <div className="space-y-6">
             <PageHeader
                 title="Cases"
-                description="Manage immigration cases with drag & drop"
+                description="Manage cases with drag & drop feature"
                 actionLabel={isAdmin ? "New Case" : undefined}
                 onAction={isAdmin ? () => { setEditingCase(null); setModalOpen(true); } : undefined}
             />
@@ -207,9 +219,28 @@ export default function CasesPage() {
                         </button>
                     )}
                 </div>
+
+                {/* View mode toggle */}
+                <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5 ml-auto">
+                    {VIEW_MODES.map(({ mode, icon: Icon, label }) => (
+                        <button
+                            key={mode}
+                            title={label}
+                            onClick={() => setViewMode(mode)}
+                            className={`p-1.5 rounded-md transition-colors ${
+                                viewMode === mode
+                                    ? "bg-primary text-primary-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                            <Icon className="h-4 w-4" />
+                        </button>
+                    ))}
+                </div>
+
                 {search && (
-                    <p className="ml-auto text-sm text-muted-foreground whitespace-nowrap">
-                        {kanbanItems.length} result{kanbanItems.length !== 1 ? "s" : ""}
+                    <p className="text-sm text-muted-foreground whitespace-nowrap">
+                        {filteredCases.length} result{filteredCases.length !== 1 ? "s" : ""}
                     </p>
                 )}
             </div>
@@ -228,6 +259,16 @@ export default function CasesPage() {
                         </div>
                     ))}
                 </div>
+            ) : viewMode === "table" ? (
+                <CasesTableView
+                    cases={filteredCases}
+                    clientMap={clientMap}
+                    userMap={userMap}
+                    onView={(c) => setViewCase(c)}
+                    onEdit={(isAdmin || isCaseManager) ? (c) => { setEditingCase(c); setModalOpen(true); } : undefined}
+                    canEdit={isCaseManager ? (c) => c.assignedTo === user?._id : undefined}
+                    onDelete={isAdmin ? (c) => setDeleteDialog({ open: true, id: c._id }) : undefined}
+                />
             ) : (
                 <KanbanBoard
                     columns={kanbanColumns}

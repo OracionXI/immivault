@@ -34,7 +34,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     const visibleTabs = settingsTabs.filter((tab) => isAdmin || !tab.adminOnly);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 pb-6">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
                 <p className="text-sm text-muted-foreground mt-1">Manage your application configuration</p>
@@ -64,7 +64,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 </nav>
 
                 {/* Settings Content — suppress children on admin-only paths for non-admins */}
-                <div className="flex-1 min-w-0">
+                <div key={pathname} className="flex-1 min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-300 ease-out">
                     {isLoading || (!isAdmin && pathname !== "/settings") ? null : children}
                 </div>
             </div>

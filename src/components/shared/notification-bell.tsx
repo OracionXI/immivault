@@ -43,9 +43,11 @@ type NotificationType =
   | "case_assigned"
   | "case_status_changed"
   | "case_deadline"
+  | "case_updated"
   | "task_assigned"
   | "task_status_changed"
   | "task_overdue"
+  | "task_updated"
   | "comment"
   | "mention"
   | "document_uploaded";
@@ -112,11 +114,11 @@ export function NotificationBell() {
       router.push(`/documents${id ? `?doc=${id}` : ""}`);
       return;
     }
-    if (type === "case_created" || type === "case_assigned" || type === "case_status_changed" || type === "case_deadline") {
+    if (type === "case_created" || type === "case_assigned" || type === "case_status_changed" || type === "case_deadline" || type === "case_updated") {
       router.push(`/cases${id ? `?open=${id}` : ""}`);
       return;
     }
-    if (type === "task_assigned" || type === "task_status_changed" || type === "task_overdue") {
+    if (type === "task_assigned" || type === "task_status_changed" || type === "task_overdue" || type === "task_updated") {
       router.push(`/tasks${id ? `?open=${id}` : ""}`);
       return;
     }
@@ -130,7 +132,7 @@ export function NotificationBell() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative rounded-full hidden sm:flex">
+        <Button variant="ghost" size="icon" className="relative rounded-full flex">
           <Bell className="h-4.5 w-4.5" />
           {unreadCount > 0 && (
             <Badge className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full p-0 px-1 flex items-center justify-center text-[10px] leading-none bg-destructive text-white border-2 border-card">
