@@ -8,9 +8,11 @@ const notificationTypeValidator = v.union(
   v.literal("case_assigned"),
   v.literal("case_status_changed"),
   v.literal("case_deadline"),
+  v.literal("case_updated"),
   v.literal("task_assigned"),
   v.literal("task_status_changed"),
   v.literal("task_overdue"),
+  v.literal("task_updated"),
   v.literal("comment"),
   v.literal("mention"),
   v.literal("document_uploaded")

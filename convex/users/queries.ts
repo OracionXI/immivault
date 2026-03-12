@@ -96,6 +96,19 @@ export const listAdminsByOrg = internalQuery({
   },
 });
 
+export const listNonAdminsByOrg = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .collect();
+    return users.filter(
+      (u) => (u.role === "case_manager" || u.role === "staff") && u.status === "active"
+    );
+  },
+});
+
 /**
  * Internal: look up a user by their Clerk user ID.
  * Used in the webhook handler.

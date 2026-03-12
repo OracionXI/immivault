@@ -2,6 +2,7 @@
 
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+import { PageTransition } from "./page-transition";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +12,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Sidebar />
                 <div className="flex flex-1 flex-col overflow-hidden">
                     <Header />
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
+                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
+                        <PageTransition>{children}</PageTransition>
+                    </main>
                 </div>
             </div>
         </TooltipProvider>

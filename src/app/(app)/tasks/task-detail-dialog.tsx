@@ -106,7 +106,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
 
     return (
         <Dialog open={!!task} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-4xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogContent style={{ width: "85vw", maxWidth: "85vw", height: "90vh", maxHeight: "90vh" }} className="flex flex-col gap-0 p-0 overflow-hidden">
                 {/* Header */}
                 <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
                     <div className="flex items-start gap-3 pr-8">
@@ -166,10 +166,36 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                     )}
                                 </div>
 
+                                <div className="flex gap-3 mb-4">
+                                    <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5 bg-primary/10 text-primary">
+                                        {getInitials(me?.fullName ?? "?")}
+                                    </div>
+                                    <div className="flex-1 space-y-2">
+                                        <MentionTextarea
+                                            placeholder="Add a comment… type @ to mention people or documents"
+                                            value={newComment}
+                                            onChange={setNewComment}
+                                            rows={2}
+                                            users={mentionUsers}
+                                            docs={mentionDocs}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                                    e.preventDefault();
+                                                    handleAddComment();
+                                                }
+                                            }}
+                                        />
+                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim() || submitting}>
+                                            <Send className="h-3.5 w-3.5 mr-1.5" />
+                                            Comment
+                                        </Button>
+                                    </div>
+                                </div>
+
                                 {comments.length === 0 ? (
-                                    <p className="text-sm text-muted-foreground italic mb-4">No comments yet.</p>
+                                    <p className="text-sm text-muted-foreground italic">No comments yet.</p>
                                 ) : (
-                                    <div className="space-y-4 mb-4">
+                                    <div className="space-y-4">
                                         {comments.map((comment) => {
                                             const authorName = getAuthorName(comment.authorId);
                                             const isOwn = comment.authorId === me?._id;
@@ -259,32 +285,6 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                         })}
                                     </div>
                                 )}
-
-                                <div className="flex gap-3">
-                                    <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5 bg-primary/10 text-primary">
-                                        {getInitials(me?.fullName ?? "?")}
-                                    </div>
-                                    <div className="flex-1 space-y-2">
-                                        <MentionTextarea
-                                            placeholder="Add a comment… type @ to mention people or documents"
-                                            value={newComment}
-                                            onChange={setNewComment}
-                                            rows={2}
-                                            users={mentionUsers}
-                                            docs={mentionDocs}
-                                            onKeyDown={(e) => {
-                                                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                                                    e.preventDefault();
-                                                    handleAddComment();
-                                                }
-                                            }}
-                                        />
-                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim() || submitting}>
-                                            <Send className="h-3.5 w-3.5 mr-1.5" />
-                                            Comment
-                                        </Button>
-                                    </div>
-                                </div>
                             </section>
                         </div>
                     </ScrollArea>
@@ -328,6 +328,20 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                     <span className="text-sm">{formatTs(task._creationTime)}</span>
                                 </div>
                             </Detail>
+
+                            {task.updatedAt && (
+                                <Detail label="Last Updated">
+                                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                        <span className="text-sm">{formatTs(task.updatedAt)}</span>
+                                    </div>
+                                    {task.updatedBy && (
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            by {orgUsers.find((u) => u._id === task.updatedBy)?.fullName ?? "Unknown"}
+                                        </p>
+                                    )}
+                                </Detail>
+                            )}
                         </div>
                     </aside>
                 </div>

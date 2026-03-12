@@ -155,7 +155,7 @@ export function DataTable<T extends Record<string, unknown>>({
             </div>
 
             {/* Table */}
-            <div className="rounded-lg border border-border overflow-hidden">
+            <div className="rounded-xl border border-border overflow-hidden bg-card shadow-sm">
                 <div className="w-full overflow-x-auto">
                     <Table className="table-fixed min-w-[600px] w-full">
                         <TableHeader>
@@ -220,13 +220,16 @@ export function DataTable<T extends Record<string, unknown>>({
 
                 {/* Pagination */}
                 {totalPages > 1 && (
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <p>
+                    <div className="flex items-center justify-between text-[13px] text-muted-foreground p-3 border-t border-border bg-card">
+                        <p className="hidden sm:block">
                             Showing {page * pageSize + 1}–
                             {Math.min((page + 1) * pageSize, filtered.length)} of{" "}
                             {filtered.length}
                         </p>
-                        <div className="flex gap-1">
+                        <p className="sm:hidden">
+                            Pg {page + 1} / {totalPages}
+                        </p>
+                        <div className="flex gap-1.5 ml-auto">
                             <Button
                                 variant="ghost"
                                 size="sm"

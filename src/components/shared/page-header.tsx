@@ -17,7 +17,7 @@ export function PageHeader({
     actionIcon,
 }: PageHeaderProps) {
     return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
                 {description && (
@@ -25,10 +25,12 @@ export function PageHeader({
                 )}
             </div>
             {actionLabel && onAction && (
-                <Button onClick={onAction} className="gap-2">
-                    {actionIcon || <Plus className="h-4 w-4" />}
-                    {actionLabel}
-                </Button>
+                <div className="w-full sm:w-auto">
+                    <Button onClick={onAction} className="gap-2 w-full sm:w-auto">
+                        {actionIcon || <Plus className="h-4 w-4" />}
+                        {actionLabel}
+                    </Button>
+                </div>
             )}
         </div>
     );

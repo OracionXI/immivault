@@ -9,17 +9,20 @@ import { KanbanBoard, type KanbanColumn, type KanbanItem } from "@/components/sh
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { TaskModal } from "./task-modal";
 import { TaskDetailDialog } from "./task-detail-dialog";
+import { TasksTableView } from "./tasks-table-view";
+import { TasksCalendarView } from "./tasks-calendar-view";
 import { Input } from "@/components/ui/input";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, X } from "lucide-react";
+import { Search, X, LayoutDashboard, List, CalendarDays } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { useSearchParams, useRouter } from "next/navigation";
 
 type ConvexTask = NonNullable<ReturnType<typeof useQuery<typeof api.tasks.queries.list>>>[number];
+type ViewMode = "kanban" | "table" | "calendar";
 
 const TASK_COLUMNS: KanbanColumn[] = [
     { id: "To Do",       title: "To Do",       color: "border-blue-400"    },
@@ -32,6 +35,12 @@ const TASK_COLUMNS: KanbanColumn[] = [
 
 const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
 
+const VIEW_MODES: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
+    { mode: "kanban", icon: LayoutDashboard, label: "Kanban" },
+    { mode: "table", icon: List, label: "Table" },
+    { mode: "calendar", icon: CalendarDays, label: "Calendar" },
+];
+
 export default function TasksPage() {
     const tasksQuery = useQuery(api.tasks.queries.list);
     const rawTasks = tasksQuery ?? [];
@@ -40,6 +49,8 @@ export default function TasksPage() {
     const updateStatus = useMutation(api.tasks.mutations.updateStatus);
     const removeTask = useMutation(api.tasks.mutations.remove);
     const { isStaff } = useRole();
+
+    const [viewMode, setViewMode] = useState<ViewMode>("kanban");
 
     const userMap = useMemo(
         () => new Map(users.map((u) => [u._id, u.fullName])),
@@ -61,11 +72,9 @@ export default function TasksPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
-    // Case filter: pre-populated from ?case=caseId (set by clicking "Tasks" on a case card)
     const [caseIdFilter, setCaseIdFilter] = useState<string>(() => searchParams.get("case") ?? "");
     const filteredCaseName = caseIdFilter ? (caseMap.get(caseIdFilter as Id<"cases">) ?? "Selected case") : null;
 
-    // Auto-open a specific task when navigated from a notification (?open=taskId)
     useEffect(() => {
         const openId = searchParams.get("open");
         if (!openId || rawTasks.length === 0) return;
@@ -76,7 +85,6 @@ export default function TasksPage() {
         }
     }, [searchParams, rawTasks, router]);
 
-    // Close detail/edit modal instantly if the task is no longer accessible
     useEffect(() => {
         if (tasksQuery === undefined) return;
         if (viewTask && !rawTasks.some((t) => t._id === viewTask._id)) {
@@ -90,26 +98,32 @@ export default function TasksPage() {
         }
     }, [rawTasks, tasksQuery, viewTask, editingTask]);
 
-    const kanbanItems: KanbanItem[] = useMemo(() => {
+    // Filtered tasks (shared across all view modes)
+    const filteredTasks = useMemo(() => {
         const q = search.trim().toLowerCase();
         return rawTasks
             .filter((t) => !caseIdFilter || t.caseId === caseIdFilter)
-            .map((t) => ({
-                id: t._id,
-                title: t.title,
-                subtitle: t.caseId ? (caseMap.get(t.caseId) ?? "—") : (t.description ?? ""),
-                status: t.status,
-                priority: t.priority,
-                assignee: t.assignedTo ? (userMap.get(t.assignedTo) ?? "—") : "Unassigned",
-                dueDate: t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : undefined,
-            }))
-            .filter((item) => {
-                if (q && !item.title.toLowerCase().includes(q) && !(item.subtitle?.toLowerCase() ?? "").includes(q)) return false;
-                if (assigneeFilter !== "all" && item.assignee !== assigneeFilter) return false;
-                if (priorityFilter !== "all" && item.priority !== priorityFilter) return false;
-                return true;
-            });
-    }, [rawTasks, userMap, caseMap, search, assigneeFilter, priorityFilter, caseIdFilter]);
+            .filter((t) => {
+                if (!q) return true;
+                const caseTitle = t.caseId ? (caseMap.get(t.caseId) ?? "") : "";
+                return t.title.toLowerCase().includes(q) || caseTitle.toLowerCase().includes(q);
+            })
+            .filter((t) => assigneeFilter === "all" || (t.assignedTo ? userMap.get(t.assignedTo) === assigneeFilter : false))
+            .filter((t) => priorityFilter === "all" || t.priority === priorityFilter);
+    }, [rawTasks, caseMap, userMap, search, assigneeFilter, priorityFilter, caseIdFilter]);
+
+    const kanbanItems: KanbanItem[] = useMemo(() =>
+        filteredTasks.map((t) => ({
+            id: t._id,
+            title: t.title,
+            subtitle: t.caseId ? (caseMap.get(t.caseId) ?? "—") : (t.description ?? ""),
+            status: t.status,
+            priority: t.priority,
+            assignee: t.assignedTo ? (userMap.get(t.assignedTo) ?? "—") : "Unassigned",
+            dueDate: t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : undefined,
+        })),
+        [filteredTasks, caseMap, userMap]
+    );
 
     const isFiltering = search || assigneeFilter !== "all" || priorityFilter !== "all" || caseIdFilter;
     const activeUsers = users.filter((u) => u.status === "active");
@@ -201,9 +215,27 @@ export default function TasksPage() {
                         </SelectContent>
                     </Select>
 
+                    {/* View mode toggle */}
+                    <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5">
+                        {VIEW_MODES.map(({ mode, icon: Icon, label }) => (
+                            <button
+                                key={mode}
+                                title={label}
+                                onClick={() => setViewMode(mode)}
+                                className={`p-1.5 rounded-md transition-colors ${
+                                    viewMode === mode
+                                        ? "bg-primary text-primary-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground"
+                                }`}
+                            >
+                                <Icon className="h-4 w-4" />
+                            </button>
+                        ))}
+                    </div>
+
                     {isFiltering && (
                         <p className="text-sm text-muted-foreground whitespace-nowrap pl-1">
-                            {kanbanItems.length} task{kanbanItems.length !== 1 ? "s" : ""}
+                            {filteredTasks.length} task{filteredTasks.length !== 1 ? "s" : ""}
                         </p>
                     )}
                 </div>
@@ -238,6 +270,21 @@ export default function TasksPage() {
                         </div>
                     ))}
                 </div>
+            ) : viewMode === "table" ? (
+                <TasksTableView
+                    tasks={filteredTasks}
+                    userMap={userMap}
+                    caseMap={caseMap}
+                    onView={(t) => setViewTask(t)}
+                    onEdit={isStaff ? undefined : (t) => { setEditingTask(t); setModalOpen(true); }}
+                    onDelete={isStaff ? undefined : (t) => setDeleteDialog({ open: true, id: t._id })}
+                />
+            ) : viewMode === "calendar" ? (
+                <TasksCalendarView
+                    tasks={filteredTasks}
+                    caseMap={caseMap}
+                    onView={(t) => setViewTask(t)}
+                />
             ) : (
                 <KanbanBoard
                     columns={TASK_COLUMNS}
