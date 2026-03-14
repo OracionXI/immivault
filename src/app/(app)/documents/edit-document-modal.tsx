@@ -41,7 +41,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
         if (document) {
             setForm({
                 name: document.name,
-                type: document.type,
+                type: document.type ?? "",
                 caseId: document.caseId ?? "",
             });
         }
@@ -52,7 +52,6 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.name.trim()) errs.name = "Document name is required";
-        if (!form.type) errs.type = "Type is required";
         if (!form.caseId) errs.caseId = "Case is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
@@ -97,7 +96,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label>Document Type *</Label>
+                            <Label>Document Type</Label>
                             <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                                 <SelectContent>

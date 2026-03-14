@@ -8,7 +8,6 @@ import { requireAtLeastCaseManager } from "../lib/rbac";
 export const generateUploadUrl = authenticatedMutation({
   args: {},
   handler: async (ctx) => {
-    requireAtLeastCaseManager(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -20,14 +19,12 @@ export const create = authenticatedMutation({
   args: {
     caseId: v.id("cases"),
     name: v.string(),
-    type: v.string(),
+    type: v.optional(v.string()),
     storageId: v.id("_storage"),
     fileSize: v.number(),
     mimeType: v.string(),
   },
   handler: async (ctx, args) => {
-    requireAtLeastCaseManager(ctx);
-
     const c = await ctx.db.get(args.caseId);
     if (!c || c.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
@@ -36,6 +33,23 @@ export const create = authenticatedMutation({
     // Case managers can only add docs to their assigned cases
     if (ctx.user.role === "case_manager" && c.assignedTo !== ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to your own cases." });
+    }
+
+    // Staff can only add docs to cases where they have an assigned task
+    if (ctx.user.role === "staff") {
+      const staffTask = await ctx.db
+        .query("tasks")
+        .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("caseId"), args.caseId),
+            q.eq(q.field("assignedTo"), ctx.user._id)
+          )
+        )
+        .first();
+      if (!staffTask) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to cases where you have assigned tasks." });
+      }
     }
 
     const id = await ctx.db.insert("documents", {
@@ -62,7 +76,7 @@ export const update = authenticatedMutation({
   args: {
     id: v.id("documents"),
     name: v.string(),
-    type: v.string(),
+    type: v.optional(v.string()),
     caseId: v.id("cases"),
   },
   handler: async (ctx, args) => {

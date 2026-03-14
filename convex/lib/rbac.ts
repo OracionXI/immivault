@@ -38,8 +38,8 @@ const PERMISSIONS: Record<Role, Record<Resource, Action[]>> = {
   staff: {
     clients:      ["read"],
     cases:        ["read"],
-    tasks:        ["read", "update"],   // own assigned tasks; status update only
-    documents:    ["read"],
+    tasks:        ["read", "update"],   // own assigned tasks; full edit on assigned tasks
+    documents:    ["read", "create"],   // can upload to cases where they have assigned tasks
     appointments: ["read"],
     billing:      [],
     staff:        [],

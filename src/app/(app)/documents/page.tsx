@@ -89,7 +89,7 @@ export default function DocumentsPage() {
 
     const columns: Column<DisplayDocument>[] = [
         { key: "name", label: "Document Name", sortable: true, render: (d) => <span className="font-medium">{d.name}</span> },
-        { key: "type", label: "Type", sortable: true },
+        { key: "type", label: "Type", sortable: true, render: (d) => <span className="text-muted-foreground">{d.type ?? "—"}</span> },
         { key: "caseName", label: "Case", sortable: true },
         { key: "clientName", label: "Client", sortable: true },
         { key: "uploadedDisplay", label: "Uploaded", sortable: true },
@@ -139,9 +139,9 @@ export default function DocumentsPage() {
             <PageHeader
                 title="Documents"
                 description="Manage client documents and files"
-                actionLabel={isStaff ? undefined : "Upload Document"}
-                actionIcon={isStaff ? undefined : <Upload className="h-4 w-4" />}
-                onAction={isStaff ? undefined : () => setUploadOpen(true)}
+                actionLabel="Upload Document"
+                actionIcon={<Upload className="h-4 w-4" />}
+                onAction={() => setUploadOpen(true)}
             />
             {filteredCaseName && (
                 <div className="flex items-center gap-2">

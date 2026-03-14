@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MentionTextarea } from "@/components/shared/mention-textarea";
+import { InlineFileUpload } from "@/components/shared/inline-file-upload";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -36,8 +37,10 @@ interface TaskModalProps {
 export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const createTask = useMutation(api.tasks.mutations.create);
     const updateTask = useMutation(api.tasks.mutations.update);
+    const me = useQuery(api.users.queries.me);
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const isStaff = me?.role === "staff";
 
     // Tasks can be assigned to case managers or staff — never admins
     const assignableUsers = users.filter(
@@ -106,7 +109,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
-        if (!form.caseId) errs.caseId = "Related case is required";
+        if (!isStaff && !form.caseId) errs.caseId = "Related case is required";
         if (!form.dueDate) {
             errs.dueDate = "Due date is required";
         } else if (!task && form.dueDate < today) {
@@ -173,57 +176,71 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                             users={mentionUsers}
                             docs={mentionDocs}
                         />
+                        {task && form.caseId && (
+                            <InlineFileUpload
+                                caseId={form.caseId as Id<"cases">}
+                                onUploaded={(docId, docName) => {
+                                    const token = `@[${docName}](doc:${docId})`;
+                                    setForm((prev) => ({
+                                        ...prev,
+                                        description: prev.description ? `${prev.description} ${token}` : token,
+                                    }));
+                                }}
+                            />
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label>Assignee</Label>
-                            <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        aria-expanded={assigneePopoverOpen}
-                                        className="w-full justify-between font-normal truncate"
-                                    >
-                                        <span className="truncate">
-                                            {form.assignedTo
-                                                ? (assignableUsers.find((u) => u._id === form.assignedTo)?.fullName ?? "Unassigned")
-                                                : "Unassigned"}
-                                        </span>
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[200px] p-0" align="start" side="bottom">
-                                    <Command>
-                                        <CommandInput placeholder="Search..." />
-                                        <CommandList>
-                                            <CommandEmpty>No users found.</CommandEmpty>
-                                            <CommandGroup>
-                                                <CommandItem
-                                                    value="unassigned"
-                                                    onSelect={() => { setForm({ ...form, assignedTo: "" }); setAssigneePopoverOpen(false); }}
-                                                >
-                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === "" ? "opacity-100" : "opacity-0")} />
-                                                    Unassigned
-                                                </CommandItem>
-                                                {assignableUsers.map((u) => (
+                        {!isStaff && (
+                            <div className="grid gap-2">
+                                <Label>Assignee</Label>
+                                <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={assigneePopoverOpen}
+                                            className="w-full justify-between font-normal truncate"
+                                        >
+                                            <span className="truncate">
+                                                {form.assignedTo
+                                                    ? (assignableUsers.find((u) => u._id === form.assignedTo)?.fullName ?? "Unassigned")
+                                                    : "Unassigned"}
+                                            </span>
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[200px] p-0" align="start" side="bottom">
+                                        <Command>
+                                            <CommandInput placeholder="Search..." />
+                                            <CommandList>
+                                                <CommandEmpty>No users found.</CommandEmpty>
+                                                <CommandGroup>
                                                     <CommandItem
-                                                        key={u._id}
-                                                        value={u.fullName}
-                                                        onSelect={() => { setForm({ ...form, assignedTo: u._id }); setAssigneePopoverOpen(false); }}
+                                                        value="unassigned"
+                                                        onSelect={() => { setForm({ ...form, assignedTo: "" }); setAssigneePopoverOpen(false); }}
                                                     >
-                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === u._id ? "opacity-100" : "opacity-0")} />
-                                                        {u.fullName}
+                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === "" ? "opacity-100" : "opacity-0")} />
+                                                        Unassigned
                                                     </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                        <div className="grid gap-2">
+                                                    {assignableUsers.map((u) => (
+                                                        <CommandItem
+                                                            key={u._id}
+                                                            value={u.fullName}
+                                                            onSelect={() => { setForm({ ...form, assignedTo: u._id }); setAssigneePopoverOpen(false); }}
+                                                        >
+                                                            <Check className={cn("mr-2 h-4 w-4 shrink-0", form.assignedTo === u._id ? "opacity-100" : "opacity-0")} />
+                                                            {u.fullName}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        )}
+                        <div className={cn("grid gap-2", isStaff && "col-span-2")}>
                             <Label>Due Date *</Label>
                             <Input
                                 type="date"
@@ -236,18 +253,20 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label>Priority</Label>
-                            <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v as typeof form.priority })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {["Low", "Medium", "High", "Urgent"].map((p) => (
-                                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="grid gap-2">
+                        {!isStaff && (
+                            <div className="grid gap-2">
+                                <Label>Priority</Label>
+                                <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v as typeof form.priority })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {["Low", "Medium", "High", "Urgent"].map((p) => (
+                                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                        <div className={cn("grid gap-2", isStaff && "col-span-2")}>
                             <Label>Status</Label>
                             <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -260,50 +279,52 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                         </div>
                     </div>
 
-                    <div className="grid gap-2">
-                        <Label>Related Case *</Label>
-                        <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
-                            <PopoverTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={casePopoverOpen}
-                                    className={cn(
-                                        "w-full justify-between font-normal truncate",
-                                        errors.caseId && "border-destructive"
-                                    )}
-                                >
-                                    <span className={cn("truncate", !form.caseId && "text-muted-foreground")}>
-                                        {form.caseId
-                                            ? (cases.find((c) => c._id === form.caseId)?.title ?? "Select a case")
-                                            : "Select a case"}
-                                    </span>
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[452px] p-0" align="start" side="bottom">
-                                <Command>
-                                    <CommandInput placeholder="Search cases..." />
-                                    <CommandList>
-                                        <CommandEmpty>No cases found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {cases.map((c) => (
-                                                <CommandItem
-                                                    key={c._id}
-                                                    value={c.title}
-                                                    onSelect={() => { setForm({ ...form, caseId: c._id }); setCasePopoverOpen(false); }}
-                                                >
-                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c._id ? "opacity-100" : "opacity-0")} />
-                                                    {c.title}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    </CommandList>
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
-                        {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
-                    </div>
+                    {!isStaff && (
+                        <div className="grid gap-2">
+                            <Label>Related Case *</Label>
+                            <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={casePopoverOpen}
+                                        className={cn(
+                                            "w-full justify-between font-normal truncate",
+                                            errors.caseId && "border-destructive"
+                                        )}
+                                    >
+                                        <span className={cn("truncate", !form.caseId && "text-muted-foreground")}>
+                                            {form.caseId
+                                                ? (cases.find((c) => c._id === form.caseId)?.title ?? "Select a case")
+                                                : "Select a case"}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[452px] p-0" align="start" side="bottom">
+                                    <Command>
+                                        <CommandInput placeholder="Search cases..." />
+                                        <CommandList>
+                                            <CommandEmpty>No cases found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {cases.map((c) => (
+                                                    <CommandItem
+                                                        key={c._id}
+                                                        value={c.title}
+                                                        onSelect={() => { setForm({ ...form, caseId: c._id }); setCasePopoverOpen(false); }}
+                                                    >
+                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c._id ? "opacity-100" : "opacity-0")} />
+                                                        {c.title}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                            {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
+                        </div>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

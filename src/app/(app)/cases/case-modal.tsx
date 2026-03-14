@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MentionTextarea } from "@/components/shared/mention-textarea";
+import { InlineFileUpload } from "@/components/shared/inline-file-upload";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -304,6 +305,18 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
                             users={mentionUsers}
                             docs={mentionDocs}
                         />
+                        {caseItem && (
+                            <InlineFileUpload
+                                caseId={caseItem._id}
+                                onUploaded={(docId, docName) => {
+                                    const token = `@[${docName}](doc:${docId})`;
+                                    setForm((prev) => ({
+                                        ...prev,
+                                        notes: prev.notes ? `${prev.notes} ${token}` : token,
+                                    }));
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
                 <DialogFooter>

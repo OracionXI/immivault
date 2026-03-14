@@ -13,9 +13,11 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentViewer } from "@/components/shared/document-viewer";
+import { DocAttachmentPreview } from "@/components/shared/attachment-preview";
 import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
 import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
-import { Pencil, Trash2, UserRound, CalendarDays, FileText, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight } from "lucide-react";
+import { InlineFileUpload } from "@/components/shared/inline-file-upload";
+import { Pencil, Trash2, UserRound, CalendarDays, FileText, File, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -45,6 +47,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
     const [submitting, setSubmitting] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editBody, setEditBody] = useState("");
+    const [pendingAttachments, setPendingAttachments] = useState<Array<{ docId: string; docName: string; mimeType: string }>>([]);
     const [viewer, setViewer] = useState<{ open: boolean; doc: ConvexDocument | null }>({ open: false, doc: null });
 
     const addComment = useMutation(api.comments.mutations.create);
@@ -79,6 +82,12 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         .map((u) => ({ id: u._id, name: u.fullName }));
     const mentionDocs: MentionableDoc[] = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
+    function renderDocPreview(id: string, name: string) {
+        const doc = caseDocs.find((d) => d._id === id);
+        if (!doc) return null;
+        return <DocAttachmentPreview docId={id} name={name} mimeType={doc.mimeType} />;
+    }
+
     function getAuthorName(authorId: string) {
         if (authorId === me?._id) return "You";
         return orgUsers.find((u) => u._id === authorId)?.fullName ?? "Unknown";
@@ -86,11 +95,14 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
 
     const handleAddComment = async () => {
         const text = newComment.trim();
-        if (!text || !caseItem || submitting) return;
+        if ((!text && pendingAttachments.length === 0) || !caseItem || submitting) return;
         setSubmitting(true);
+        const attachmentTokens = pendingAttachments.map((a) => `@[${a.docName}](doc:${a.docId})`).join("\n");
+        const body = [text, attachmentTokens].filter(Boolean).join("\n");
         setNewComment("");
+        setPendingAttachments([]);
         try {
-            await addComment({ entityType: "case", entityId: caseItem._id, body: text });
+            await addComment({ entityType: "case", entityId: caseItem._id, body });
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -141,9 +153,9 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                         <h3 className="text-sm font-semibold">Notes</h3>
                                     </div>
                                     {caseItem.notes ? (
-                                        <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
-                                            <MentionBody body={caseItem.notes} />
-                                        </p>
+                                        <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
+                                            <MentionBody body={caseItem.notes} renderDoc={renderDocPreview} />
+                                        </div>
                                     ) : (
                                         <p className="text-sm text-muted-foreground italic">No notes provided.</p>
                                     )}
@@ -174,7 +186,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                     {tasks.length === 0 ? (
                                         <p className="text-sm text-muted-foreground italic">No tasks for this case.</p>
                                     ) : (
-                                        <div className="space-y-1.5">
+                                        <div className="space-y-1.5 max-h-[128px] overflow-y-auto pr-1">
                                             {tasks.map((t) => (
                                                 <div key={t._id} className="flex items-center gap-3 rounded-md bg-muted/30 px-3 py-2">
                                                     <span className="text-[10px] font-mono text-muted-foreground shrink-0">{t.taskId}</span>
@@ -211,7 +223,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                     {caseDocs.length === 0 ? (
                                         <p className="text-sm text-muted-foreground italic">No documents for this case.</p>
                                     ) : (
-                                        <div className="space-y-1.5">
+                                        <div className="space-y-1.5 max-h-[132px] overflow-y-auto pr-1">
                                             {caseDocs.map((d) => (
                                                 <div key={d._id} className="flex items-center gap-3 rounded-md bg-muted/30 px-3 py-2">
                                                     <span className="text-sm flex-1 truncate">{d.name}</span>
@@ -263,10 +275,38 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                     }
                                                 }}
                                             />
-                                            <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim() || submitting}>
-                                                <Send className="h-3.5 w-3.5 mr-1.5" />
-                                                Comment
-                                            </Button>
+                                            {pendingAttachments.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {pendingAttachments.map((a) => (
+                                                        <div key={a.docId} className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1">
+                                                            {a.mimeType.startsWith("image/")
+                                                                ? <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                                : <File className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                            }
+                                                            <span className="text-xs font-medium truncate max-w-[140px]">{a.docName}</span>
+                                                            <button
+                                                                type="button"
+                                                                className="text-muted-foreground hover:text-destructive ml-0.5"
+                                                                onClick={() => setPendingAttachments((prev) => prev.filter((p) => p.docId !== a.docId))}
+                                                            >
+                                                                <X className="h-3 w-3" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <Button size="sm" onClick={handleAddComment} disabled={(!newComment.trim() && pendingAttachments.length === 0) || submitting}>
+                                                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                                                    Comment
+                                                </Button>
+                                                <InlineFileUpload
+                                                    caseId={caseItem._id}
+                                                    onUploaded={(docId, docName, mimeType) => {
+                                                        setPendingAttachments((prev) => [...prev, { docId, docName, mimeType }]);
+                                                    }}
+                                                />
+                                            </div>
                                         </div>
                                     </div>
 
@@ -353,9 +393,9 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                     </div>
                                                                 </div>
                                                             ) : (
-                                                                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
-                                                                    <MentionBody body={comment.body} />
-                                                                </p>
+                                                                <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
+                                                                    <MentionBody body={comment.body} renderDoc={renderDocPreview} />
+                                                                </div>
                                                             )}
                                                         </div>
                                                     </div>

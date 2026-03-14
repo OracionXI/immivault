@@ -11,8 +11,11 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
+import { DocAttachmentPreview } from "@/components/shared/attachment-preview";
 import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
-import { Pencil, Trash2, CalendarDays, FileText, MessageSquare, Send, Layers, X } from "lucide-react";
+import { InlineFileUpload } from "@/components/shared/inline-file-upload";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import { Pencil, Trash2, CalendarDays, FileText, File, MessageSquare, Send, Layers, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -44,6 +47,7 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
     const [submitting, setSubmitting] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editBody, setEditBody] = useState("");
+    const [pendingAttachments, setPendingAttachments] = useState<Array<{ docId: string; docName: string; mimeType: string }>>([]);
 
     const addComment = useMutation(api.comments.mutations.create);
     const editComment = useMutation(api.comments.mutations.update);
@@ -81,6 +85,12 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
         .map((u) => ({ id: u._id, name: u.fullName }));
     const mentionDocs: MentionableDoc[] = caseDocs.map((d) => ({ id: d._id, name: d.name }));
 
+    function renderDocPreview(id: string, name: string) {
+        const doc = caseDocs.find((d) => d._id === id);
+        if (!doc) return null;
+        return <DocAttachmentPreview docId={id} name={name} mimeType={doc.mimeType} />;
+    }
+
     function getAuthorName(authorId: string) {
         if (authorId === me?._id) return "You";
         return orgUsers.find((u) => u._id === authorId)?.fullName ?? "Unknown";
@@ -88,11 +98,14 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
 
     const handleAddComment = async () => {
         const text = newComment.trim();
-        if (!text || !task || submitting) return;
+        if ((!text && pendingAttachments.length === 0) || !task || submitting) return;
         setSubmitting(true);
+        const attachmentTokens = pendingAttachments.map((a) => `@[${a.docName}](doc:${a.docId})`).join("\n");
+        const body = [text, attachmentTokens].filter(Boolean).join("\n");
         setNewComment("");
+        setPendingAttachments([]);
         try {
-            await addComment({ entityType: "task", entityId: task._id, body: text });
+            await addComment({ entityType: "task", entityId: task._id, body });
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -144,9 +157,9 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                     <h3 className="text-sm font-semibold">Description</h3>
                                 </div>
                                 {task.description ? (
-                                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
-                                        <MentionBody body={task.description} />
-                                    </p>
+                                    <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2.5">
+                                        <MentionBody body={task.description} renderDoc={renderDocPreview} />
+                                    </div>
                                 ) : (
                                     <p className="text-sm text-muted-foreground italic">No description provided.</p>
                                 )}
@@ -185,10 +198,40 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                 }
                                             }}
                                         />
-                                        <Button size="sm" onClick={handleAddComment} disabled={!newComment.trim() || submitting}>
-                                            <Send className="h-3.5 w-3.5 mr-1.5" />
-                                            Comment
-                                        </Button>
+                                        {pendingAttachments.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {pendingAttachments.map((a) => (
+                                                    <div key={a.docId} className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1">
+                                                        {a.mimeType.startsWith("image/")
+                                                            ? <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                            : <File className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                        }
+                                                        <span className="text-xs font-medium truncate max-w-[140px]">{a.docName}</span>
+                                                        <button
+                                                            type="button"
+                                                            className="text-muted-foreground hover:text-destructive ml-0.5"
+                                                            onClick={() => setPendingAttachments((prev) => prev.filter((p) => p.docId !== a.docId))}
+                                                        >
+                                                            <X className="h-3 w-3" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="flex items-center gap-2">
+                                            <Button size="sm" onClick={handleAddComment} disabled={(!newComment.trim() && pendingAttachments.length === 0) || submitting}>
+                                                <Send className="h-3.5 w-3.5 mr-1.5" />
+                                                Comment
+                                            </Button>
+                                            {task.caseId && (
+                                                <InlineFileUpload
+                                                    caseId={task.caseId as Id<"cases">}
+                                                    onUploaded={(docId, docName, mimeType) => {
+                                                        setPendingAttachments((prev) => [...prev, { docId, docName, mimeType }]);
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -275,9 +318,9 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
                                                                 </div>
                                                             </div>
                                                         ) : (
-                                                            <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
-                                                                <MentionBody body={comment.body} />
-                                                            </p>
+                                                            <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
+                                                                <MentionBody body={comment.body} renderDoc={renderDocPreview} />
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>

@@ -143,7 +143,7 @@ export default defineSchema({
     clientId: v.id("clients"),
     caseId: v.optional(v.id("cases")),
     name: v.string(),
-    type: v.string(),
+    type: v.optional(v.string()),
     storageId: v.id("_storage"),
     fileSize: v.number(),
     mimeType: v.string(),

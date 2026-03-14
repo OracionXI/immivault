@@ -79,7 +79,6 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.name.trim()) errs.name = "Document name is required";
-        if (!form.type) errs.type = "Type is required";
         if (!form.caseId) errs.caseId = "Case is required";
         if (!file) errs.file = "File is required";
         setErrors(errs);
@@ -173,7 +172,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label>Document Type *</Label>
+                            <Label>Document Type</Label>
                             <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                                 <SelectContent>
