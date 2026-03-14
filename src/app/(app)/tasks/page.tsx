@@ -46,6 +46,7 @@ export default function TasksPage() {
     const rawTasks = tasksQuery ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const me = useQuery(api.users.queries.me);
     const updateStatus = useMutation(api.tasks.mutations.updateStatus);
     const removeTask = useMutation(api.tasks.mutations.remove);
     const { isStaff } = useRole();
@@ -308,7 +309,7 @@ export default function TasksPage() {
                 assigneeName={viewTask ? (viewTask.assignedTo ? (userMap.get(viewTask.assignedTo) ?? "—") : "Unassigned") : ""}
                 caseName={viewTask?.caseId ? (caseMap.get(viewTask.caseId) ?? "") : ""}
                 onClose={() => setViewTask(null)}
-                onEdit={isStaff ? undefined : (t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); }}
+                onEdit={(!isStaff || viewTask?.assignedTo === me?._id) ? (t) => { setViewTask(null); setEditingTask(t); setModalOpen(true); } : undefined}
             />
 
             <ConfirmDialog

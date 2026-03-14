@@ -300,10 +300,21 @@ export function MentionTextarea({
 
 /**
  * Renders a comment body string, converting @[Name](user|doc:id) tokens into
- * styled inline chips. Plain text is preserved as-is (whitespace included).
+ * styled inline chips or custom previews. Plain text is preserved as-is.
+ *
+ * @param renderDoc - Optional callback: given (docId, docName) returns a React node.
+ *   When provided, doc tokens are rendered using this callback instead of the default chip.
+ *   Use this to render inline file previews (see DocAttachmentPreview).
  */
-export function MentionBody({ body }: { body: string }) {
-    const MENTION_RE = /@\[([^\]]+)\]\((user|doc):[^)]+\)/g;
+export function MentionBody({
+    body,
+    renderDoc,
+}: {
+    body: string;
+    renderDoc?: (id: string, name: string) => React.ReactNode;
+}) {
+    // Capture: [1]=name, [2]=type, [3]=id
+    const MENTION_RE = /@\[([^\]]+)\]\((user|doc):([^)]+)\)/g;
 
     const nodes: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -314,20 +325,29 @@ export function MentionBody({ body }: { body: string }) {
         if (match.index > lastIndex) {
             nodes.push(<span key={key++}>{body.slice(lastIndex, match.index)}</span>);
         }
-        const [, name, type] = match;
-        nodes.push(
-            <span
-                key={key++}
-                className={cn(
-                    "inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-semibold leading-none",
-                    type === "user"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                )}
-            >
-                @{name}
-            </span>
-        );
+        const [, name, type, id] = match;
+
+        if (type === "doc" && renderDoc) {
+            nodes.push(
+                <span key={key++} className="block">
+                    {renderDoc(id, name)}
+                </span>
+            );
+        } else {
+            nodes.push(
+                <span
+                    key={key++}
+                    className={cn(
+                        "inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-semibold leading-none",
+                        type === "user"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    )}
+                >
+                    @{name}
+                </span>
+            );
+        }
         lastIndex = match.index + match[0].length;
     }
 

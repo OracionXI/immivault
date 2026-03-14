@@ -105,7 +105,7 @@ export const create = authenticatedMutation({
   },
 });
 
-/** Admin or Case Manager: update task details. */
+/** Admin, Case Manager, or Staff (own assigned tasks only): update task details. */
 export const update = authenticatedMutation({
   args: {
     id: v.id("tasks"),
@@ -119,11 +119,22 @@ export const update = authenticatedMutation({
     dueDate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    requireAtLeastCaseManager(ctx);
     const { id, assignedTo, ...fields } = args;
     const task = await ctx.db.get(id);
     if (!task || task.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+    }
+
+    // Staff can only update tasks assigned to them; cannot reassign, change case, or change priority
+    if (ctx.user.role === "staff") {
+      if (task.assignedTo !== ctx.user._id) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "You can only edit tasks assigned to you." });
+      }
+      if (assignedTo !== undefined || args.caseId !== undefined || args.priority !== undefined) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "Staff can only update title, description, status, and due date." });
+      }
+    } else {
+      requireAtLeastCaseManager(ctx);
     }
 
     // Case managers can only update tasks in their assigned cases
