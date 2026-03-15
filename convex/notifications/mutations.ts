@@ -15,7 +15,10 @@ const notificationTypeValidator = v.union(
   v.literal("task_updated"),
   v.literal("comment"),
   v.literal("mention"),
-  v.literal("document_uploaded")
+  v.literal("document_uploaded"),
+  v.literal("appointment_created"),
+  v.literal("appointment_updated"),
+  v.literal("appointment_cancelled")
 );
 
 /** Internal: insert a single notification record. Called from internalActions. */
@@ -26,7 +29,7 @@ export const insert = internalMutation({
     type: notificationTypeValidator,
     title: v.string(),
     message: v.string(),
-    entityType: v.optional(v.union(v.literal("case"), v.literal("task"))),
+    entityType: v.optional(v.union(v.literal("case"), v.literal("task"), v.literal("appointment"))),
     entityId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {

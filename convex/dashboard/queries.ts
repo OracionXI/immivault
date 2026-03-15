@@ -102,22 +102,22 @@ export const stats = authenticatedQuery({
     }
 
     // ── Upcoming appointments (org-wide, next 7 days) ────────────────────────
-    const [scheduledAppts, confirmedAppts] = await Promise.all([
+    const [upcomingAppts, ongoingAppts] = await Promise.all([
       ctx.db
         .query("appointments")
         .withIndex("by_org_and_status", (q) =>
-          q.eq("organisationId", orgId).eq("status", "Scheduled")
+          q.eq("organisationId", orgId).eq("status", "Upcoming")
         )
         .collect(),
       ctx.db
         .query("appointments")
         .withIndex("by_org_and_status", (q) =>
-          q.eq("organisationId", orgId).eq("status", "Confirmed")
+          q.eq("organisationId", orgId).eq("status", "Ongoing")
         )
         .collect(),
     ]);
-    const upcomingAppointments = [...scheduledAppts, ...confirmedAppts]
-      .filter((a) => a.startAt >= now && a.startAt <= sevenDays)
+    const upcomingAppointments = [...upcomingAppts, ...ongoingAppts]
+      .filter((a) => a.endAt >= now && a.startAt <= sevenDays) // include ongoing (started but not ended)
       .sort((a, b) => a.startAt - b.startAt);
 
     // ── Recent cases (role-filtered) ─────────────────────────────────────────

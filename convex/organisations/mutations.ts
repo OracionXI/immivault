@@ -141,6 +141,7 @@ export const updateSettings = authenticatedMutation({
     availableEndTime: v.optional(v.string()),
     availableDays: v.optional(v.array(v.string())),
     documentTypes: v.optional(v.array(v.string())),
+    appointmentTypes: v.optional(v.array(v.string())),
     customRoles: v.optional(v.array(v.object({
       id: v.string(),
       name: v.string(),
@@ -159,6 +160,54 @@ export const updateSettings = authenticatedMutation({
     if (!settings) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Organisation settings not found." });
     }
+
+    // Enforce non-removable built-in roles and cascade-reassign members when a custom role is deleted.
+    if (args.customRoles !== undefined) {
+      const BUILT_IN_IDS = ["case_manager", "staff"] as const;
+      const newRoleIds = new Set(args.customRoles.map((r) => r.id));
+
+      // Block removal of built-in roles and enforce their canonical names
+      for (const id of BUILT_IN_IDS) {
+        if (!newRoleIds.has(id)) {
+          throw new ConvexError({
+            code: "VALIDATION",
+            message: "The Case Manager and Staff roles cannot be removed.",
+          });
+        }
+      }
+      // Overwrite built-in role names with canonical values regardless of submission
+      args = {
+        ...args,
+        customRoles: args.customRoles.map((r) =>
+          r.id === "case_manager" ? { ...r, name: "Case Manager", permissionLevel: "case_manager" as const }
+          : r.id === "staff"        ? { ...r, name: "Staff",         permissionLevel: "staff"        as const }
+          : r
+        ),
+      };
+
+      // Cascade-reassign members whose role is being deleted
+      const currentRoles = settings.customRoles ?? DEFAULT_CUSTOM_ROLES;
+      const removedCustomRoles = currentRoles.filter(
+        (r) => !(BUILT_IN_IDS as readonly string[]).includes(r.id) && !newRoleIds.has(r.id)
+      );
+
+      if (removedCustomRoles.length > 0) {
+        const orgUsers = await ctx.db
+          .query("users")
+          .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+          .collect();
+
+        await Promise.all(
+          removedCustomRoles.flatMap((removed) => {
+            const fallbackRoleId = removed.permissionLevel; // built-in id matching the permission level
+            return orgUsers
+              .filter((u) => u.roleId === removed.id)
+              .map((u) => ctx.db.patch(u._id, { roleId: fallbackRoleId }));
+          })
+        );
+      }
+    }
+
     await ctx.db.patch(settings._id, args);
   },
 });

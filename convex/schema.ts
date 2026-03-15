@@ -48,6 +48,10 @@ export default defineSchema({
       v.literal("inactive"),
       v.literal("pending_onboarding")
     ),
+    // Google Calendar OAuth — set when user connects their Google account
+    googleRefreshToken: v.optional(v.string()),
+    googleEmail: v.optional(v.string()),
+    googleConnectedAt: v.optional(v.number()),
   })
     .index("by_token", ["tokenIdentifier"])
     .index("by_org", ["organisationId"])
@@ -158,30 +162,51 @@ export default defineSchema({
   // ─── Appointments ─────────────────────────────────────────────────────────────
   appointments: defineTable({
     organisationId: v.id("organisations"),
-    clientId: v.id("clients"),
+    // clientId is optional — General Meetings don't require a client
+    clientId: v.optional(v.id("clients")),
     caseId: v.optional(v.id("cases")),
+    // assignedTo = the host (case manager or admin who owns the meeting)
     assignedTo: v.optional(v.id("users")),
+    // createdBy = who created it (used for edit/cancel permission checks)
+    createdBy: v.id("users"),
     title: v.string(),
-    type: v.union(
-      v.literal("Consultation"),
-      v.literal("Document Review"),
-      v.literal("Interview Prep"),
-      v.literal("Follow-up")
+    meetingType: v.union(
+      v.literal("case_appointment"),
+      v.literal("general_meeting")
     ),
+    // Appointment type is user-configurable via Settings → Appt Types; stored as a plain string.
+    type: v.string(),
+    // Upcoming → Ongoing (auto when startAt passes) → Expired (auto when endAt passes)
+    // Cancelled is set manually; deletedAt is set on cancel/expire for soft-delete
     status: v.union(
-      v.literal("Scheduled"),
-      v.literal("Confirmed"),
-      v.literal("Completed"),
+      v.literal("Upcoming"),
+      v.literal("Ongoing"),
+      v.literal("Expired"),
       v.literal("Cancelled")
     ),
     startAt: v.number(),
     endAt: v.number(),
-    location: v.optional(v.string()),
+    // attendees: mix of internal staff and external people (clients, external contacts)
+    attendees: v.optional(v.array(v.object({
+      type: v.union(v.literal("internal"), v.literal("external")),
+      userId: v.optional(v.id("users")),   // set for internal attendees
+      email: v.string(),
+      name: v.string(),
+    }))),
+    // Google Calendar integration
+    googleMeetLink: v.optional(v.string()),
+    googleEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // Soft delete: set on cancel or expire; hard-deleted after 40 days by cron
+    deletedAt: v.optional(v.number()),
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
-    .index("by_org_and_status", ["organisationId", "status"]),
+    .index("by_org_and_status", ["organisationId", "status"])
+    .index("by_assigned", ["assignedTo"])
+    .index("by_created_by", ["createdBy"])
+    .index("by_deleted_at", ["deletedAt"])
+    .index("by_org_and_start", ["organisationId", "startAt"]),
 
   // ─── Invoices ─────────────────────────────────────────────────────────────────
   invoices: defineTable({
@@ -324,11 +349,14 @@ export default defineSchema({
       v.literal("task_updated"),
       v.literal("comment"),
       v.literal("mention"),
-      v.literal("document_uploaded")
+      v.literal("document_uploaded"),
+      v.literal("appointment_created"),
+      v.literal("appointment_updated"),
+      v.literal("appointment_cancelled")
     ),
     title: v.string(),
     message: v.string(),
-    entityType: v.optional(v.union(v.literal("case"), v.literal("task"))),
+    entityType: v.optional(v.union(v.literal("case"), v.literal("task"), v.literal("appointment"))),
     entityId: v.optional(v.string()),
     read: v.boolean(),
   })
@@ -356,6 +384,7 @@ export default defineSchema({
     availableEndTime: v.optional(v.string()),   // "HH:MM" 24h
     availableDays: v.optional(v.array(v.string())), // ["Mon","Tue",...]
     documentTypes: v.optional(v.array(v.string())),
+    appointmentTypes: v.optional(v.array(v.string())),
     // Custom roles: org-scoped role catalog. Each role maps to a permission tier.
     // Built-ins (id="case_manager"/"staff") are renameable but not deletable.
     customRoles: v.optional(v.array(v.object({

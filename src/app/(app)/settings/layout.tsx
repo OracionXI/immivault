@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, GitBranch, Layers, Calendar, Building2, Mail, Zap, FileText, Shield } from "lucide-react";
+import { User, GitBranch, Layers, Calendar, Building2, Mail, Zap, FileText, Shield, CalendarClock } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
 const settingsTabs = [
@@ -16,6 +16,7 @@ const settingsTabs = [
     { title: "Booking",         href: "/settings/booking",         icon: Calendar,  adminOnly: true  },
     { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
     { title: "Email Templates", href: "/settings/email-templates", icon: Mail,      adminOnly: true  },
+    { title: "Appt Types",      href: "/settings/appointment-types", icon: CalendarClock, adminOnly: true },
     { title: "Automations",     href: "/settings/automations",     icon: Zap,       adminOnly: true  },
 ];
 
