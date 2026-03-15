@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { toast } from "sonner";
@@ -12,8 +12,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, X, Plus, Loader2, Link2 } from "lucide-react";
+import { useRole } from "@/hooks/use-role";
+import Link from "next/link";
 
 type ConvexAppointment = NonNullable<ReturnType<typeof useQuery<typeof api.appointments.queries.list>>>[number];
+
+interface Attendee {
+    type: "internal" | "external";
+    userId?: Id<"users">;
+    email: string;
+    name: string;
+}
 
 interface AppointmentModalProps {
     open: boolean;
@@ -21,11 +32,22 @@ interface AppointmentModalProps {
     appointment: ConvexAppointment | null;
 }
 
-const APPOINTMENT_TYPES = ["Consultation", "Document Review", "Interview Prep", "Follow-up"] as const;
-const DURATION_MINS = [15, 30, 45, 60, 90, 120] as const;
+const DEFAULT_APPOINTMENT_TYPES = ["Consultation", "Document Review", "Interview Prep", "Follow-up"];
+const DURATION_OPTIONS = [
+    { label: "15 min", value: 15 },
+    { label: "30 min", value: 30 },
+    { label: "45 min", value: 45 },
+    { label: "1 hour", value: 60 },
+    { label: "1.5 hours", value: 90 },
+    { label: "2 hours", value: 120 },
+];
 
 function tsToDateStr(ts: number) {
-    return new Date(ts).toISOString().split("T")[0];
+    const d = new Date(ts);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
 }
 
 function tsToTimeStr(ts: number) {
@@ -38,78 +60,159 @@ function toTimestamp(dateStr: string, timeStr: string) {
 }
 
 export function AppointmentModal({ open, onOpenChange, appointment }: AppointmentModalProps) {
+    const { user } = useRole();
     const createAppointment = useMutation(api.appointments.mutations.create);
     const updateAppointment = useMutation(api.appointments.mutations.update);
+    const cases = useQuery(api.cases.queries.list) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const appointmentTypes = settings?.appointmentTypes ?? DEFAULT_APPOINTMENT_TYPES;
 
-    const [form, setForm] = useState({
-        clientId: "",
-        assignedTo: "",
-        title: "",
-        type: "Consultation" as typeof APPOINTMENT_TYPES[number],
-        status: "Scheduled" as "Scheduled" | "Confirmed" | "Completed" | "Cancelled",
-        date: "",
-        time: "",
-        durationMins: 60,
-        location: "",
-        notes: "",
-    });
+    const isConnected = !!user?.googleEmail;
+    const isEditing = !!appointment;
+
+    // ── Form state ────────────────────────────────────────────────────────────
+    const [meetingType, setMeetingType] = useState<"case_appointment" | "general_meeting">("case_appointment");
+    const [title, setTitle] = useState("");
+    const [type, setType] = useState("Consultation");
+    const [caseId, setCaseId] = useState("");
+    const [date, setDate] = useState("");
+    const [time, setTime] = useState("");
+    const [durationMins, setDurationMins] = useState(60);
+    const [notes, setNotes] = useState("");
+    const [attendees, setAttendees] = useState<Attendee[]>([]);
+    const [externalEmail, setExternalEmail] = useState("");
+    const [externalName, setExternalName] = useState("");
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
 
-    useEffect(() => {
-        if (appointment) {
-            setForm({
-                clientId: appointment.clientId,
-                assignedTo: appointment.assignedTo ? (appointment.assignedTo as string) : "",
-                title: appointment.title,
-                type: appointment.type,
-                status: appointment.status,
-                date: tsToDateStr(appointment.startAt),
-                time: tsToTimeStr(appointment.startAt),
-                durationMins: Math.round((appointment.endAt - appointment.startAt) / 60000),
-                location: appointment.location ?? "",
-                notes: appointment.notes ?? "",
-            });
-        } else {
-            setForm({ clientId: "", assignedTo: "", title: "", type: "Consultation", status: "Scheduled", date: "", time: "", durationMins: 60, location: "", notes: "" });
-        }
-        setErrors({});
-    }, [appointment, open]);
+    // ── Conflict detection ────────────────────────────────────────────────────
+    const startAt = date && time ? toTimestamp(date, time) : 0;
+    const endAt = startAt ? startAt + durationMins * 60_000 : 0;
+    const conflictArgs = startAt && endAt && user?._id
+        ? { userId: user._id, startAt, endAt, excludeId: appointment?._id }
+        : "skip";
+    const conflicts = useQuery(
+        api.appointments.queries.checkConflict,
+        conflictArgs === "skip" ? "skip" : conflictArgs
+    ) ?? [];
 
+    // ── Auto-populate from case ───────────────────────────────────────────────
+    const selectedCase = useMemo(() => cases.find((c) => c._id === caseId), [cases, caseId]);
+    const selectedClient = useMemo(
+        () => clients.find((c) => c._id === selectedCase?.clientId),
+        [clients, selectedCase]
+    );
+
+    // Auto-generate default title from selected case
+    const autoTitle = useMemo(() => {
+        if (meetingType !== "case_appointment" || !selectedCase || !selectedClient) return "";
+        return `${selectedCase.caseNumber} – ${selectedClient.firstName} ${selectedClient.lastName}`;
+    }, [meetingType, selectedCase, selectedClient]);
+
+    // Auto-fill title when case is selected, but don't overwrite a custom title the user typed
+    const prevAutoTitleRef = useRef("");
+    useEffect(() => {
+        if (isEditing) return;
+        if (autoTitle && (title === "" || title === prevAutoTitleRef.current)) {
+            setTitle(autoTitle);
+        }
+        prevAutoTitleRef.current = autoTitle;
+    }, [autoTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Reset / populate on open ──────────────────────────────────────────────
+    useEffect(() => {
+        if (!open) return;
+        if (appointment) {
+            setMeetingType(appointment.meetingType);
+            setTitle(appointment.title);
+            setType(appointment.type === "General Meeting" ? "Consultation" : appointment.type);
+            setCaseId(appointment.caseId ?? "");
+            setDate(tsToDateStr(appointment.startAt));
+            setTime(tsToTimeStr(appointment.startAt));
+            setDurationMins(Math.round((appointment.endAt - appointment.startAt) / 60_000));
+            setNotes(appointment.notes ?? "");
+            setAttendees((appointment.attendees ?? []) as Attendee[]);
+        } else {
+            setMeetingType("case_appointment");
+            setTitle("");
+            setType("Consultation");
+            setCaseId("");
+            setDate("");
+            setTime("");
+            setDurationMins(60);
+            setNotes("");
+            setAttendees([]);
+        }
+        setExternalEmail("");
+        setExternalName("");
+        setErrors({});
+    }, [open, appointment]);
+
+    // ── Attendee helpers ──────────────────────────────────────────────────────
+    const addInternalAttendee = (userId: string) => {
+        if (!userId) return;
+        if (attendees.some((a) => a.userId === userId)) return;
+        const staff = users.find((u) => u._id === userId);
+        if (!staff) return;
+        setAttendees((prev) => [...prev, { type: "internal", userId: userId as Id<"users">, email: staff.email, name: staff.fullName }]);
+    };
+
+    const addExternalAttendee = () => {
+        const email = externalEmail.trim();
+        const name = externalName.trim();
+        if (!email || !name) return;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            setErrors((e) => ({ ...e, externalEmail: "Invalid email address" }));
+            return;
+        }
+        if (attendees.some((a) => a.email === email)) return;
+        setAttendees((prev) => [...prev, { type: "external", email, name }]);
+        setExternalEmail("");
+        setExternalName("");
+        setErrors((e) => { const next = { ...e }; delete next.externalEmail; return next; });
+    };
+
+    const removeAttendee = (email: string) => {
+        setAttendees((prev) => prev.filter((a) => a.email !== email));
+    };
+
+    // ── Validation ────────────────────────────────────────────────────────────
     const validate = () => {
         const errs: Record<string, string> = {};
-        if (!form.clientId) errs.clientId = "Client is required";
-        if (!form.assignedTo) errs.assignedTo = "Staff member is required";
-        if (!form.title.trim()) errs.title = "Title is required";
-        if (!form.date) errs.date = "Date is required";
-        if (!form.time) errs.time = "Time is required";
+        if (!title.trim()) errs.title = "Title is required";
+        if (meetingType === "case_appointment" && !caseId) errs.caseId = "Case is required";
+        if (!date) errs.date = "Date is required";
+        if (!time) errs.time = "Time is required";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     };
 
+    // ── Submit ────────────────────────────────────────────────────────────────
     const handleSubmit = async () => {
         if (!validate()) return;
         setLoading(true);
         try {
-            const startAt = toTimestamp(form.date, form.time);
-            const endAt = startAt + form.durationMins * 60 * 1000;
+            const effectiveType = meetingType === "general_meeting" ? "General Meeting" : type;
             const payload = {
-                clientId: form.clientId as Id<"clients">,
-                assignedTo: form.assignedTo as Id<"users">,
-                title: form.title,
-                type: form.type,
-                status: form.status,
+                title: title.trim(),
+                meetingType,
+                type: effectiveType,
+                caseId: caseId ? (caseId as Id<"cases">) : undefined,
+                clientId: selectedClient?._id,
                 startAt,
                 endAt,
-                location: form.location || undefined,
-                notes: form.notes || undefined,
+                attendees,
+                notes: notes || undefined,
             };
-            if (appointment) {
+
+            if (isEditing) {
                 await updateAppointment({ id: appointment._id, ...payload });
+                toast.success("Appointment updated.");
             } else {
                 await createAppointment(payload);
+                toast.success("Appointment created. Google Calendar invite will be sent shortly.");
             }
             onOpenChange(false);
         } catch (error) {
@@ -119,109 +222,236 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
         }
     };
 
+    const availableStaff = users.filter(
+        (u) => u.status === "active" && !attendees.some((a) => a.userId === u._id)
+    );
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[520px]">
+            <DialogContent style={{ maxWidth: "600px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
                 <DialogHeader>
-                    <DialogTitle>{appointment ? "Edit Appointment" : "New Appointment"}</DialogTitle>
+                    <DialogTitle>{isEditing ? "Edit Appointment" : "New Appointment"}</DialogTitle>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
+
+                {/* Google Calendar gate */}
+                {!isConnected && (
+                    <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-900/10 p-3 text-sm">
+                        <Link2 className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="font-medium text-amber-800 dark:text-amber-300">Google Calendar not connected</p>
+                            <p className="text-amber-700 dark:text-amber-400 mt-0.5">
+                                Connect your Google account in{" "}
+                                <Link href="/settings" className="underline font-medium" onClick={() => onOpenChange(false)}>
+                                    Settings
+                                </Link>{" "}
+                                to create appointments with Google Meet links.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                <div className="grid gap-4 py-2">
+                    {/* Meeting type toggle */}
+                    <div className="grid gap-2">
+                        <Label>Meeting Type</Label>
+                        <div className="flex rounded-lg border overflow-hidden">
+                            {(["case_appointment", "general_meeting"] as const).map((t) => (
+                                <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => setMeetingType(t)}
+                                    className={`flex-1 py-2 px-4 text-sm font-medium transition-colors ${
+                                        meetingType === t
+                                            ? "bg-primary text-primary-foreground"
+                                            : "text-muted-foreground hover:bg-muted"
+                                    }`}
+                                >
+                                    {t === "case_appointment" ? "Case Appointment" : "General Meeting"}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Case selector (case appointments only) */}
+                    {meetingType === "case_appointment" && (
+                        <div className="grid gap-2">
+                            <Label>Case *</Label>
+                            <Select value={caseId} onValueChange={setCaseId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a case" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {cases.map((c) => (
+                                        <SelectItem key={c._id} value={c._id}>
+                                            {c.caseNumber} – {c.title}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
+                        </div>
+                    )}
+
+                    {/* Title */}
                     <div className="grid gap-2">
                         <Label>Title *</Label>
                         <Input
-                            value={form.title}
-                            onChange={(e) => setForm({ ...form, title: e.target.value })}
-                            placeholder="e.g., Initial consultation"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder={
+                                meetingType === "case_appointment"
+                                    ? "Select a case to auto-fill, or type a title"
+                                    : "e.g., Team sync, Strategy discussion"
+                            }
                         />
                         {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    {/* Type (case appointments only) */}
+                    {meetingType === "case_appointment" && (
                         <div className="grid gap-2">
-                            <Label>Client *</Label>
-                            <Select value={form.clientId} onValueChange={(v) => setForm({ ...form, clientId: v })}>
-                                <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
-                                <SelectContent>
-                                    {clients.map((c) => (
-                                        <SelectItem key={c._id} value={c._id}>{c.firstName} {c.lastName}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {errors.clientId && <p className="text-xs text-destructive">{errors.clientId}</p>}
-                        </div>
-                        <div className="grid gap-2">
-                            <Label>Staff Member *</Label>
-                            <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
-                                <SelectTrigger><SelectValue placeholder="Select staff" /></SelectTrigger>
-                                <SelectContent>
-                                    {users.filter((u) => u.status === "active").map((u) => (
-                                        <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {errors.assignedTo && <p className="text-xs text-destructive">{errors.assignedTo}</p>}
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label>Type</Label>
-                            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as typeof form.type })}>
+                            <Label>Appointment Type</Label>
+                            <Select value={type} onValueChange={setType}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {APPOINTMENT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                                    {appointmentTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className="grid gap-2">
-                            <Label>Status</Label>
-                            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {["Scheduled", "Confirmed", "Completed", "Cancelled"].map((s) => (
-                                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
+                    )}
 
-                    <div className="grid grid-cols-3 gap-4">
+                    {/* Date / Time / Duration */}
+                    <div className="grid grid-cols-3 gap-3">
                         <div className="grid gap-2">
                             <Label>Date *</Label>
-                            <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                            <Input
+                                type="date"
+                                value={date}
+                                onChange={(e) => setDate(e.target.value)}
+                                min={new Date().toISOString().split("T")[0]}
+                            />
                             {errors.date && <p className="text-xs text-destructive">{errors.date}</p>}
                         </div>
                         <div className="grid gap-2">
                             <Label>Time *</Label>
-                            <Input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+                            <Input
+                                type="time"
+                                value={time}
+                                onChange={(e) => setTime(e.target.value)}
+                            />
                             {errors.time && <p className="text-xs text-destructive">{errors.time}</p>}
                         </div>
                         <div className="grid gap-2">
                             <Label>Duration</Label>
-                            <Select value={String(form.durationMins)} onValueChange={(v) => setForm({ ...form, durationMins: Number(v) })}>
+                            <Select value={String(durationMins)} onValueChange={(v) => setDurationMins(Number(v))}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    {DURATION_MINS.map((d) => (
-                                        <SelectItem key={d} value={String(d)}>{d < 60 ? `${d} min` : `${d / 60}h`}</SelectItem>
+                                    {DURATION_OPTIONS.map((d) => (
+                                        <SelectItem key={d.value} value={String(d.value)}>{d.label}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                     </div>
 
+                    {/* Conflict warning */}
+                    {conflicts.length > 0 && (
+                        <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 dark:border-orange-900/40 dark:bg-orange-900/10 p-3 text-sm text-orange-800 dark:text-orange-300">
+                            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                            <div>
+                                <p className="font-medium">Scheduling conflict</p>
+                                <p className="text-orange-700 dark:text-orange-400 mt-0.5">
+                                    You already have {conflicts.length} appointment{conflicts.length > 1 ? "s" : ""} at this time.
+                                    You can still proceed.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Attendees */}
                     <div className="grid gap-2">
-                        <Label>Location</Label>
-                        <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g., Office – Room 201 or Virtual – Zoom" />
+                        <Label>Attendees</Label>
+
+                        {/* Current attendees chips */}
+                        {attendees.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-1">
+                                {attendees.map((a) => (
+                                    <Badge key={a.email} variant="secondary" className="gap-1.5 pl-2.5 pr-1.5 py-1">
+                                        <span className="text-xs">{a.name}</span>
+                                        <span className="text-xs text-muted-foreground">({a.type === "internal" ? "staff" : "external"})</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeAttendee(a.email)}
+                                            className="ml-0.5 hover:text-destructive transition-colors"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Add internal attendee */}
+                        <div className="grid gap-1">
+                            <p className="text-xs text-muted-foreground font-medium">Add staff member</p>
+                            <Select onValueChange={addInternalAttendee} value="">
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select staff to add..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {availableStaff.map((u) => (
+                                        <SelectItem key={u._id} value={u._id}>
+                                            {u.fullName} ({u.role === "admin" ? "Admin" : u.role === "case_manager" ? "Case Manager" : "Staff"})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Add external attendee */}
+                        <div className="grid gap-1">
+                            <p className="text-xs text-muted-foreground font-medium">Add external person</p>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="Name"
+                                    value={externalName}
+                                    onChange={(e) => setExternalName(e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Input
+                                    placeholder="Email"
+                                    type="email"
+                                    value={externalEmail}
+                                    onChange={(e) => setExternalEmail(e.target.value)}
+                                    className="flex-1"
+                                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExternalAttendee(); } }}
+                                />
+                                <Button type="button" variant="outline" size="icon" onClick={addExternalAttendee}>
+                                    <Plus className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            {errors.externalEmail && <p className="text-xs text-destructive">{errors.externalEmail}</p>}
+                        </div>
                     </div>
+
+                    {/* Notes */}
                     <div className="grid gap-2">
                         <Label>Notes</Label>
-                        <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional notes..." rows={3} />
+                        <Textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Agenda, preparation notes..."
+                            rows={3}
+                        />
                     </div>
                 </div>
+
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={loading}>{appointment ? "Save Changes" : "Create Appointment"}</Button>
+                    <Button onClick={handleSubmit} disabled={loading || !isConnected}>
+                        {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                        {isEditing ? "Save Changes" : "Create & Send Invites"}
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

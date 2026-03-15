@@ -188,6 +188,33 @@ export const updateProfile = authenticatedMutation({
   },
 });
 
+/** Save Google Calendar OAuth tokens for the current user. */
+export const saveGoogleTokens = authenticatedMutation({
+  args: {
+    googleRefreshToken: v.string(),
+    googleEmail: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(ctx.user._id, {
+      googleRefreshToken: args.googleRefreshToken,
+      googleEmail: args.googleEmail,
+      googleConnectedAt: Date.now(),
+    });
+  },
+});
+
+/** Disconnect Google Calendar from the current user's account. */
+export const disconnectGoogle = authenticatedMutation({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.db.patch(ctx.user._id, {
+      googleRefreshToken: undefined,
+      googleEmail: undefined,
+      googleConnectedAt: undefined,
+    });
+  },
+});
+
 /** Admin-only: update a staff member's role and activation status.
  *  `roleId` is the custom/display role ID. The permission tier (users.role)
  *  is resolved from the org's customRoles settings. */

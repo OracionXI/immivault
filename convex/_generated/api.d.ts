@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as appointments_jobs from "../appointments/jobs.js";
 import type * as appointments_mutations from "../appointments/mutations.js";
 import type * as appointments_queries from "../appointments/queries.js";
 import type * as archival_actions from "../archival/actions.js";
@@ -34,6 +35,7 @@ import type * as documents_queries from "../documents/queries.js";
 import type * as emailTemplates_mutations from "../emailTemplates/mutations.js";
 import type * as emailTemplates_queries from "../emailTemplates/queries.js";
 import type * as env from "../env.js";
+import type * as googleCalendar_actions from "../googleCalendar/actions.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_rateLimit from "../lib/rateLimit.js";
@@ -60,6 +62,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "appointments/jobs": typeof appointments_jobs;
   "appointments/mutations": typeof appointments_mutations;
   "appointments/queries": typeof appointments_queries;
   "archival/actions": typeof archival_actions;
@@ -86,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   "emailTemplates/mutations": typeof emailTemplates_mutations;
   "emailTemplates/queries": typeof emailTemplates_queries;
   env: typeof env;
+  "googleCalendar/actions": typeof googleCalendar_actions;
   http: typeof http;
   "lib/auth": typeof lib_auth;
   "lib/rateLimit": typeof lib_rateLimit;

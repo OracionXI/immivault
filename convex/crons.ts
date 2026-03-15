@@ -38,4 +38,18 @@ crons.daily(
   internal.notifications.jobs.sendCaseDeadlineReminders
 );
 
+// Every 5 min — auto-transition appointment statuses: Upcoming→Ongoing→Expired
+crons.interval(
+  "appointment status transitions",
+  { minutes: 5 },
+  internal.appointments.mutations.transitionStatuses
+);
+
+// Daily at 03:00 UTC — hard-delete cancelled/expired appointments older than 40 days
+crons.daily(
+  "purge expired appointments",
+  { hourUTC: 3, minuteUTC: 0 },
+  internal.appointments.mutations.purgeExpired
+);
+
 export default crons;

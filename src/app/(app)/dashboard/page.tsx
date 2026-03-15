@@ -39,7 +39,7 @@ function formatTime(ts: number) {
 }
 
 export default function DashboardPage() {
-    const { isAdmin } = useRole();
+    const { isAdmin, isCaseManager } = useRole();
     const { config, saveConfig, isVisible } = useWidgetConfig();
     const [widgetModalOpen, setWidgetModalOpen] = useState(false);
     const [chartTab, setChartTab] = useState("6 M");
@@ -252,12 +252,14 @@ export default function DashboardPage() {
                         </div>
                     )}
 
-                    {/* Admin: Recent Cases Table */}
-                    {isAdmin && isVisible("recent_cases") && (
+                    {/* Recent Cases Table — admin sees all, case manager sees assigned only */}
+                    {(isAdmin || isCaseManager) && isVisible("recent_cases") && (
                         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
                             <div className="p-5 pb-3 border-b border-border">
                                 <h3 className="font-semibold text-base">Recent Cases</h3>
-                                <p className="text-xs text-muted-foreground mt-0.5">Latest cases opened across the organisation</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    {isAdmin ? "Latest cases opened across the organisation" : "Your recently assigned cases"}
+                                </p>
                             </div>
                             <div className="overflow-x-auto">
                                 {recentCases.length === 0 ? (
@@ -397,16 +399,16 @@ export default function DashboardPage() {
                                                 <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-primary ring-2 ring-primary/20"></div>
 
                                                 <div className="bg-accent/40 rounded-xl p-3 border border-border/50 transition-colors hover:bg-accent">
-                                                    <p className="text-sm font-semibold text-card-foreground mb-1">{clientMap.get(a.clientId) ?? "Client"}</p>
+                                                    <p className="text-sm font-semibold text-card-foreground mb-1 truncate">{a.title}</p>
                                                     <p className="text-xs text-muted-foreground flex items-center gap-1 mb-3">
                                                         <Clock className="h-3 w-3" />
-                                                        {formatTime(a.startAt)} - {formatTime(a.endAt)}
+                                                        {formatTs(a.startAt)} · {formatTime(a.startAt)} – {formatTime(a.endAt)}
                                                     </p>
 
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex -space-x-2">
                                                             <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center border-2 border-background text-[10px] font-bold text-primary">
-                                                                {(clientMap.get(a.clientId) ?? "C")[0]}
+                                                                {a.title[0]?.toUpperCase() ?? "A"}
                                                             </div>
                                                             {a.assignedTo && userMap.get(a.assignedTo) && (
                                                                 <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center border-2 border-background text-[10px] font-bold text-blue-700">
@@ -414,9 +416,23 @@ export default function DashboardPage() {
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full px-3 bg-background">
-                                                            {a.type === 'Consultation' ? 'Google Meet' : 'Details'} <ArrowUpRight className="h-3 w-3 ml-1 text-muted-foreground" />
-                                                        </Button>
+                                                        {a.googleMeetLink ? (
+                                                            <a
+                                                                href={a.googleMeetLink}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                            >
+                                                                <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full px-3 bg-background gap-1">
+                                                                    Join Meet <ArrowUpRight className="h-3 w-3 text-muted-foreground" />
+                                                                </Button>
+                                                            </a>
+                                                        ) : (
+                                                            <Link href="/appointments">
+                                                                <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-full px-3 bg-background gap-1">
+                                                                    Details <ArrowUpRight className="h-3 w-3 text-muted-foreground" />
+                                                                </Button>
+                                                            </Link>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
