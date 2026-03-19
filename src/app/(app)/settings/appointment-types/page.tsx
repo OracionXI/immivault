@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Save, Loader2, Lock } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 const BUILT_IN_TYPE = "Consultation";
 const DEFAULT_APPOINTMENT_TYPES = [
@@ -69,6 +70,8 @@ export default function AppointmentTypesPage() {
             setSaving(false);
         }
     };
+
+    if (settings === undefined) return <SettingsCardSkeleton />;
 
     return (
         <Card>

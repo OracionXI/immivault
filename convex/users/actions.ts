@@ -97,12 +97,13 @@ export const inviteStaff = action({
     const customRoles = settings?.customRoles ?? [
       { id: "case_manager", permissionLevel: "case_manager" as const, name: "Case Manager", isDefault: true },
       { id: "staff",        permissionLevel: "staff"        as const, name: "Staff",         isDefault: true },
+      { id: "accountant",   permissionLevel: "accountant"   as const, name: "Accountant",    isDefault: true },
     ];
     const customRole = customRoles.find((r: { id: string }) => r.id === args.roleId);
     if (!customRole) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Role not found in organisation settings." });
     }
-    const permissionLevel = (customRole as { permissionLevel: "case_manager" | "staff" }).permissionLevel;
+    const permissionLevel = (customRole as { permissionLevel: "case_manager" | "staff" | "accountant" }).permissionLevel;
 
     // ── Rate limit: 10 invitations per hour per org ──────────────────────────
     await ctx.runMutation(internal.users.mutations.recordInviteRateLimit, {

@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values";
 
 // ─── Role & Permission Definitions ────────────────────────────────────────────
 
-type Role = "admin" | "case_manager" | "staff";
+type Role = "admin" | "case_manager" | "staff" | "accountant";
 type Resource =
   | "clients"
   | "cases"
@@ -45,6 +45,16 @@ const PERMISSIONS: Record<Role, Record<Resource, Action[]>> = {
     staff:        [],
     settings:     [],
   },
+  accountant: {
+    clients:      [],
+    cases:        [],
+    tasks:        [],
+    documents:    [],
+    appointments: ["create", "read", "update"],  // general meetings only; delete is admin-only
+    billing:      ["create", "read", "update", "delete"],
+    staff:        ["read", "update"],
+    settings:     [],
+  },
 };
 
 // ─── Permission Helpers ────────────────────────────────────────────────────────
@@ -85,9 +95,9 @@ export function requireAdmin(ctx: { user: { role: string } }): void {
   }
 }
 
-/** Shorthand: throws if caller is staff (allows admin + case_manager). */
+/** Shorthand: throws if caller is staff or accountant (allows admin + case_manager only). */
 export function requireAtLeastCaseManager(ctx: { user: { role: string } }): void {
-  if (ctx.user.role === "staff") {
+  if (ctx.user.role === "staff" || ctx.user.role === "accountant") {
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "Case manager or admin privileges required.",

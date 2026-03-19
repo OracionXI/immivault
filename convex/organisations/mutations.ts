@@ -8,6 +8,7 @@ import { ConvexError } from "convex/values";
 export const DEFAULT_CUSTOM_ROLES = [
   { id: "case_manager", name: "Case Manager", permissionLevel: "case_manager" as const, isDefault: true },
   { id: "staff",        name: "Staff",         permissionLevel: "staff"        as const, isDefault: true },
+  { id: "accountant",   name: "Accountant",    permissionLevel: "accountant"   as const, isDefault: true },
 ];
 
 /**
@@ -145,7 +146,7 @@ export const updateSettings = authenticatedMutation({
     customRoles: v.optional(v.array(v.object({
       id: v.string(),
       name: v.string(),
-      permissionLevel: v.union(v.literal("case_manager"), v.literal("staff")),
+      permissionLevel: v.union(v.literal("case_manager"), v.literal("staff"), v.literal("accountant")),
       isDefault: v.boolean(),
     }))),
   },
@@ -163,7 +164,7 @@ export const updateSettings = authenticatedMutation({
 
     // Enforce non-removable built-in roles and cascade-reassign members when a custom role is deleted.
     if (args.customRoles !== undefined) {
-      const BUILT_IN_IDS = ["case_manager", "staff"] as const;
+      const BUILT_IN_IDS = ["case_manager", "staff", "accountant"] as const;
       const newRoleIds = new Set(args.customRoles.map((r) => r.id));
 
       // Block removal of built-in roles and enforce their canonical names
@@ -171,7 +172,7 @@ export const updateSettings = authenticatedMutation({
         if (!newRoleIds.has(id)) {
           throw new ConvexError({
             code: "VALIDATION",
-            message: "The Case Manager and Staff roles cannot be removed.",
+            message: "The Case Manager, Staff, and Accountant roles cannot be removed.",
           });
         }
       }
@@ -181,6 +182,7 @@ export const updateSettings = authenticatedMutation({
         customRoles: args.customRoles.map((r) =>
           r.id === "case_manager" ? { ...r, name: "Case Manager", permissionLevel: "case_manager" as const }
           : r.id === "staff"        ? { ...r, name: "Staff",         permissionLevel: "staff"        as const }
+          : r.id === "accountant"   ? { ...r, name: "Accountant",    permissionLevel: "accountant"   as const }
           : r
         ),
       };
@@ -212,6 +214,34 @@ export const updateSettings = authenticatedMutation({
   },
 });
 
+/** Saves Stripe gateway settings. Admin only. */
+export const updateStripeSettings = authenticatedMutation({
+  args: {
+    stripeEnabled: v.boolean(),
+    stripePublishableKey: v.string(),
+    stripeSecretKey: v.string(),
+    stripeWebhookSecret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    const settings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .unique();
+    if (!settings) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Organisation settings not found." });
+    }
+    await ctx.db.patch(settings._id, {
+      stripeEnabled: args.stripeEnabled,
+      stripePublishableKey: args.stripePublishableKey || undefined,
+      stripeSecretKey: args.stripeSecretKey || undefined,
+      stripeWebhookSecret: args.stripeWebhookSecret || undefined,
+    });
+  },
+});
+
 /**
  * Internal: permanently cascade-deletes all Convex data for an organisation.
  * Called by purgeExpiredOrgs after Clerk users have been removed.
@@ -238,7 +268,6 @@ export const permanentDeleteOrg = internalMutation({
     await deleteAll("invitations", "by_org");
     await deleteAll("appointments", "by_org");
     await deleteAll("notifications", "by_org");
-    await deleteAll("automationRules", "by_org");
     await deleteAll("organisationSettings", "by_org");
 
     await ctx.db.delete(organisationId);

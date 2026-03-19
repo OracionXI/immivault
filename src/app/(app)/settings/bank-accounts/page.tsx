@@ -12,13 +12,15 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Plus, Trash2, Star, StarOff, Building2 } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 type BankAccount = NonNullable<ReturnType<typeof useQuery<typeof api.bankAccounts.queries.list>>>[number];
 
 const emptyForm = { bankName: "", accountName: "", accountNumber: "", routingNumber: "" };
 
 export default function BankAccountsPage() {
-    const accounts = useQuery(api.bankAccounts.queries.list) ?? [];
+    const rawAccounts = useQuery(api.bankAccounts.queries.list);
+    const accounts = rawAccounts ?? [];
     const createAccount = useMutation(api.bankAccounts.mutations.create);
     const setDefaultAccount = useMutation(api.bankAccounts.mutations.setDefault);
     const removeAccount = useMutation(api.bankAccounts.mutations.remove);
@@ -40,6 +42,8 @@ export default function BankAccountsPage() {
             setSaving(false);
         }
     };
+
+    if (rawAccounts === undefined) return <SettingsCardSkeleton rows={3} />;
 
     return (
         <Card>

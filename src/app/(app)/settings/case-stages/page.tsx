@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GripVertical, Plus, Trash2, Save, Loader2, Lock } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 export const FIXED_STAGES = ["To Do", "In Progress", "On Hold", "Completed", "Archive"];
 
@@ -52,6 +53,8 @@ export default function CaseStagesPage() {
             setSaving(false);
         }
     };
+
+    if (settings === undefined) return <SettingsCardSkeleton />;
 
     return (
         <Card>

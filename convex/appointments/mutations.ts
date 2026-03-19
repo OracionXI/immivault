@@ -23,7 +23,7 @@ const attendeeValidator = v.object({
   name: v.string(),
 });
 
-/** Admin or Case Manager: create an appointment with Google Meet. */
+/** Admin, Case Manager, or Accountant (general meetings only): create an appointment. */
 export const create = authenticatedMutation({
   args: {
     title: v.string(),
@@ -38,7 +38,12 @@ export const create = authenticatedMutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    requireAtLeastCaseManager(ctx);
+    if (ctx.user.role === "staff") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Case manager or admin privileges required." });
+    }
+    if (ctx.user.role === "accountant" && args.meetingType !== "general_meeting") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Accountants can only create general meetings." });
+    }
 
     const appointmentId = await ctx.db.insert("appointments", {
       ...args,
@@ -63,7 +68,7 @@ export const create = authenticatedMutation({
   },
 });
 
-/** Admin or Case Manager: update an appointment (only creator or admin). */
+/** Admin, Case Manager, or Accountant (own general meetings only): update an appointment. */
 export const update = authenticatedMutation({
   args: {
     id: v.id("appointments"),
@@ -78,11 +83,17 @@ export const update = authenticatedMutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    requireAtLeastCaseManager(ctx);
+    if (ctx.user.role === "staff") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Case manager or admin privileges required." });
+    }
 
     const appt = await ctx.db.get(args.id);
     if (!appt || appt.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
+    }
+
+    if (ctx.user.role === "accountant" && appt.meetingType !== "general_meeting") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Accountants can only manage general meetings." });
     }
 
     // Only the creator or an admin can edit
@@ -115,15 +126,21 @@ export const update = authenticatedMutation({
   },
 });
 
-/** Admin or Case Manager: cancel an appointment (soft delete). */
+/** Admin, Case Manager, or Accountant (own general meetings only): cancel an appointment. */
 export const cancel = authenticatedMutation({
   args: { id: v.id("appointments") },
   handler: async (ctx, args) => {
-    requireAtLeastCaseManager(ctx);
+    if (ctx.user.role === "staff") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Case manager or admin privileges required." });
+    }
 
     const appt = await ctx.db.get(args.id);
     if (!appt || appt.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
+    }
+
+    if (ctx.user.role === "accountant" && appt.meetingType !== "general_meeting") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Accountants can only manage general meetings." });
     }
 
     if (ctx.user.role !== "admin" && appt.createdBy !== ctx.user._id) {

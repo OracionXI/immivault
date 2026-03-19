@@ -39,6 +39,7 @@ interface DataTableProps<T> {
     onRowClick?: (item: T) => void;
     filterDropdown?: FilterDropdown;
     loading?: boolean;
+    headerAction?: React.ReactNode;
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -50,6 +51,7 @@ export function DataTable<T extends Record<string, unknown>>({
     onRowClick,
     filterDropdown,
     loading = false,
+    headerAction,
 }: DataTableProps<T>) {
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(0);
@@ -125,8 +127,9 @@ export function DataTable<T extends Record<string, unknown>>({
                     </div>
                 )}
 
-                {/* Filter dropdown + result count */}
+                {/* Filter dropdown + result count + optional action */}
                 <div className="sm:ml-auto flex w-full sm:w-auto items-center justify-between sm:justify-end gap-3">
+                    {headerAction && <div className="shrink-0">{headerAction}</div>}
                     {filterDropdown && (
                         <Select
                             value={activeFilter}

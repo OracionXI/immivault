@@ -1,4 +1,4 @@
-import { mutation } from "../_generated/server";
+import { mutation, internalMutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -202,6 +202,12 @@ export const createPaymentLink = authenticatedMutation({
     amount: v.number(),
     description: v.string(),
     expiresAt: v.number(),
+    paymentType: v.optional(v.union(
+      v.literal("Full Amount"),
+      v.literal("Installment"),
+      v.literal("Deposit"),
+      v.literal("Partial"),
+    )),
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
@@ -220,5 +226,166 @@ export const createPaymentLink = authenticatedMutation({
       organisationId: ctx.user.organisationId,
       createdBy: ctx.user._id,
     });
+  },
+});
+
+/**
+ * Internal mutation — called by the Stripe webhook action after verifying signature.
+ * Idempotent: skips if the PaymentIntent was already recorded.
+ */
+export const processStripeWebhookPayment = internalMutation({
+  args: {
+    token: v.string(),
+    stripePaymentIntentId: v.string(),
+    amount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
+      .unique();
+
+    if (!link || link.status === "Used") return; // already processed
+
+    const now = Date.now();
+
+    await ctx.db.insert("payments", {
+      organisationId: link.organisationId,
+      invoiceId: link.invoiceId,
+      clientId: link.clientId,
+      amount: args.amount,
+      currency: "USD",
+      method: "Card",
+      status: "Completed",
+      paidAt: now,
+      stripePaymentIntentId: args.stripePaymentIntentId,
+      reference: args.stripePaymentIntentId,
+    });
+
+    await ctx.db.patch(link._id, { status: "Used" });
+
+    if (link.invoiceId) {
+      await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
+    }
+  },
+});
+
+/**
+ * Public mutation — called by the frontend after stripe.confirmCardPayment succeeds.
+ * Also idempotent via stripePaymentIntentId check.
+ */
+export const confirmStripePayment = mutation({
+  args: {
+    token: v.string(),
+    stripePaymentIntentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
+      .unique();
+
+    if (!link) throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
+    if (link.status === "Used") return; // idempotent — webhook may have already run
+
+    const now = Date.now();
+
+    await ctx.db.insert("payments", {
+      organisationId: link.organisationId,
+      invoiceId: link.invoiceId,
+      clientId: link.clientId,
+      amount: link.amount,
+      currency: "USD",
+      method: "Card",
+      status: "Completed",
+      paidAt: now,
+      stripePaymentIntentId: args.stripePaymentIntentId,
+      reference: args.stripePaymentIntentId,
+    });
+
+    await ctx.db.patch(link._id, { status: "Used" });
+
+    if (link.invoiceId) {
+      await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
+    }
+  },
+});
+
+/** Admin: update a manual payment record. */
+export const updatePayment = authenticatedMutation({
+  args: {
+    id: v.id("payments"),
+    amount: v.number(),
+    method: v.union(
+      v.literal("Card"), v.literal("Bank Transfer"),
+      v.literal("Cash"), v.literal("Check"), v.literal("Online")
+    ),
+    status: v.union(
+      v.literal("Completed"), v.literal("Pending"),
+      v.literal("Failed"), v.literal("Refunded")
+    ),
+    reference: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireAdmin(ctx);
+    const payment = await ctx.db.get(args.id);
+    if (!payment || payment.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Payment not found." });
+    }
+    const { id, ...fields } = args;
+    await ctx.db.patch(id, fields);
+  },
+});
+
+/** Admin: delete a payment record. */
+export const removePayment = authenticatedMutation({
+  args: { id: v.id("payments") },
+  handler: async (ctx, args) => {
+    requireAdmin(ctx);
+    const payment = await ctx.db.get(args.id);
+    if (!payment || payment.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Payment not found." });
+    }
+    await ctx.db.delete(args.id);
+  },
+});
+
+/** Admin: update a payment link. */
+export const updatePaymentLink = authenticatedMutation({
+  args: {
+    id: v.id("paymentLinks"),
+    amount: v.number(),
+    description: v.string(),
+    expiresAt: v.number(),
+    status: v.union(v.literal("Active"), v.literal("Used"), v.literal("Expired")),
+    paymentType: v.optional(v.union(
+      v.literal("Full Amount"),
+      v.literal("Installment"),
+      v.literal("Deposit"),
+      v.literal("Partial"),
+    )),
+  },
+  handler: async (ctx, args) => {
+    requireAdmin(ctx);
+    const link = await ctx.db.get(args.id);
+    if (!link || link.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
+    }
+    const { id, ...fields } = args;
+    await ctx.db.patch(id, fields);
+  },
+});
+
+/** Admin: delete a payment link. */
+export const removePaymentLink = authenticatedMutation({
+  args: { id: v.id("paymentLinks") },
+  handler: async (ctx, args) => {
+    requireAdmin(ctx);
+    const link = await ctx.db.get(args.id);
+    if (!link || link.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
+    }
+    await ctx.db.delete(args.id);
   },
 });

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Save, Loader2 } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 const DEFAULT_DOC_TYPES = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"];
 
@@ -55,6 +56,8 @@ export default function DocTypesPage() {
             setSaving(false);
         }
     };
+
+    if (settings === undefined) return <SettingsCardSkeleton />;
 
     return (
         <Card>

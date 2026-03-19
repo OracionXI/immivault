@@ -61,6 +61,7 @@ function toTimestamp(dateStr: string, timeStr: string) {
 
 export function AppointmentModal({ open, onOpenChange, appointment }: AppointmentModalProps) {
     const { user } = useRole();
+    const isAccountant = user?.role === "accountant";
     const createAppointment = useMutation(api.appointments.mutations.create);
     const updateAppointment = useMutation(api.appointments.mutations.update);
     const cases = useQuery(api.cases.queries.list) ?? [];
@@ -73,7 +74,10 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
     const isEditing = !!appointment;
 
     // ── Form state ────────────────────────────────────────────────────────────
-    const [meetingType, setMeetingType] = useState<"case_appointment" | "general_meeting">("case_appointment");
+    // Accountants can only create general meetings — lock the type
+    const [meetingType, setMeetingType] = useState<"case_appointment" | "general_meeting">(
+        isAccountant ? "general_meeting" : "case_appointment"
+    );
     const [title, setTitle] = useState("");
     const [type, setType] = useState("Consultation");
     const [caseId, setCaseId] = useState("");
@@ -135,7 +139,7 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
             setNotes(appointment.notes ?? "");
             setAttendees((appointment.attendees ?? []) as Attendee[]);
         } else {
-            setMeetingType("case_appointment");
+            setMeetingType(isAccountant ? "general_meeting" : "case_appointment");
             setTitle("");
             setType("Consultation");
             setCaseId("");
@@ -251,7 +255,8 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                 )}
 
                 <div className="grid gap-4 py-2">
-                    {/* Meeting type toggle */}
+                    {/* Meeting type toggle — hidden for accountants (general meeting only) */}
+                    {!isAccountant && (
                     <div className="grid gap-2">
                         <Label>Meeting Type</Label>
                         <div className="flex rounded-lg border overflow-hidden">
@@ -271,6 +276,7 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                             ))}
                         </div>
                     </div>
+                    )}
 
                     {/* Case selector (case appointments only) */}
                     {meetingType === "case_appointment" && (
@@ -401,7 +407,7 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                                 <SelectContent>
                                     {availableStaff.map((u) => (
                                         <SelectItem key={u._id} value={u._id}>
-                                            {u.fullName} ({u.role === "admin" ? "Admin" : u.role === "case_manager" ? "Case Manager" : "Staff"})
+                                            {u.fullName} ({u.role === "admin" ? "Admin" : u.role === "case_manager" ? "Case Manager" : u.role === "accountant" ? "Accountant" : "Staff"})
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

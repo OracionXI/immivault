@@ -149,19 +149,17 @@ export function BreakdownCharts({ showCaseStatus = true, showCasesPerClient = tr
                                     <XAxis
                                         type="number"
                                         allowDecimals={false}
-                                        tick={{ fontSize: 11 }}
+                                        tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
                                         tickLine={false}
                                         axisLine={false}
-                                        className="fill-muted-foreground"
                                     />
                                     <YAxis
                                         type="category"
                                         dataKey="name"
                                         width={110}
-                                        tick={{ fontSize: 11 }}
+                                        tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
                                         tickLine={false}
                                         axisLine={false}
-                                        className="fill-muted-foreground"
                                         tickFormatter={(v: string) =>
                                             v.length > 14 ? v.slice(0, 13) + "…" : v
                                         }

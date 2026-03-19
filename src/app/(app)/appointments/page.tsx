@@ -303,6 +303,15 @@ export default function AppointmentsPage() {
 
     const appointments = rawAppointments ?? [];
 
+    // Build type options from every type present in loaded appointments
+    const typeOptions = useMemo(() => {
+        const seen = new Set<string>();
+        for (const a of allAppointments ?? []) {
+            if (a.type) seen.add(a.type);
+        }
+        return Array.from(seen).sort();
+    }, [allAppointments]);
+
     // Filter
     const filtered = useMemo(() => {
         return appointments.filter((a) => {
@@ -361,11 +370,9 @@ export default function AppointmentsPage() {
                         <SelectTrigger className="h-8 w-44 text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
-                            <SelectItem value="Consultation">Consultation</SelectItem>
-                            <SelectItem value="Document Review">Document Review</SelectItem>
-                            <SelectItem value="Interview Prep">Interview Prep</SelectItem>
-                            <SelectItem value="Follow-up">Follow-up</SelectItem>
-                            <SelectItem value="General Meeting">General Meeting</SelectItem>
+                            {typeOptions.map((t) => (
+                                <SelectItem key={t} value={t}>{t}</SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </div>

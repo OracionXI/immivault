@@ -71,7 +71,7 @@ export default function BillingPage() {
     ];
 
     return (
-        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
+        <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader
                 title="Billing"

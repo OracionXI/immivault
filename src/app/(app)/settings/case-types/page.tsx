@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Save, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 type CaseType = { id: string; name: string; issues: string[] };
 
@@ -96,6 +97,8 @@ export default function CaseTypesPage() {
             setSaving(false);
         }
     };
+
+    if (settings === undefined) return <SettingsCardSkeleton />;
 
     return (
         <Card>

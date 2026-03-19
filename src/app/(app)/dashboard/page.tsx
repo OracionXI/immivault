@@ -39,7 +39,7 @@ function formatTime(ts: number) {
 }
 
 export default function DashboardPage() {
-    const { isAdmin, isCaseManager } = useRole();
+    const { isAdmin, isCaseManager, isAccountant } = useRole();
     const { config, saveConfig, isVisible } = useWidgetConfig();
     const [widgetModalOpen, setWidgetModalOpen] = useState(false);
     const [chartTab, setChartTab] = useState("6 M");
@@ -94,8 +94,8 @@ export default function DashboardPage() {
         { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, trend: "+1", trendUp: false, adminOnly: true },
     ];
 
-    // For the mockup look, we might just show 3 top metrics in the main area
-    const displayStatCards = (allStatCards.filter((s) => !("adminOnly" in s) || isAdmin)).slice(0, 3);
+    // Accountant sees financial stats; others see standard top-3
+    const displayStatCards = (allStatCards.filter((s) => !("adminOnly" in s) || isAdmin || isAccountant)).slice(0, isAccountant ? 6 : 3);
 
     const recentCases = stats?.recentCases ?? [];
     const pendingTasksList = stats?.pendingTasksList ?? [];
@@ -113,7 +113,7 @@ export default function DashboardPage() {
                         <Sparkles className="h-4 w-4 mr-2" />
                         Ask AI
                     </Button>
-                    {isAdmin && (
+                    {isAdmin && !isAccountant && (
                         <Button variant="outline" className="bg-background shadow-sm rounded-lg h-9 px-4 hidden sm:flex" onClick={() => setWidgetModalOpen(true)}>
                             <LayoutTemplate className="h-4 w-4 mr-2 text-muted-foreground" />
                             Customize Widget
@@ -201,8 +201,8 @@ export default function DashboardPage() {
                         </div>
                     )}
 
-                    {/* Chart Container — admin only */}
-                    {isAdmin && isVisible("revenue_chart") && (
+                    {/* Chart Container — admin only (not accountant) */}
+                    {isAdmin && !isAccountant && isVisible("revenue_chart") && (
                         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
                             <div className="p-6 pb-2 flex items-center justify-between">
                                 <h3 className="font-semibold text-base flex items-center gap-2">
@@ -234,7 +234,7 @@ export default function DashboardPage() {
                     )}
 
                     {/* Admin: Task Table */}
-                    {isAdmin && isVisible("task_management") && (
+                    {isAdmin && !isAccountant && isVisible("task_management") && (
                         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
                             <div className="p-5 pb-3 border-b border-border flex items-center justify-between">
                                 <div>
@@ -253,7 +253,7 @@ export default function DashboardPage() {
                     )}
 
                     {/* Recent Cases Table — admin sees all, case manager sees assigned only */}
-                    {(isAdmin || isCaseManager) && isVisible("recent_cases") && (
+                    {(isAdmin || isCaseManager) && !isAccountant && isVisible("recent_cases") && (
                         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
                             <div className="p-5 pb-3 border-b border-border">
                                 <h3 className="font-semibold text-base">Recent Cases</h3>
@@ -314,7 +314,7 @@ export default function DashboardPage() {
                         </div>
                     )}
 
-                    {isAdmin && (isVisible("case_status") || isVisible("cases_per_client")) && (
+                    {isAdmin && !isAccountant && (isVisible("case_status") || isVisible("cases_per_client")) && (
                         <BreakdownCharts showCaseStatus={isVisible("case_status")} showCasesPerClient={isVisible("cases_per_client")} />
                     )}
 
@@ -324,7 +324,7 @@ export default function DashboardPage() {
                 <div className="xl:col-span-1 space-y-6">
 
                     {/* Staff List Widget */}
-                    {isAdmin && isVisible("staff") && (
+                    {(isAdmin || isAccountant) && (isAccountant || isVisible("staff")) && (
                         <Card className="shadow-sm border-border">
                             <CardHeader className="pb-4">
                                 <CardTitle className="text-base font-semibold">Our Staff</CardTitle>
@@ -361,7 +361,7 @@ export default function DashboardPage() {
                     )}
 
                     {/* Calendar Widget */}
-                    {isVisible("calendar") && <Card className="shadow-sm border-border sticky top-24">
+                    {(isAccountant || isVisible("calendar")) && <Card className="shadow-sm border-border sticky top-24">
                         <CardHeader className="flex flex-row items-center justify-between pb-4">
                             <CardTitle className="text-base font-semibold">Calendar</CardTitle>
                             <Button variant="outline" size="sm" className="h-8 bg-background">
@@ -452,7 +452,7 @@ export default function DashboardPage() {
 
             </div>
 
-            {isAdmin && (
+            {isAdmin && !isAccountant && (
                 <CustomizeWidgetsModal
                     open={widgetModalOpen}
                     onOpenChange={setWidgetModalOpen}

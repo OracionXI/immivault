@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Save, Loader2, Shield, Lock } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 import { Badge } from "@/components/ui/badge";
 
-type PermissionLevel = "case_manager" | "staff";
+type PermissionLevel = "case_manager" | "staff" | "accountant";
 
 interface CustomRole {
     id: string;
@@ -24,16 +25,19 @@ interface CustomRole {
 const BUILT_IN_ROLES: CustomRole[] = [
     { id: "case_manager", name: "Case Manager", permissionLevel: "case_manager", isDefault: true },
     { id: "staff",        name: "Staff",         permissionLevel: "staff",         isDefault: true },
+    { id: "accountant",   name: "Accountant",    permissionLevel: "accountant",    isDefault: true },
 ];
 
 const FIXED_ROLE_BADGES: Record<string, { label: string; description: string }> = {
     case_manager: { label: "Case Manager level", description: "Can manage cases & appointments" },
     staff:        { label: "Staff level",         description: "Access to assigned cases only" },
+    accountant:   { label: "Accountant level",    description: "Access to billing, payments & staff" },
 };
 
 const PERMISSION_LABELS: Record<PermissionLevel, string> = {
     case_manager: "Case Manager",
     staff: "Staff",
+    accountant: "Accountant",
 };
 
 export default function RoleTypesPage() {
@@ -88,6 +92,8 @@ export default function RoleTypesPage() {
             setSaving(false);
         }
     };
+
+    if (settings === undefined) return <SettingsCardSkeleton />;
 
     return (
         <Card>
@@ -146,6 +152,7 @@ export default function RoleTypesPage() {
                                     <SelectContent>
                                         <SelectItem value="case_manager">{PERMISSION_LABELS.case_manager} level</SelectItem>
                                         <SelectItem value="staff">{PERMISSION_LABELS.staff} level</SelectItem>
+                                        <SelectItem value="accountant">{PERMISSION_LABELS.accountant} level</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <Button
@@ -189,6 +196,7 @@ export default function RoleTypesPage() {
                             <SelectContent>
                                 <SelectItem value="case_manager">{PERMISSION_LABELS.case_manager} level</SelectItem>
                                 <SelectItem value="staff">{PERMISSION_LABELS.staff} level</SelectItem>
+                                <SelectItem value="accountant">{PERMISSION_LABELS.accountant} level</SelectItem>
                             </SelectContent>
                         </Select>
                         <Button onClick={addRole} disabled={!newRole.name.trim()} className="gap-1 shrink-0">
