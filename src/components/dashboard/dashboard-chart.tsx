@@ -151,7 +151,7 @@ export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProp
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.12)" vertical={false} />
                         <XAxis
                             dataKey="label"
-                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                            tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
                             tickLine={false}
                             axisLine={false}
                         />
@@ -162,7 +162,7 @@ export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProp
                                     ? `$${(v / 1000).toFixed(0)}k`
                                     : String(v)
                             }
-                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                            tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
                             tickLine={false}
                             axisLine={false}
                             width={dualAxis ? 52 : 40}
@@ -171,7 +171,7 @@ export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProp
                             <YAxis
                                 yAxisId="right"
                                 orientation="right"
-                                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                                tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
                                 tickLine={false}
                                 axisLine={false}
                                 width={32}

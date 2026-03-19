@@ -15,6 +15,7 @@ export function useRole() {
         isAdmin: currentUser?.role === "admin",
         isCaseManager: currentUser?.role === "case_manager",
         isStaff: currentUser?.role === "staff",
+        isAccountant: currentUser?.role === "accountant",
         user: currentUser ?? null,
         isLoading: currentUser === undefined,
     };

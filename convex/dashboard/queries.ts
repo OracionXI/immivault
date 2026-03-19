@@ -15,7 +15,7 @@ export const stats = authenticatedQuery({
   handler: async (ctx) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin";
+    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
     const now = Date.now();
     const sevenDays = now + 7 * 24 * 60 * 60 * 1000;
 
@@ -81,7 +81,7 @@ export const stats = authenticatedQuery({
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      const [overdueInvs, paidInvs] = await Promise.all([
+      const [overdueInvs, allOrgPayments] = await Promise.all([
         ctx.db
           .query("invoices")
           .withIndex("by_org_and_status", (q) =>
@@ -89,16 +89,14 @@ export const stats = authenticatedQuery({
           )
           .collect(),
         ctx.db
-          .query("invoices")
-          .withIndex("by_org_and_status", (q) =>
-            q.eq("organisationId", orgId).eq("status", "Paid")
-          )
+          .query("payments")
+          .withIndex("by_org", (q) => q.eq("organisationId", orgId))
           .collect(),
       ]);
       overdueInvoices = overdueInvs.length;
-      monthlyRevenue = paidInvs
-        .filter((inv) => inv.paidAt && inv.paidAt >= monthStart.getTime())
-        .reduce((sum, inv) => sum + inv.total, 0);
+      monthlyRevenue = allOrgPayments
+        .filter((p) => p.status === "Completed" && p.paidAt >= monthStart.getTime())
+        .reduce((sum, p) => sum + p.amount, 0) / 100;
     }
 
     // ── Upcoming appointments (org-wide, next 7 days) ────────────────────────
@@ -150,7 +148,7 @@ export const chartData = authenticatedQuery({
   handler: async (ctx, args) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin";
+    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
     const now = new Date();
 
     let buckets: { label: string; start: number; end: number }[];
@@ -181,9 +179,9 @@ export const chartData = authenticatedQuery({
       });
     }
 
-    const [allInvoices, allOrgCases, allOrgClients, allAppointments, allOrgTasks] = await Promise.all([
+    const [allPayments, allOrgCases, allOrgClients, allAppointments, allOrgTasks] = await Promise.all([
       isAdmin
-        ? ctx.db.query("invoices").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
+        ? ctx.db.query("payments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
         : Promise.resolve([]),
       ctx.db.query("cases").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
       isAdmin
@@ -199,9 +197,9 @@ export const chartData = authenticatedQuery({
     return buckets.map((b) => ({
       label: b.label,
       revenue: isAdmin
-        ? allInvoices
-            .filter((inv) => inv.paidAt != null && inv.paidAt >= b.start && inv.paidAt <= b.end)
-            .reduce((sum, inv) => sum + inv.total, 0)
+        ? allPayments
+            .filter((p) => p.status === "Completed" && p.paidAt >= b.start && p.paidAt <= b.end)
+            .reduce((sum, p) => sum + p.amount, 0) / 100
         : 0,
       cases: allCases.filter((c) => c._creationTime >= b.start && c._creationTime <= b.end).length,
       clients: isAdmin
@@ -226,7 +224,7 @@ export const chartBreakdown = authenticatedQuery({
   handler: async (ctx) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin";
+    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
 
     const allOrgCases = await ctx.db
       .query("cases")

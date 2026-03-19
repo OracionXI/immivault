@@ -20,8 +20,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown } from "lucide-react";
+import { generateAuditReport } from "@/lib/pdf-generator";
+import Link from "next/link";
 import { RoleGuard } from "@/components/shared/role-guard";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
 type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
@@ -37,7 +40,22 @@ export default function PaymentsPage() {
     const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
     const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
+    const org = useQuery(api.organisations.queries.mine);
     const createPaymentLink = useMutation(api.billing.mutations.createPaymentLink);
+    const updatePayment = useMutation(api.billing.mutations.updatePayment);
+    const removePayment = useMutation(api.billing.mutations.removePayment);
+    const updatePaymentLink = useMutation(api.billing.mutations.updatePaymentLink);
+    const removePaymentLink = useMutation(api.billing.mutations.removePaymentLink);
+
+    const [editPayment, setEditPayment] = useState<PaymentRow | null>(null);
+    const [editForm, setEditForm] = useState({ amount: "", method: "", status: "", reference: "", notes: "" });
+    const [editLoading, setEditLoading] = useState(false);
+    const [deletePaymentId, setDeletePaymentId] = useState<Id<"payments"> | null>(null);
+
+    const [editLink, setEditLink] = useState<LinkRow | null>(null);
+    const [editLinkForm, setEditLinkForm] = useState({ amount: "", description: "", expiryDate: "", status: "", paymentType: "" });
+    const [editLinkLoading, setEditLinkLoading] = useState(false);
+    const [deleteLinkId, setDeleteLinkId] = useState<Id<"paymentLinks"> | null>(null);
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
@@ -57,6 +75,10 @@ export default function PaymentsPage() {
         linkUrl: `${typeof window !== "undefined" ? window.location.origin : ""}/pay/${l.urlToken}`,
     }));
 
+    const [auditModalOpen, setAuditModalOpen] = useState(false);
+    const [auditFrom, setAuditFrom] = useState("");
+    const [auditTo, setAuditTo] = useState("");
+
     const [linkModalOpen, setLinkModalOpen] = useState(false);
     const [linkLoading, setLinkLoading] = useState(false);
     const [linkForm, setLinkForm] = useState({
@@ -64,7 +86,40 @@ export default function PaymentsPage() {
         amount: "",
         description: "",
         expiryDate: "",
+        paymentType: "" as "Full Amount" | "Installment" | "Deposit" | "Partial" | "",
     });
+
+    const handleEditSave = async () => {
+        if (!editPayment) return;
+        setEditLoading(true);
+        try {
+            await updatePayment({
+                id: editPayment._id,
+                amount: Math.round(Number(editForm.amount) * 100),
+                method: editForm.method as "Card" | "Bank Transfer" | "Cash" | "Check" | "Online",
+                status: editForm.status as "Completed" | "Pending" | "Failed" | "Refunded",
+                reference: editForm.reference || undefined,
+                notes: editForm.notes || undefined,
+            });
+            toast.success("Payment updated.");
+            setEditPayment(null);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setEditLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!deletePaymentId) return;
+        try {
+            await removePayment({ id: deletePaymentId });
+            toast.success("Payment deleted.");
+            setDeletePaymentId(null);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        }
+    };
 
     const paymentColumns: Column<PaymentRow>[] = [
         {
@@ -77,20 +132,56 @@ export default function PaymentsPage() {
             key: "amount",
             label: "Amount",
             sortable: true,
-            render: (p) => <span className="font-semibold">${p.amount.toLocaleString()}</span>,
+            render: (p) => <span className="font-semibold">${(Number(p.amount) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>,
         },
         { key: "method", label: "Method" },
         { key: "dateDisplay", label: "Date", sortable: true },
         { key: "status", label: "Status", render: (p) => <StatusBadge status={p.status} /> },
+        {
+            key: "actions",
+            label: "",
+            render: (p) => (
+                <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => {
+                            setEditPayment(p);
+                            setEditForm({
+                                amount: (Number(p.amount) / 100).toString(),
+                                method: p.method ?? "",
+                                status: p.status,
+                                reference: p.reference ?? "",
+                                notes: p.notes ?? "",
+                            });
+                        }}
+                        title="Edit payment"
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => setDeletePaymentId(p._id)}
+                        title="Delete payment"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            ),
+        },
     ];
 
     const linkColumns: Column<LinkRow>[] = [
         { key: "clientName", label: "Client", sortable: true },
         { key: "description", label: "Description" },
         {
+            key: "paymentType",
+            label: "Type",
+            render: (l) => <span>{(l as LinkRow).paymentType ?? "—"}</span>,
+        },
+        {
             key: "amount",
             label: "Amount",
-            render: (l) => <span className="font-semibold">${l.amount.toLocaleString()}</span>,
+            render: (l) => <span className="font-semibold">${(Number(l.amount) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>,
         },
         { key: "expiresDisplay", label: "Expires", sortable: true },
         { key: "status", label: "Status", render: (l) => <StatusBadge status={l.status} /> },
@@ -113,10 +204,65 @@ export default function PaymentsPage() {
                     >
                         <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => {
+                            setEditLink(l);
+                            setEditLinkForm({
+                                amount: (Number(l.amount) / 100).toString(),
+                                description: l.description,
+                                expiryDate: new Date(l.expiresAt).toISOString().split("T")[0],
+                                status: l.status,
+                                paymentType: l.paymentType ?? "",
+                            });
+                        }}
+                        title="Edit link"
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => setDeleteLinkId(l._id)}
+                        title="Delete link"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                 </div>
             ),
         },
     ];
+
+    const handleEditLinkSave = async () => {
+        if (!editLink) return;
+        setEditLinkLoading(true);
+        try {
+            await updatePaymentLink({
+                id: editLink._id,
+                amount: Math.round(Number(editLinkForm.amount) * 100),
+                description: editLinkForm.description,
+                expiresAt: new Date(editLinkForm.expiryDate).getTime(),
+                status: editLinkForm.status as "Active" | "Used" | "Expired",
+                paymentType: (editLinkForm.paymentType || undefined) as "Full Amount" | "Installment" | "Deposit" | "Partial" | undefined,
+            });
+            toast.success("Payment link updated.");
+            setEditLink(null);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setEditLinkLoading(false);
+        }
+    };
+
+    const handleDeleteLink = async () => {
+        if (!deleteLinkId) return;
+        try {
+            await removePaymentLink({ id: deleteLinkId });
+            toast.success("Payment link deleted.");
+            setDeleteLinkId(null);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        }
+    };
 
     const handleCreateLink = async () => {
         if (!linkForm.clientId || !linkForm.amount || !linkForm.description || !linkForm.expiryDate) return;
@@ -124,12 +270,13 @@ export default function PaymentsPage() {
         try {
             await createPaymentLink({
                 clientId: linkForm.clientId as Id<"clients">,
-                amount: Number(linkForm.amount),
+                amount: Math.round(Number(linkForm.amount) * 100), // store in cents
                 description: linkForm.description,
                 expiresAt: new Date(linkForm.expiryDate).getTime(),
+                paymentType: linkForm.paymentType || undefined,
             });
             setLinkModalOpen(false);
-            setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "" });
+            setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "", paymentType: "" });
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -138,9 +285,16 @@ export default function PaymentsPage() {
     };
 
     return (
-        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
+        <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
-            <PageHeader title="Payments" description="Track transactions and payment links" />
+            <div className="flex items-center justify-between">
+                <PageHeader title="Payments" description="Track transactions and payment links" />
+                <Link href="/payments/settings">
+                    <Button variant="outline" size="sm" className="gap-2">
+                        <Settings className="h-4 w-4" />Payment Settings
+                    </Button>
+                </Link>
+            </div>
 
             <Tabs defaultValue="transactions" className="space-y-4">
                 <TabsList>
@@ -164,18 +318,29 @@ export default function PaymentsPage() {
                                 { label: "Refunded", value: "Refunded" },
                             ],
                         }}
+                        headerAction={
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2"
+                                onClick={() => setAuditModalOpen(true)}
+                            >
+                                <FileDown className="h-4 w-4" />
+                                Audit PDF
+                            </Button>
+                        }
                     />
                 </TabsContent>
 
                 <TabsContent value="payment-links">
-                    <div className="flex justify-end mb-4">
-                        <Button onClick={() => setLinkModalOpen(true)}>Create Payment Link</Button>
-                    </div>
                     <DataTable
                         data={paymentLinks as unknown as Record<string, unknown>[]}
                         columns={linkColumns as unknown as Column<Record<string, unknown>>[]}
                         searchKey="clientName"
                         searchPlaceholder="Search payment links..."
+                        headerAction={
+                            <Button size="sm" onClick={() => setLinkModalOpen(true)}>Create Payment Link</Button>
+                        }
                     />
                 </TabsContent>
             </Tabs>
@@ -228,6 +393,21 @@ export default function PaymentsPage() {
                                 rows={2}
                             />
                         </div>
+                        <div className="grid gap-2">
+                            <Label>Payment Type</Label>
+                            <Select
+                                value={linkForm.paymentType}
+                                onValueChange={(v) => setLinkForm({ ...linkForm, paymentType: v as typeof linkForm.paymentType })}
+                            >
+                                <SelectTrigger><SelectValue placeholder="Select type (optional)" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Full Amount">Full Amount</SelectItem>
+                                    <SelectItem value="Installment">Installment</SelectItem>
+                                    <SelectItem value="Deposit">Deposit</SelectItem>
+                                    <SelectItem value="Partial">Partial</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setLinkModalOpen(false)}>Cancel</Button>
@@ -247,7 +427,235 @@ export default function PaymentsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            {/* Edit Payment Dialog */}
+            <Dialog open={!!editPayment} onOpenChange={(open) => { if (!open) setEditPayment(null); }}>
+                <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader><DialogTitle>Edit Payment</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Amount ($)</Label>
+                                <Input
+                                    type="number"
+                                    value={editForm.amount}
+                                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Method</Label>
+                                <Select value={editForm.method} onValueChange={(v) => setEditForm({ ...editForm, method: v })}>
+                                    <SelectTrigger><SelectValue placeholder="Select method" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Card">Card</SelectItem>
+                                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                                        <SelectItem value="Cash">Cash</SelectItem>
+                                        <SelectItem value="Check">Check</SelectItem>
+                                        <SelectItem value="Online">Online</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Status</Label>
+                            <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Completed">Completed</SelectItem>
+                                    <SelectItem value="Pending">Pending</SelectItem>
+                                    <SelectItem value="Failed">Failed</SelectItem>
+                                    <SelectItem value="Refunded">Refunded</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Reference</Label>
+                            <Input
+                                value={editForm.reference}
+                                onChange={(e) => setEditForm({ ...editForm, reference: e.target.value })}
+                                placeholder="Reference number"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Notes</Label>
+                            <Textarea
+                                value={editForm.notes}
+                                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                                placeholder="Optional notes..."
+                                rows={2}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditPayment(null)}>Cancel</Button>
+                        <Button onClick={handleEditSave} disabled={editLoading}>
+                            {editLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <ConfirmDialog
+                open={!!deletePaymentId}
+                onOpenChange={(open) => { if (!open) setDeletePaymentId(null); }}
+                title="Delete Payment"
+                description="Are you sure you want to delete this payment record? This action cannot be undone."
+                confirmText="Delete"
+                variant="destructive"
+                onConfirm={handleDelete}
+            />
+
+            {/* Edit Payment Link Dialog */}
+            <Dialog open={!!editLink} onOpenChange={(open) => { if (!open) setEditLink(null); }}>
+                <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader><DialogTitle>Edit Payment Link</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Amount ($)</Label>
+                                <Input
+                                    type="number"
+                                    value={editLinkForm.amount}
+                                    onChange={(e) => setEditLinkForm({ ...editLinkForm, amount: e.target.value })}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Expiry Date</Label>
+                                <Input
+                                    type="date"
+                                    value={editLinkForm.expiryDate}
+                                    onChange={(e) => setEditLinkForm({ ...editLinkForm, expiryDate: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Status</Label>
+                            <Select value={editLinkForm.status} onValueChange={(v) => setEditLinkForm({ ...editLinkForm, status: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Active">Active</SelectItem>
+                                    <SelectItem value="Used">Used</SelectItem>
+                                    <SelectItem value="Expired">Expired</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Description</Label>
+                            <Textarea
+                                value={editLinkForm.description}
+                                onChange={(e) => setEditLinkForm({ ...editLinkForm, description: e.target.value })}
+                                placeholder="Payment description..."
+                                rows={2}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Payment Type</Label>
+                            <Select
+                                value={editLinkForm.paymentType}
+                                onValueChange={(v) => setEditLinkForm({ ...editLinkForm, paymentType: v })}
+                            >
+                                <SelectTrigger><SelectValue placeholder="Select type (optional)" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Full Amount">Full Amount</SelectItem>
+                                    <SelectItem value="Installment">Installment</SelectItem>
+                                    <SelectItem value="Deposit">Deposit</SelectItem>
+                                    <SelectItem value="Partial">Partial</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditLink(null)}>Cancel</Button>
+                        <Button onClick={handleEditLinkSave} disabled={editLinkLoading}>
+                            {editLinkLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <ConfirmDialog
+                open={!!deleteLinkId}
+                onOpenChange={(open) => { if (!open) setDeleteLinkId(null); }}
+                title="Delete Payment Link"
+                description="Are you sure you want to delete this payment link? This action cannot be undone."
+                confirmText="Delete"
+                variant="destructive"
+                onConfirm={handleDeleteLink}
+            />
         </div>
+
+            {/* Audit PDF Period Dialog */}
+            <Dialog open={auditModalOpen} onOpenChange={setAuditModalOpen}>
+                <DialogContent className="sm:max-w-[380px]">
+                    <DialogHeader><DialogTitle>Download Audit Report</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <p className="text-sm text-muted-foreground">
+                            Select a period to include in the PDF. Leave both blank to include all transactions.
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>From Month</Label>
+                                <Input
+                                    type="month"
+                                    value={auditFrom}
+                                    onChange={(e) => setAuditFrom(e.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>To Month</Label>
+                                <Input
+                                    type="month"
+                                    value={auditTo}
+                                    onChange={(e) => setAuditTo(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAuditModalOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={() => {
+                                const fromTs = auditFrom ? new Date(auditFrom + "-01").getTime() : null;
+                                const toTs = auditTo
+                                    ? (() => { const d = new Date(auditTo + "-01"); d.setMonth(d.getMonth() + 1); return d.getTime() - 1; })()
+                                    : null;
+
+                                const filtered = payments.filter((p) => {
+                                    if (fromTs && p.paidAt < fromTs) return false;
+                                    if (toTs && p.paidAt > toTs) return false;
+                                    return true;
+                                });
+
+                                const fmtMonth = (ym: string) =>
+                                    new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
+                                generateAuditReport(
+                                    filtered.map((p) => ({
+                                        reference: p.reference,
+                                        clientName: p.clientName,
+                                        amount: p.amount,
+                                        method: p.method,
+                                        status: p.status,
+                                        dateDisplay: p.dateDisplay,
+                                        notes: p.notes,
+                                    })),
+                                    org?.name,
+                                    org?.agreementSignature,
+                                    auditFrom ? fmtMonth(auditFrom) : undefined,
+                                    auditTo ? fmtMonth(auditTo) : undefined,
+                                );
+                                setAuditModalOpen(false);
+                            }}
+                        >
+                            <FileDown className="h-4 w-4 mr-2" />
+                            Download PDF
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </RoleGuard>
     );
 }

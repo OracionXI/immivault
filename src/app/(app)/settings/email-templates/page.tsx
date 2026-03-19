@@ -13,13 +13,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Mail, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { SettingsCardSkeleton } from "@/components/shared/settings-card-skeleton";
 
 type EmailTemplate = NonNullable<ReturnType<typeof useQuery<typeof api.emailTemplates.queries.list>>>[number];
 
 const emptyForm = { name: "", subject: "", body: "", category: "" };
 
 export default function EmailTemplatesPage() {
-    const templates = useQuery(api.emailTemplates.queries.list) ?? [];
+    const rawTemplates = useQuery(api.emailTemplates.queries.list);
+    const templates = rawTemplates ?? [];
     const createTemplate = useMutation(api.emailTemplates.mutations.create);
     const updateTemplate = useMutation(api.emailTemplates.mutations.update);
     const removeTemplate = useMutation(api.emailTemplates.mutations.remove);
@@ -64,6 +66,8 @@ export default function EmailTemplatesPage() {
     };
 
     const modalOpen = !!editing || creating;
+
+    if (rawTemplates === undefined) return <SettingsCardSkeleton rows={4} />;
 
     return (
         <Card>

@@ -104,7 +104,7 @@ export const listNonAdminsByOrg = internalQuery({
       .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
       .collect();
     return users.filter(
-      (u) => (u.role === "case_manager" || u.role === "staff") && u.status === "active"
+      (u) => (u.role === "case_manager" || u.role === "staff" || u.role === "accountant") && u.status === "active"
     );
   },
 });

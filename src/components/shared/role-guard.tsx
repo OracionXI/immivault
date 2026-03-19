@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useRole } from "@/hooks/use-role";
 
-type Role = "admin" | "case_manager" | "staff";
+type Role = "admin" | "case_manager" | "staff" | "accountant";
 
 interface RoleGuardProps {
     allowedRoles: Role[];

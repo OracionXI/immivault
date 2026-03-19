@@ -21,7 +21,8 @@ export const syncFromClerk = internalMutation({
     role: v.union(
       v.literal("admin"),
       v.literal("case_manager"),
-      v.literal("staff")
+      v.literal("staff"),
+      v.literal("accountant")
     ),
     roleId: v.optional(v.string()), // display role ID (custom UUID or built-in key)
     // Optional override: if provided, bypasses the role-based status default.
@@ -101,7 +102,7 @@ export const createInvite = internalMutation({
   args: {
     organisationId: v.id("organisations"),
     email: v.string(),
-    role: v.union(v.literal("case_manager"), v.literal("staff")),
+    role: v.union(v.literal("case_manager"), v.literal("staff"), v.literal("accountant")),
     roleId: v.optional(v.string()),
     invitedBy: v.id("users"),
     clerkInvitationId: v.optional(v.string()),
@@ -249,6 +250,7 @@ export const updateMember = authenticatedMutation({
     const customRoles = settings?.customRoles ?? [
       { id: "case_manager", permissionLevel: "case_manager" as const, name: "Case Manager", isDefault: true },
       { id: "staff",        permissionLevel: "staff"        as const, name: "Staff",         isDefault: true },
+      { id: "accountant",   permissionLevel: "accountant"   as const, name: "Accountant",    isDefault: true },
     ];
     const customRole = customRoles.find((r) => r.id === args.roleId);
     if (!customRole) {

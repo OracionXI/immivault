@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, GitBranch, Layers, Calendar, Building2, Mail, Zap, FileText, Shield, CalendarClock } from "lucide-react";
+import { User, GitBranch, Layers, Calendar, Building2, Mail, FileText, Shield, CalendarClock, CreditCard } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
 const settingsTabs = [
@@ -17,7 +17,7 @@ const settingsTabs = [
     { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
     { title: "Email Templates", href: "/settings/email-templates", icon: Mail,      adminOnly: true  },
     { title: "Appt Types",      href: "/settings/appointment-types", icon: CalendarClock, adminOnly: true },
-    { title: "Automations",     href: "/settings/automations",     icon: Zap,       adminOnly: true  },
+    { title: "Payments",        href: "/payments/settings",          icon: CreditCard,    adminOnly: true },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -32,7 +32,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         }
     }, [isAdmin, isLoading, pathname, router]);
 
-    const visibleTabs = settingsTabs.filter((tab) => isAdmin || !tab.adminOnly);
+    const visibleTabs = settingsTabs.filter((tab) => !tab.adminOnly || isAdmin);
 
     return (
         <div className="space-y-6 pb-6">

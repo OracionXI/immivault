@@ -19,12 +19,15 @@ interface InviteModalProps {
 const DEFAULT_ROLES = [
     { id: "case_manager", name: "Case Manager" },
     { id: "staff",        name: "Staff" },
+    { id: "accountant",   name: "Accountant" },
 ];
 
 export function InviteModal({ open, onOpenChange }: InviteModalProps) {
     const inviteStaff = useAction(api.users.actions.inviteStaff);
     const settings = useQuery(api.organisations.queries.getSettings);
-    const customRoles = settings?.customRoles ?? DEFAULT_ROLES;
+    const builtInIds = new Set(DEFAULT_ROLES.map((r) => r.id));
+    const orgCustom = (settings?.customRoles ?? []).filter((r) => !builtInIds.has(r.id));
+    const customRoles = [...DEFAULT_ROLES, ...orgCustom];
 
     const defaultRoleId = customRoles[0]?.id ?? "staff";
 

@@ -1,4 +1,4 @@
-import { query } from "../_generated/server";
+import { query, internalQuery } from "../_generated/server";
 import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -66,6 +66,20 @@ export const getPaymentLinkByToken = query({
       clientName: client ? `${client.firstName} ${client.lastName}` : "Unknown",
       invoiceNumber: invoice?.invoiceNumber ?? null,
     };
+  },
+});
+
+/**
+ * Internal query — used by the createPaymentIntent action.
+ * Returns the raw payment link document including organisationId.
+ */
+export const getPaymentLinkForAction = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
+      .unique();
   },
 });
 

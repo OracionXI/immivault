@@ -158,4 +158,46 @@ http.route({
   }),
 });
 
+/**
+ * Stripe webhook endpoint — per-organisation.
+ *
+ * Each organisation configures their Stripe webhook to point to:
+ *   https://<your-convex-site-url>/stripe-webhook?orgId=<organisationId>
+ *
+ * The handler verifies the signature using the org's webhook secret,
+ * then processes payment_intent.succeeded events.
+ */
+http.route({
+  path: "/stripe-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const orgId = url.searchParams.get("orgId");
+
+    if (!orgId) {
+      return new Response("Missing orgId query parameter", { status: 400 });
+    }
+
+    const signature = request.headers.get("stripe-signature");
+    if (!signature) {
+      return new Response("Missing stripe-signature header", { status: 400 });
+    }
+
+    const payload = await request.text();
+
+    try {
+      await ctx.runAction(internal.billing.actions.handleWebhookEvent, {
+        payload,
+        signature,
+        organisationId: orgId as Id<"organisations">,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Webhook processing failed";
+      return new Response(msg, { status: 400 });
+    }
+
+    return new Response("OK", { status: 200 });
+  }),
+});
+
 export default http;
