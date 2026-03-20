@@ -40,7 +40,8 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const me = useQuery(api.users.queries.me);
     const users = useQuery(api.users.queries.listByOrg) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
-    const isStaff = me?.role === "staff";
+    // staff can only view/update their assigned tasks; accountants have zero task permissions
+    const canManageTasks = me?.role === "admin" || me?.role === "case_manager";
 
     // Tasks can be assigned to case managers or staff — never admins
     const assignableUsers = users.filter(
@@ -109,7 +110,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!form.title.trim()) errs.title = "Title is required";
-        if (!isStaff && !form.caseId) errs.caseId = "Related case is required";
+        if (canManageTasks && !form.caseId) errs.caseId = "Related case is required";
         if (!form.dueDate) {
             errs.dueDate = "Due date is required";
         } else if (!task && form.dueDate < today) {
@@ -191,7 +192,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {!isStaff && (
+                        {canManageTasks && (
                             <div className="grid gap-2">
                                 <Label>Assignee</Label>
                                 <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
@@ -240,7 +241,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                                 </Popover>
                             </div>
                         )}
-                        <div className={cn("grid gap-2", isStaff && "col-span-2")}>
+                        <div className={cn("grid gap-2", !canManageTasks && "col-span-2")}>
                             <Label>Due Date *</Label>
                             <Input
                                 type="date"
@@ -253,7 +254,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {!isStaff && (
+                        {canManageTasks && (
                             <div className="grid gap-2">
                                 <Label>Priority</Label>
                                 <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v as typeof form.priority })}>
@@ -266,7 +267,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                                 </Select>
                             </div>
                         )}
-                        <div className={cn("grid gap-2", isStaff && "col-span-2")}>
+                        <div className={cn("grid gap-2", !canManageTasks && "col-span-2")}>
                             <Label>Status</Label>
                             <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -279,7 +280,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
                         </div>
                     </div>
 
-                    {!isStaff && (
+                    {canManageTasks && (
                         <div className="grid gap-2">
                             <Label>Related Case *</Label>
                             <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>

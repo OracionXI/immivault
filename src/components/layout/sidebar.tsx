@@ -50,7 +50,7 @@ const navGroups = [
         label: "MAIN",
         items: [
             { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["admin", "case_manager", "staff", "accountant"] as Role[] },
-            { title: "Clients", href: "/clients", icon: Users, roles: ["admin"] as Role[] },
+            { title: "Clients", href: "/clients", icon: Users, roles: ["admin", "accountant"] as Role[] },
         ]
     },
     {

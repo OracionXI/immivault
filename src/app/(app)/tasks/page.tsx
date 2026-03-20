@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Search, X, LayoutDashboard, List, CalendarDays } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
+import { RoleGuard } from "@/components/shared/role-guard";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -164,6 +165,7 @@ export default function TasksPage() {
     };
 
     return (
+        <RoleGuard allowedRoles={["admin", "case_manager", "staff"]}>
         <div className="space-y-6">
             <PageHeader
                 title="Tasks"
@@ -320,5 +322,6 @@ export default function TasksPage() {
                 onConfirm={handleDelete}
             />
         </div>
+        </RoleGuard>
     );
 }

@@ -13,6 +13,7 @@ import { CasesTableView } from "./cases-table-view";
 import { Input } from "@/components/ui/input";
 import { Search, X, LayoutDashboard, List } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
+import { RoleGuard } from "@/components/shared/role-guard";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -193,6 +194,7 @@ export default function CasesPage() {
     };
 
     return (
+        <RoleGuard allowedRoles={["admin", "case_manager", "staff"]}>
         <div className="space-y-6">
             <PageHeader
                 title="Cases"
@@ -312,5 +314,6 @@ export default function CasesPage() {
                 onConfirm={handleDelete}
             />
         </div>
+        </RoleGuard>
     );
 }

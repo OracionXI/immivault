@@ -338,6 +338,15 @@ export default function PaymentsPage() {
                         columns={linkColumns as unknown as Column<Record<string, unknown>>[]}
                         searchKey="clientName"
                         searchPlaceholder="Search payment links..."
+                        filterDropdown={{
+                            key: "status",
+                            placeholder: "All Statuses",
+                            options: [
+                                { label: "Active", value: "Active" },
+                                { label: "Used", value: "Used" },
+                                { label: "Expired", value: "Expired" },
+                            ],
+                        }}
                         headerAction={
                             <Button size="sm" onClick={() => setLinkModalOpen(true)}>Create Payment Link</Button>
                         }

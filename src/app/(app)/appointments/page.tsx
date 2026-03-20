@@ -267,8 +267,8 @@ function CalendarSkeleton() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AppointmentsPage() {
-    const { user, isAdmin, isCaseManager } = useRole();
-    const canCreate = isAdmin || isCaseManager;
+    const { user, isAdmin, isCaseManager, isAccountant } = useRole();
+    const canCreate = isAdmin || isCaseManager || isAccountant;
 
     const rawAppointments = useQuery(api.appointments.queries.list, { includeExpired: false });
     const allAppointments = useQuery(api.appointments.queries.list, { includeExpired: true });

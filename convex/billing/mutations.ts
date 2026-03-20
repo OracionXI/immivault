@@ -3,7 +3,7 @@ import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { checkRateLimit } from "../lib/rateLimit";
-import { requireAdmin } from "../lib/rbac";
+import { requireAdmin, requireAdminOrAccountant } from "../lib/rbac";
 
 const invoiceStatusValidator = v.union(
   v.literal("Draft"),
@@ -210,7 +210,7 @@ export const createPaymentLink = authenticatedMutation({
     )),
   },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     // Rate limit: max 20 payment links per hour per org
     await checkRateLimit(ctx, `createPaymentLink:${ctx.user.organisationId}`, 20, 3_600_000);
 

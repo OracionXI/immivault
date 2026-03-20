@@ -85,13 +85,14 @@ export default function DashboardPage() {
         [users]
     );
 
+    const t = stats?.trends;
     const allStatCards = [
-        { title: "Total Clients", value: stats?.totalClients ?? 0, icon: Users, trend: "+12%", trendUp: true },
-        { title: "Active Cases", value: stats?.activeCases ?? 0, icon: Briefcase, trend: "+5%", trendUp: true },
-        { title: "Completed Tasks", value: stats?.completedTasks ?? 0, icon: CheckSquare, trend: "+18%", trendUp: true },
-        { title: "Monthly Revenue", value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`, icon: DollarSign, trend: "+22%", trendUp: true, adminOnly: true },
-        { title: "Upcoming Appts", value: stats?.upcomingAppointments ?? 0, icon: Calendar, trend: "-2%", trendUp: false },
-        { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, trend: "+1", trendUp: false, adminOnly: true },
+        { title: "Total Clients", value: stats?.totalClients ?? 0, icon: Users, trend: t?.clients.label ?? "0%", trendUp: t?.clients.up ?? true, period: "vs last week" },
+        { title: "Active Cases", value: stats?.activeCases ?? 0, icon: Briefcase, trend: t?.cases.label ?? "0%", trendUp: t?.cases.up ?? true, period: "vs last week" },
+        { title: "Completed Tasks", value: stats?.completedTasks ?? 0, icon: CheckSquare, trend: t?.tasks.label ?? "0%", trendUp: t?.tasks.up ?? true, period: "vs last week" },
+        { title: "Monthly Revenue", value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`, icon: DollarSign, trend: t?.revenue.label ?? "0%", trendUp: t?.revenue.up ?? true, adminOnly: true, period: "vs last month" },
+        { title: "Upcoming Appts", value: stats?.upcomingAppointments ?? 0, icon: Calendar, trend: t?.appointments.label ?? "0%", trendUp: t?.appointments.up ?? true, period: "vs last week" },
+        { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, trend: t?.overdueInvoices.label ?? "0%", trendUp: !(t?.overdueInvoices.up ?? false), adminOnly: true, period: "vs last week" },
     ];
 
     // Accountant sees financial stats; others see standard top-3
@@ -180,7 +181,7 @@ export default function DashboardPage() {
                                         </div>
                                         <div className="flex flex-col xl:flex-row xl:items-baseline gap-1 md:gap-2">
                                             <h3 className="text-2xl md:text-3xl font-bold tracking-tight">{stat.value}</h3>
-                                            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">vs last week</span>
+                                            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">{stat.period}</span>
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -188,8 +189,8 @@ export default function DashboardPage() {
                         </div>
                     )}
 
-                    {/* Non-admin: Task Table (replaces chart) */}
-                    {!isAdmin && (
+                    {/* Non-admin, non-accountant: Task Table (replaces chart) */}
+                    {!isAdmin && !isAccountant && (
                         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
                             <div className="p-5 pb-3 border-b border-border">
                                 <h3 className="font-semibold text-base">My Tasks</h3>
@@ -197,6 +198,37 @@ export default function DashboardPage() {
                             </div>
                             <div className="p-1">
                                 <DashboardTaskTable />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Accountant: Revenue chart (same as admin's, no widget toggle needed) */}
+                    {isAccountant && (
+                        <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
+                            <div className="p-6 pb-2 flex items-center justify-between">
+                                <h3 className="font-semibold text-base flex items-center gap-2">
+                                    Total Revenue <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                </h3>
+                                <div className="flex items-center gap-1 bg-accent/50 p-1 rounded-lg border border-border/50 text-xs">
+                                    {['1 W', '1 M', '6 M', '1 Y', 'ALL'].map(tab => (
+                                        <button
+                                            key={tab}
+                                            onClick={() => setChartTab(tab)}
+                                            className={`px-2 py-1 rounded-md font-medium transition-colors ${tab === chartTab ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                        >
+                                            {tab}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="px-6 pb-4">
+                                <div className="flex items-baseline gap-2 mb-4">
+                                    <h3 className="text-xl font-bold tracking-tight">${stats?.monthlyRevenue?.toLocaleString() ?? "0"}</h3>
+                                    <span className={`text-xs font-medium ${t?.revenue.up !== false ? "text-emerald-600" : "text-red-500"}`}>{t?.revenue.label ?? "0%"} vs last month</span>
+                                </div>
+                            </div>
+                            <div className="px-2 pb-2">
+                                <DashboardChart isAdmin={true} chartArgs={TAB_ARGS[chartTab] ?? { months: 6 }} />
                             </div>
                         </div>
                     )}
@@ -223,8 +255,8 @@ export default function DashboardPage() {
                             </div>
                             <div className="px-6 pb-4">
                                 <div className="flex items-baseline gap-2 mb-4">
-                                    <h3 className="text-xl font-bold tracking-tight">${stats?.monthlyRevenue?.toLocaleString() ?? "32,209"}</h3>
-                                    <span className="text-xs font-medium text-emerald-600">+22% vs last month</span>
+                                    <h3 className="text-xl font-bold tracking-tight">${stats?.monthlyRevenue?.toLocaleString() ?? "0"}</h3>
+                                    <span className={`text-xs font-medium ${t?.revenue.up !== false ? "text-emerald-600" : "text-red-500"}`}>{t?.revenue.label ?? "0%"} vs last month</span>
                                 </div>
                             </div>
                             <div className="px-2 pb-2">

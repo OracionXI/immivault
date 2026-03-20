@@ -14,7 +14,7 @@ export const list = authenticatedQuery({
   handler: async (ctx) => {
     const { role, _id: userId, organisationId } = ctx.user;
 
-    if (role === "admin") {
+    if (role === "admin" || role === "accountant") {
       return await ctx.db
         .query("clients")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
@@ -37,7 +37,7 @@ export const listAll = authenticatedQuery({
   handler: async (ctx) => {
     const { role, _id: userId, organisationId } = ctx.user;
 
-    if (role === "admin") {
+    if (role === "admin" || role === "accountant") {
       return await ctx.db
         .query("clients")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
