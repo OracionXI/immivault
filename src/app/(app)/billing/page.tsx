@@ -14,7 +14,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
 
 type ConvexInvoice = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listInvoices>>>[number];
-type DisplayInvoice = ConvexInvoice & { clientName: string; dueDateDisplay: string };
+type DisplayInvoice = ConvexInvoice & { clientName: string; caseName: string; dueDateDisplay: string };
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -23,20 +23,26 @@ function formatTs(ts: number) {
 export default function BillingPage() {
     const rawInvoices = useQuery(api.billing.queries.listInvoices) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
+    const cases = useQuery(api.cases.queries.listAll) ?? [];
     const removeInvoice = useMutation(api.billing.mutations.removeInvoice);
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
         [clients]
     );
+    const caseMap = useMemo(
+        () => new Map(cases.map((c) => [c._id, c.title])),
+        [cases]
+    );
 
     const invoices = useMemo<DisplayInvoice[]>(
         () => rawInvoices.map((inv) => ({
             ...inv,
             clientName: clientMap.get(inv.clientId) ?? "—",
-            dueDateDisplay: formatTs(inv.dueDate),
+            caseName: inv.caseId ? (caseMap.get(inv.caseId) ?? "—") : "—",
+            dueDateDisplay: inv.isContractDraft ? "Contract" : formatTs(inv.dueDate),
         })),
-        [rawInvoices, clientMap]
+        [rawInvoices, clientMap, caseMap]
     );
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -53,7 +59,15 @@ export default function BillingPage() {
     const columns: Column<DisplayInvoice>[] = [
         { key: "invoiceNumber", label: "Invoice #", sortable: true, render: (i) => <span className="font-medium font-mono">{i.invoiceNumber}</span> },
         { key: "clientName", label: "Client", sortable: true },
-        { key: "total", label: "Amount", sortable: true, render: (i) => <span className="font-semibold">${i.total.toLocaleString()}</span> },
+        { key: "caseName", label: "Case" },
+        { key: "total", label: "Amount", sortable: true, render: (i) => (
+            <div>
+                <span className="font-semibold">${i.total.toLocaleString()}</span>
+                {i.isContractDraft && i.paidAmount !== undefined && i.paidAmount > 0 && (
+                    <span className="text-xs text-muted-foreground ml-1">(${i.paidAmount.toLocaleString()} paid)</span>
+                )}
+            </div>
+        ) },
         { key: "dueDateDisplay", label: "Due", sortable: true },
         { key: "status", label: "Status", render: (i) => <StatusBadge status={i.status} /> },
         {

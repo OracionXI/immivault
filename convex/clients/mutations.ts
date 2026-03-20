@@ -2,6 +2,16 @@ import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAdmin } from "../lib/rbac";
+import type { MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+
+async function nextInvoiceNumber(ctx: MutationCtx, organisationId: Id<"organisations">): Promise<string> {
+  const all = await ctx.db
+    .query("invoices")
+    .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+    .collect();
+  return `INV-${String(all.length + 1).padStart(4, "0")}`;
+}
 
 function buildCaseNumber(): string {
   const date = new Date();
@@ -29,6 +39,7 @@ export const create = authenticatedMutation({
       v.literal("Archived")
     ),
     assignedTo: v.optional(v.id("users")),
+    contractAmount: v.optional(v.number()), // in cents
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
@@ -49,6 +60,26 @@ export const create = authenticatedMutation({
       priority: "Medium",
       // assignedTo intentionally omitted — unassigned by default
     });
+
+    // Auto-create a contract Draft invoice when a contract amount is provided
+    if (args.contractAmount && args.contractAmount > 0) {
+      const total = args.contractAmount / 100; // cents → dollars
+      const invoiceNumber = await nextInvoiceNumber(ctx, ctx.user.organisationId);
+      await ctx.db.insert("invoices", {
+        organisationId: ctx.user.organisationId,
+        clientId,
+        status: "Draft",
+        taxRate: 0,
+        subtotal: total,
+        taxAmount: 0,
+        total,
+        invoiceNumber,
+        dueDate: new Date(9999, 11, 31).getTime(), // far-future — never auto-overdue
+        createdBy: ctx.user._id,
+        isContractDraft: true,
+        paidAmount: 0,
+      });
+    }
 
     return clientId;
   },
@@ -77,10 +108,11 @@ export const update = authenticatedMutation({
       )
     ),
     assignedTo: v.optional(v.id("users")),
+    contractAmount: v.optional(v.number()), // in cents
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
-    const { id, ...fields } = args;
+    const { id, contractAmount, ...fields } = args;
     const client = await ctx.db.get(id);
     if (!client || client.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
@@ -93,7 +125,46 @@ export const update = authenticatedMutation({
     const isReactivating = wasInactive && args.status === "Active";
     const isUnarchiving = wasArchived && args.status !== undefined && args.status !== "Archived";
 
-    await ctx.db.patch(id, fields);
+    await ctx.db.patch(id, { ...fields, contractAmount });
+
+    // Upsert the contract Draft invoice when contractAmount changes
+    if (contractAmount !== undefined) {
+      const existingDraft = await ctx.db
+        .query("invoices")
+        .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("clientId"), id),
+            q.eq(q.field("isContractDraft"), true)
+          )
+        )
+        .first();
+
+      if (contractAmount > 0) {
+        const total = contractAmount / 100;
+        if (existingDraft) {
+          await ctx.db.patch(existingDraft._id, { total, subtotal: total });
+        } else {
+          const invoiceNumber = await nextInvoiceNumber(ctx, ctx.user.organisationId);
+          await ctx.db.insert("invoices", {
+            organisationId: ctx.user.organisationId,
+            clientId: id,
+            status: "Draft",
+            taxRate: 0,
+            subtotal: total,
+            taxAmount: 0,
+            total,
+            invoiceNumber,
+            dueDate: new Date(9999, 11, 31).getTime(),
+            createdBy: ctx.user._id,
+            isContractDraft: true,
+            paidAmount: 0,
+          });
+        }
+      } else if (contractAmount === 0 && existingDraft && !(existingDraft.paidAmount && existingDraft.paidAmount > 0)) {
+        await ctx.db.delete(existingDraft._id);
+      }
+    }
 
     const linkedCases = await ctx.db
       .query("cases")

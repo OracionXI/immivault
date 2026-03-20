@@ -19,7 +19,8 @@ import {
     DownloadCloud,
     UploadCloud,
     ChevronDown,
-    Clock
+    Clock,
+    Hourglass
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardChart } from "@/components/dashboard/dashboard-chart";
@@ -93,10 +94,16 @@ export default function DashboardPage() {
         { title: "Monthly Revenue", value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`, icon: DollarSign, trend: t?.revenue.label ?? "0%", trendUp: t?.revenue.up ?? true, adminOnly: true, period: "vs last month" },
         { title: "Upcoming Appts", value: stats?.upcomingAppointments ?? 0, icon: Calendar, trend: t?.appointments.label ?? "0%", trendUp: t?.appointments.up ?? true, period: "vs last week" },
         { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, trend: t?.overdueInvoices.label ?? "0%", trendUp: !(t?.overdueInvoices.up ?? false), adminOnly: true, period: "vs last week" },
+        { title: "Pending Amount", value: `$${(stats?.pendingAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Hourglass, trend: "—", trendUp: false, adminOnly: true, period: "total outstanding", span2: true },
     ];
 
-    // Accountant sees financial stats; others see standard top-3
-    const displayStatCards = (allStatCards.filter((s) => !("adminOnly" in s) || isAdmin || isAccountant)).slice(0, isAccountant ? 6 : 3);
+    const displayStatCards = allStatCards
+        .filter((s) => {
+            if ("adminOnly" in s && !isAdmin && !isAccountant) return false;
+            if (isAccountant && (s.title === "Active Cases" || s.title === "Completed Tasks")) return false;
+            return true;
+        })
+        .slice(0, isAdmin ? 7 : isAccountant ? 5 : 3);
 
     const recentCases = stats?.recentCases ?? [];
     const pendingTasksList = stats?.pendingTasksList ?? [];
@@ -169,19 +176,19 @@ export default function DashboardPage() {
 
                     {/* Stat Cards */}
                     {isVisible("stat_cards") && (
-                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                        <div className={`grid gap-3 md:gap-4 ${isAccountant ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-2 lg:grid-cols-4"}`}>
                             {displayStatCards.map((stat, i) => (
-                                <Card key={stat.title} className="shadow-sm border-border">
+                                <Card key={stat.title} className={`shadow-sm border-border overflow-hidden ${"span2" in stat && stat.span2 ? "col-span-2" : ""}`}>
                                     <CardContent className="p-4 md:p-5">
-                                        <div className="flex items-center justify-between mb-3 md:mb-4 gap-2">
-                                            <p className="text-xs md:text-sm font-medium text-muted-foreground truncate">{stat.title}</p>
+                                        <div className="flex items-center justify-between mb-3 md:mb-4 gap-2 min-w-0">
+                                            <p className="text-xs md:text-sm font-medium text-muted-foreground truncate min-w-0">{stat.title}</p>
                                             <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center shrink-0 ${stat.trendUp ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                                                 {stat.trendUp ? '▲' : '▼'} {stat.trend.replace(/[+-]/, '')}
                                             </div>
                                         </div>
-                                        <div className="flex flex-col xl:flex-row xl:items-baseline gap-1 md:gap-2">
-                                            <h3 className="text-2xl md:text-3xl font-bold tracking-tight">{stat.value}</h3>
-                                            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">{stat.period}</span>
+                                        <div className="flex flex-col gap-1">
+                                            <h3 className="text-xl md:text-2xl font-bold tracking-tight truncate min-w-0">{stat.value}</h3>
+                                            <span className="text-[10px] md:text-xs text-muted-foreground truncate">{stat.period}</span>
                                         </div>
                                     </CardContent>
                                 </Card>

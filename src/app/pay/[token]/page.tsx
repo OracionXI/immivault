@@ -71,7 +71,14 @@ export default function PayPage({ params }: { params: Promise<{ token: string }>
                 // the mount effect below will then attach the card element to it.
                 setStatus("ready");
             })
-            .catch(() => {
+            .catch((err: unknown) => {
+                const msg =
+                    typeof (err as { data?: unknown })?.data === "string"
+                        ? (err as { data: string }).data
+                        : err instanceof Error
+                        ? err.message
+                        : "Unable to load payment form. Please contact your attorney.";
+                setErrorMsg(msg);
                 setStripeAvailable(false);
                 setStatus("idle");
             });

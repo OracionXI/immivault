@@ -25,6 +25,7 @@ export type ReportClient = {
     nationality?: string;
     status: string;
     _creationTime: number;
+    contractAmount?: number; // in cents
 };
 
 export type ReportCase = {
@@ -305,16 +306,27 @@ export function generateClientReport(
     y += 7;
 
     const boxH = 18;
+    let boxIdx = 0;
+    const boxLabel = () => String.fromCharCode(97 + boxIdx++) + ".  ";
+
+    if (client.contractAmount && client.contractAmount > 0) {
+        commentBox(
+            `${boxLabel()}Contract amount:`,
+            `$${(client.contractAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            M, y, CW, boxH
+        );
+        y += boxH;
+    }
 
     commentBox(
-        "a.  Total amount invoiced to client:",
+        `${boxLabel()}Total amount invoiced to client:`,
         `$${totalInvoiced.toLocaleString()}`,
         M, y, CW, boxH
     );
     y += boxH;
 
     commentBox(
-        "b.  Total payments received:",
+        `${boxLabel()}Total payments received:`,
         `$${totalPaid.toLocaleString()}`,
         M, y, CW, boxH
     );
@@ -324,7 +336,7 @@ export function generateClientReport(
         ? `$${totalPending.toLocaleString()}   (${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""})`
         : `$${totalPending.toLocaleString()}`;
     commentBox(
-        "c.  Outstanding balance:",
+        `${boxLabel()}Outstanding balance:`,
         pendingLabel,
         M, y, CW, boxH,
         overdueCount > 0 ? [180, 0, 0] : undefined
@@ -332,7 +344,7 @@ export function generateClientReport(
     y += boxH;
 
     commentBox(
-        "d.  If outstanding balance exists and continued case management is recommended, outline next steps:",
+        `${boxLabel()}If outstanding balance exists and continued case management is recommended, outline next steps:`,
         "",
         M, y, CW, boxH
     );

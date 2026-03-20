@@ -30,6 +30,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
     const [form, setForm] = useState({
         firstName: "", lastName: "", email: "", phone: "", nationality: "",
         status: "Active" as "Active" | "Inactive" | "Archived",
+        contractAmount: "",
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
@@ -43,9 +44,10 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                 phone: client.phone ?? "",
                 nationality: client.nationality ?? "",
                 status: client.status,
+                contractAmount: client.contractAmount ? (client.contractAmount / 100).toFixed(2) : "",
             });
         } else {
-            setForm({ firstName: "", lastName: "", email: "", phone: "", nationality: "", status: "Active" });
+            setForm({ firstName: "", lastName: "", email: "", phone: "", nationality: "", status: "Active", contractAmount: "" });
         }
         setErrors({});
     }, [client, open]);
@@ -63,6 +65,9 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
         if (!validate()) return;
         setLoading(true);
         try {
+            const contractAmountCents = form.contractAmount
+                ? Math.round(parseFloat(form.contractAmount) * 100)
+                : undefined;
             const payload = {
                 firstName: form.firstName,
                 lastName: form.lastName,
@@ -70,6 +75,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                 phone: form.phone || undefined,
                 nationality: form.nationality || undefined,
                 status: form.status,
+                contractAmount: contractAmountCents,
             };
             if (client) {
                 await updateClient({ id: client._id, ...payload });
@@ -86,7 +92,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent style={{ maxWidth: "750px" }}>
                 <DialogHeader>
                     <DialogTitle>{client ? "Edit Client" : "New Client"}</DialogTitle>
                 </DialogHeader>
@@ -130,6 +136,21 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                                 </SelectContent>
                             </Select>
                         </div>
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="contractAmount">Contract Amount (USD)</Label>
+                        <Input
+                            id="contractAmount"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={form.contractAmount}
+                            onChange={(e) => setForm({ ...form, contractAmount: e.target.value })}
+                            placeholder="e.g., 5000.00"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Optional. Creates a Draft billing record tracking this client&apos;s contract balance.
+                        </p>
                     </div>
                 </div>
                 <DialogFooter>

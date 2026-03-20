@@ -67,7 +67,7 @@ export function StaffModal({ open, onOpenChange, staff }: StaffModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent style={{ maxWidth: "600px" }}>
                 <DialogHeader>
                     <DialogTitle>Edit Staff Member</DialogTitle>
                 </DialogHeader>

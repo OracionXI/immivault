@@ -29,8 +29,8 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
 type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
 
-type PaymentRow = ConvexPayment & { clientName: string; dateDisplay: string };
-type LinkRow = ConvexPaymentLink & { clientName: string; expiresDisplay: string; linkUrl: string };
+type PaymentRow = ConvexPayment & { clientName: string; caseName: string; dateDisplay: string };
+type LinkRow = ConvexPaymentLink & { clientName: string; caseName: string; expiresDisplay: string; linkUrl: string };
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -40,6 +40,7 @@ export default function PaymentsPage() {
     const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
     const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
+    const cases = useQuery(api.cases.queries.listAll) ?? [];
     const org = useQuery(api.organisations.queries.mine);
     const createPaymentLink = useMutation(api.billing.mutations.createPaymentLink);
     const updatePayment = useMutation(api.billing.mutations.updatePayment);
@@ -48,12 +49,12 @@ export default function PaymentsPage() {
     const removePaymentLink = useMutation(api.billing.mutations.removePaymentLink);
 
     const [editPayment, setEditPayment] = useState<PaymentRow | null>(null);
-    const [editForm, setEditForm] = useState({ amount: "", method: "", status: "", reference: "", notes: "" });
+    const [editForm, setEditForm] = useState({ amount: "", method: "", status: "", reference: "", notes: "", caseId: "" as Id<"cases"> | "" });
     const [editLoading, setEditLoading] = useState(false);
     const [deletePaymentId, setDeletePaymentId] = useState<Id<"payments"> | null>(null);
 
     const [editLink, setEditLink] = useState<LinkRow | null>(null);
-    const [editLinkForm, setEditLinkForm] = useState({ amount: "", description: "", expiryDate: "", status: "", paymentType: "" });
+    const [editLinkForm, setEditLinkForm] = useState({ amount: "", description: "", expiryDate: "", status: "", paymentType: "", caseId: "" as Id<"cases"> | "", nextPaymentDate: "" });
     const [editLinkLoading, setEditLinkLoading] = useState(false);
     const [deleteLinkId, setDeleteLinkId] = useState<Id<"paymentLinks"> | null>(null);
 
@@ -61,16 +62,22 @@ export default function PaymentsPage() {
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
         [clients]
     );
+    const caseMap = useMemo(
+        () => new Map(cases.map((c) => [c._id, c.title])),
+        [cases]
+    );
 
     const payments: PaymentRow[] = rawPayments.map((p) => ({
         ...p,
         clientName: clientMap.get(p.clientId) ?? "—",
+        caseName: p.caseId ? (caseMap.get(p.caseId) ?? "—") : "—",
         dateDisplay: formatTs(p.paidAt),
     }));
 
     const paymentLinks: LinkRow[] = rawLinks.map((l) => ({
         ...l,
         clientName: clientMap.get(l.clientId) ?? "—",
+        caseName: l.caseId ? (caseMap.get(l.caseId) ?? "—") : "—",
         expiresDisplay: formatTs(l.expiresAt),
         linkUrl: `${typeof window !== "undefined" ? window.location.origin : ""}/pay/${l.urlToken}`,
     }));
@@ -83,11 +90,26 @@ export default function PaymentsPage() {
     const [linkLoading, setLinkLoading] = useState(false);
     const [linkForm, setLinkForm] = useState({
         clientId: "" as Id<"clients"> | "",
+        caseId: "" as Id<"cases"> | "",
         amount: "",
         description: "",
         expiryDate: "",
         paymentType: "" as "Full Amount" | "Installment" | "Deposit" | "Partial" | "",
+        nextPaymentDate: "",
     });
+
+    const filteredCasesForCreate = useMemo(
+        () => cases.filter((c) => c.clientId === linkForm.clientId),
+        [cases, linkForm.clientId]
+    );
+    const filteredCasesForEdit = useMemo(
+        () => cases.filter((c) => editLink && c.clientId === editLink.clientId),
+        [cases, editLink]
+    );
+    const filteredCasesForPayment = useMemo(
+        () => cases.filter((c) => editPayment && c.clientId === editPayment.clientId),
+        [cases, editPayment]
+    );
 
     const handleEditSave = async () => {
         if (!editPayment) return;
@@ -100,6 +122,7 @@ export default function PaymentsPage() {
                 status: editForm.status as "Completed" | "Pending" | "Failed" | "Refunded",
                 reference: editForm.reference || undefined,
                 notes: editForm.notes || undefined,
+                caseId: (editForm.caseId || undefined) as Id<"cases"> | undefined,
             });
             toast.success("Payment updated.");
             setEditPayment(null);
@@ -128,6 +151,7 @@ export default function PaymentsPage() {
             render: (p) => <span className="font-mono text-sm">{p.reference ?? "—"}</span>,
         },
         { key: "clientName", label: "Client", sortable: true },
+        { key: "caseName", label: "Case" },
         {
             key: "amount",
             label: "Amount",
@@ -152,6 +176,7 @@ export default function PaymentsPage() {
                                 status: p.status,
                                 reference: p.reference ?? "",
                                 notes: p.notes ?? "",
+                                caseId: (p.caseId ?? "") as Id<"cases"> | "",
                             });
                         }}
                         title="Edit payment"
@@ -172,6 +197,7 @@ export default function PaymentsPage() {
 
     const linkColumns: Column<LinkRow>[] = [
         { key: "clientName", label: "Client", sortable: true },
+        { key: "caseName", label: "Case" },
         { key: "description", label: "Description" },
         {
             key: "paymentType",
@@ -214,6 +240,10 @@ export default function PaymentsPage() {
                                 expiryDate: new Date(l.expiresAt).toISOString().split("T")[0],
                                 status: l.status,
                                 paymentType: l.paymentType ?? "",
+                                caseId: (l.caseId ?? "") as Id<"cases"> | "",
+                                nextPaymentDate: l.nextPaymentDate
+                                    ? new Date(l.nextPaymentDate).toISOString().split("T")[0]
+                                    : "",
                             });
                         }}
                         title="Edit link"
@@ -243,6 +273,10 @@ export default function PaymentsPage() {
                 expiresAt: new Date(editLinkForm.expiryDate).getTime(),
                 status: editLinkForm.status as "Active" | "Used" | "Expired",
                 paymentType: (editLinkForm.paymentType || undefined) as "Full Amount" | "Installment" | "Deposit" | "Partial" | undefined,
+                caseId: (editLinkForm.caseId || undefined) as Id<"cases"> | undefined,
+                nextPaymentDate: editLinkForm.nextPaymentDate
+                    ? new Date(editLinkForm.nextPaymentDate).getTime()
+                    : undefined,
             });
             toast.success("Payment link updated.");
             setEditLink(null);
@@ -270,13 +304,17 @@ export default function PaymentsPage() {
         try {
             await createPaymentLink({
                 clientId: linkForm.clientId as Id<"clients">,
+                caseId: (linkForm.caseId || undefined) as Id<"cases"> | undefined,
                 amount: Math.round(Number(linkForm.amount) * 100), // store in cents
                 description: linkForm.description,
                 expiresAt: new Date(linkForm.expiryDate).getTime(),
                 paymentType: linkForm.paymentType || undefined,
+                nextPaymentDate: linkForm.nextPaymentDate
+                    ? new Date(linkForm.nextPaymentDate).getTime()
+                    : undefined,
             });
             setLinkModalOpen(false);
-            setLinkForm({ clientId: "", amount: "", description: "", expiryDate: "", paymentType: "" });
+            setLinkForm({ clientId: "", caseId: "", amount: "", description: "", expiryDate: "", paymentType: "", nextPaymentDate: "" });
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -355,24 +393,41 @@ export default function PaymentsPage() {
             </Tabs>
 
             <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
-                <DialogContent className="sm:max-w-[450px]">
+                <DialogContent style={{ maxWidth: "675px" }}>
                     <DialogHeader><DialogTitle>Create Payment Link</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label>Client</Label>
-                            <Select
-                                value={linkForm.clientId}
-                                onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v as Id<"clients"> })}
-                            >
-                                <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
-                                <SelectContent>
-                                    {clients.map((c) => (
-                                        <SelectItem key={c._id} value={c._id}>
-                                            {c.firstName} {c.lastName}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Client</Label>
+                                <Select
+                                    value={linkForm.clientId}
+                                    onValueChange={(v) => setLinkForm({ ...linkForm, clientId: v as Id<"clients">, caseId: "" })}
+                                >
+                                    <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                                    <SelectContent>
+                                        {clients.map((c) => (
+                                            <SelectItem key={c._id} value={c._id}>
+                                                {c.firstName} {c.lastName}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Case (optional)</Label>
+                                <Select
+                                    value={linkForm.caseId}
+                                    onValueChange={(v) => setLinkForm({ ...linkForm, caseId: v as Id<"cases"> })}
+                                    disabled={!linkForm.clientId || filteredCasesForCreate.length === 0}
+                                >
+                                    <SelectTrigger><SelectValue placeholder="Select case" /></SelectTrigger>
+                                    <SelectContent>
+                                        {filteredCasesForCreate.map((c) => (
+                                            <SelectItem key={c._id} value={c._id}>{c.title}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
@@ -406,7 +461,7 @@ export default function PaymentsPage() {
                             <Label>Payment Type</Label>
                             <Select
                                 value={linkForm.paymentType}
-                                onValueChange={(v) => setLinkForm({ ...linkForm, paymentType: v as typeof linkForm.paymentType })}
+                                onValueChange={(v) => setLinkForm({ ...linkForm, paymentType: v as typeof linkForm.paymentType, nextPaymentDate: "" })}
                             >
                                 <SelectTrigger><SelectValue placeholder="Select type (optional)" /></SelectTrigger>
                                 <SelectContent>
@@ -417,6 +472,16 @@ export default function PaymentsPage() {
                                 </SelectContent>
                             </Select>
                         </div>
+                        {linkForm.paymentType === "Installment" && (
+                            <div className="grid gap-2">
+                                <Label>Next Payment Date</Label>
+                                <Input
+                                    type="date"
+                                    value={linkForm.nextPaymentDate}
+                                    onChange={(e) => setLinkForm({ ...linkForm, nextPaymentDate: e.target.value })}
+                                />
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setLinkModalOpen(false)}>Cancel</Button>
@@ -438,7 +503,7 @@ export default function PaymentsPage() {
             </Dialog>
             {/* Edit Payment Dialog */}
             <Dialog open={!!editPayment} onOpenChange={(open) => { if (!open) setEditPayment(null); }}>
-                <DialogContent className="sm:max-w-[450px]">
+                <DialogContent style={{ maxWidth: "675px" }}>
                     <DialogHeader><DialogTitle>Edit Payment</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
@@ -494,6 +559,22 @@ export default function PaymentsPage() {
                                 rows={2}
                             />
                         </div>
+                        <div className="grid gap-2">
+                            <Label>Case (optional)</Label>
+                            <Select
+                                value={editForm.caseId}
+                                onValueChange={(v) => setEditForm({ ...editForm, caseId: v === "__none__" ? "" : v as Id<"cases"> })}
+                                disabled={filteredCasesForPayment.length === 0}
+                            >
+                                <SelectTrigger><SelectValue placeholder="Select case" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="__none__">None</SelectItem>
+                                    {filteredCasesForPayment.map((c) => (
+                                        <SelectItem key={c._id} value={c._id}>{c.title}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setEditPayment(null)}>Cancel</Button>
@@ -517,9 +598,24 @@ export default function PaymentsPage() {
 
             {/* Edit Payment Link Dialog */}
             <Dialog open={!!editLink} onOpenChange={(open) => { if (!open) setEditLink(null); }}>
-                <DialogContent className="sm:max-w-[450px]">
+                <DialogContent style={{ maxWidth: "675px" }}>
                     <DialogHeader><DialogTitle>Edit Payment Link</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label>Case (optional)</Label>
+                            <Select
+                                value={editLinkForm.caseId}
+                                onValueChange={(v) => setEditLinkForm({ ...editLinkForm, caseId: v as Id<"cases"> })}
+                                disabled={filteredCasesForEdit.length === 0}
+                            >
+                                <SelectTrigger><SelectValue placeholder="Select case" /></SelectTrigger>
+                                <SelectContent>
+                                    {filteredCasesForEdit.map((c) => (
+                                        <SelectItem key={c._id} value={c._id}>{c.title}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Amount ($)</Label>
@@ -563,7 +659,7 @@ export default function PaymentsPage() {
                             <Label>Payment Type</Label>
                             <Select
                                 value={editLinkForm.paymentType}
-                                onValueChange={(v) => setEditLinkForm({ ...editLinkForm, paymentType: v })}
+                                onValueChange={(v) => setEditLinkForm({ ...editLinkForm, paymentType: v, nextPaymentDate: "" })}
                             >
                                 <SelectTrigger><SelectValue placeholder="Select type (optional)" /></SelectTrigger>
                                 <SelectContent>
@@ -574,6 +670,16 @@ export default function PaymentsPage() {
                                 </SelectContent>
                             </Select>
                         </div>
+                        {editLinkForm.paymentType === "Installment" && (
+                            <div className="grid gap-2">
+                                <Label>Next Payment Date</Label>
+                                <Input
+                                    type="date"
+                                    value={editLinkForm.nextPaymentDate}
+                                    onChange={(e) => setEditLinkForm({ ...editLinkForm, nextPaymentDate: e.target.value })}
+                                />
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setEditLink(null)}>Cancel</Button>
@@ -598,7 +704,7 @@ export default function PaymentsPage() {
 
             {/* Audit PDF Period Dialog */}
             <Dialog open={auditModalOpen} onOpenChange={setAuditModalOpen}>
-                <DialogContent className="sm:max-w-[380px]">
+                <DialogContent style={{ maxWidth: "570px" }}>
                     <DialogHeader><DialogTitle>Download Audit Report</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <p className="text-sm text-muted-foreground">

@@ -74,6 +74,7 @@ export default defineSchema({
       v.literal("Archived")
     ),
     assignedTo: v.optional(v.id("users")),
+    contractAmount: v.optional(v.number()),  // in cents; the signed contract total
   })
     .index("by_org", ["organisationId"])
     .index("by_org_and_status", ["organisationId", "status"])
@@ -229,7 +230,9 @@ export default defineSchema({
     issuedAt: v.optional(v.number()),
     paidAt: v.optional(v.number()),
     notes: v.optional(v.string()),
-    createdBy: v.id("users"),
+    createdBy: v.optional(v.id("users")),      // optional for system-generated invoices (cron/webhook)
+    paidAmount: v.optional(v.number()),        // dollars; running total paid toward this invoice
+    isContractDraft: v.optional(v.boolean()),  // true = auto-created from client contractAmount
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
@@ -268,6 +271,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     paidAt: v.number(),
     stripePaymentIntentId: v.optional(v.string()),
+    caseId: v.optional(v.id("cases")),
   })
     .index("by_org", ["organisationId"])
     .index("by_invoice", ["invoiceId"]),
@@ -293,6 +297,9 @@ export default defineSchema({
     urlToken: v.string(),
     expiresAt: v.number(),
     createdBy: v.id("users"),
+    caseId: v.optional(v.id("cases")),
+    nextPaymentDate: v.optional(v.number()),           // epoch ms; when next installment is due
+    nextPaymentOverdueCreated: v.optional(v.boolean()), // true once overdue invoice generated for this link
   })
     .index("by_token", ["urlToken"])
     .index("by_org", ["organisationId"]),

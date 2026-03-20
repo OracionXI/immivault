@@ -116,7 +116,7 @@ export default function ClientsPage() {
 
                 {/* Destructive delete confirmation — requires typing CONFIRM */}
                 <Dialog open={deleteDialog.open} onOpenChange={(open) => { if (!open) closeDelete(); }}>
-                    <DialogContent className="sm:max-w-[440px]">
+                    <DialogContent style={{ maxWidth: "660px" }}>
                         <DialogHeader>
                             <DialogTitle>Delete Client</DialogTitle>
                             <DialogDescription className="pt-1">

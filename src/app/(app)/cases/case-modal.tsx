@@ -162,7 +162,7 @@ export function CaseModal({ open, onOpenChange, caseItem }: CaseModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[550px]">
+            <DialogContent style={{ maxWidth: "825px" }}>
                 <DialogHeader><DialogTitle>{caseItem ? "Edit Case" : "New Case"}</DialogTitle></DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">

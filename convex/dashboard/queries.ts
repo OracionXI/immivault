@@ -91,6 +91,7 @@ export const stats = authenticatedQuery({
     let overdueInvoices = 0;
     let monthlyRevenue = 0;
     let revenueLastMonth = 0;
+    let pendingAmount = 0;
     let overdueInvsFull: { _creationTime: number }[] = [];
     if (canSeeBilling) {
       const monthStart = new Date();
@@ -99,7 +100,7 @@ export const stats = authenticatedQuery({
       const lastMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1).getTime();
       const lastMonthEnd = monthStart.getTime() - 1;
 
-      const [overdueInvs, allOrgPayments] = await Promise.all([
+      const [overdueInvs, allOrgPayments, allOrgInvoices] = await Promise.all([
         ctx.db
           .query("invoices")
           .withIndex("by_org_and_status", (q) =>
@@ -108,6 +109,10 @@ export const stats = authenticatedQuery({
           .collect(),
         ctx.db
           .query("payments")
+          .withIndex("by_org", (q) => q.eq("organisationId", orgId))
+          .collect(),
+        ctx.db
+          .query("invoices")
           .withIndex("by_org", (q) => q.eq("organisationId", orgId))
           .collect(),
       ]);
@@ -119,6 +124,15 @@ export const stats = authenticatedQuery({
       revenueLastMonth = allOrgPayments
         .filter((p) => p.status === "Completed" && p.paidAt >= lastMonthStart && p.paidAt <= lastMonthEnd)
         .reduce((sum, p) => sum + p.amount, 0) / 100;
+
+      // Pending = unpaid contract drafts balance + Sent/Overdue invoice totals
+      for (const inv of allOrgInvoices) {
+        if (inv.isContractDraft && inv.status !== "Paid") {
+          pendingAmount += inv.total - (inv.paidAmount ?? 0);
+        } else if (inv.status === "Sent" || inv.status === "Overdue") {
+          pendingAmount += inv.total;
+        }
+      }
     }
 
     // ── Upcoming appointments (org-wide, next 7 days) ────────────────────────
@@ -178,6 +192,7 @@ export const stats = authenticatedQuery({
       overdueInvoices,
       upcomingAppointments: upcomingAppointments.length,
       monthlyRevenue,
+      pendingAmount,
       recentCases,
       recentClients,
       pendingTasksList,

@@ -4,6 +4,72 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { checkRateLimit } from "../lib/rateLimit";
 import { requireAdmin, requireAdminOrAccountant } from "../lib/rbac";
+import type { MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+
+/** Helper: generate next invoice number for an org. */
+async function nextInvoiceNumber(ctx: MutationCtx, organisationId: Id<"organisations">): Promise<string> {
+  const all = await ctx.db
+    .query("invoices")
+    .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+    .collect();
+  return `INV-${String(all.length + 1).padStart(4, "0")}`;
+}
+
+/**
+ * Helper: after a successful payment, create a Paid invoice record and
+ * increment paidAmount on the client's contract Draft invoice (if any).
+ */
+async function recordPaidInvoiceAndUpdateDraft(
+  ctx: MutationCtx,
+  opts: {
+    organisationId: Id<"organisations">;
+    clientId: Id<"clients">;
+    caseId?: Id<"cases">;
+    amount: number;       // in cents
+    paymentType?: string;
+    description: string;
+    paidAt: number;
+    createdBy?: Id<"users">;
+  }
+) {
+  const amountInDollars = opts.amount / 100;
+  const invoiceNumber = await nextInvoiceNumber(ctx, opts.organisationId);
+
+  await ctx.db.insert("invoices", {
+    organisationId: opts.organisationId,
+    clientId: opts.clientId,
+    caseId: opts.caseId,
+    status: "Paid",
+    taxRate: 0,
+    subtotal: amountInDollars,
+    taxAmount: 0,
+    total: amountInDollars,
+    invoiceNumber,
+    dueDate: opts.paidAt,
+    paidAt: opts.paidAt,
+    issuedAt: opts.paidAt,
+    createdBy: opts.createdBy,
+    notes: opts.description,
+  });
+
+  // Update paidAmount on the contract Draft invoice for this client
+  const contractDraft = await ctx.db
+    .query("invoices")
+    .withIndex("by_org", (q) => q.eq("organisationId", opts.organisationId))
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("clientId"), opts.clientId),
+        q.eq(q.field("isContractDraft"), true)
+      )
+    )
+    .first();
+
+  if (contractDraft) {
+    const newPaidAmount = (contractDraft.paidAmount ?? 0) + amountInDollars;
+    await ctx.db.patch(contractDraft._id, { paidAmount: newPaidAmount });
+  }
+}
 
 const invoiceStatusValidator = v.union(
   v.literal("Draft"),
@@ -30,7 +96,7 @@ export const createInvoice = authenticatedMutation({
     items: v.array(itemValidator),
   },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const { items, taxRate, ...rest } = args;
 
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -78,9 +144,10 @@ export const updateInvoice = authenticatedMutation({
     notes: v.optional(v.string()),
     issuedAt: v.optional(v.number()),
     paidAt: v.optional(v.number()),
+    caseId: v.optional(v.id("cases")),
   },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const { id, ...fields } = args;
     const invoice = await ctx.db.get(id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
@@ -94,7 +161,7 @@ export const updateInvoice = authenticatedMutation({
 export const removeInvoice = authenticatedMutation({
   args: { id: v.id("invoices") },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const invoice = await ctx.db.get(args.id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -179,6 +246,7 @@ export const processPaymentLink = mutation({
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
+      caseId: link.caseId,
       amount: link.amount,
       currency: "USD",
       method: "Online",
@@ -191,6 +259,16 @@ export const processPaymentLink = mutation({
     if (link.invoiceId) {
       await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
     }
+
+    await recordPaidInvoiceAndUpdateDraft(ctx, {
+      organisationId: link.organisationId,
+      clientId: link.clientId,
+      caseId: link.caseId,
+      amount: link.amount,
+      paymentType: link.paymentType,
+      description: link.description,
+      paidAt: now,
+    });
   },
 });
 
@@ -199,6 +277,7 @@ export const createPaymentLink = authenticatedMutation({
   args: {
     invoiceId: v.optional(v.id("invoices")),
     clientId: v.id("clients"),
+    caseId: v.optional(v.id("cases")),
     amount: v.number(),
     description: v.string(),
     expiresAt: v.number(),
@@ -208,6 +287,7 @@ export const createPaymentLink = authenticatedMutation({
       v.literal("Deposit"),
       v.literal("Partial"),
     )),
+    nextPaymentDate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     requireAdminOrAccountant(ctx);
@@ -253,6 +333,7 @@ export const processStripeWebhookPayment = internalMutation({
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
+      caseId: link.caseId,
       amount: args.amount,
       currency: "USD",
       method: "Card",
@@ -267,6 +348,16 @@ export const processStripeWebhookPayment = internalMutation({
     if (link.invoiceId) {
       await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
     }
+
+    await recordPaidInvoiceAndUpdateDraft(ctx, {
+      organisationId: link.organisationId,
+      clientId: link.clientId,
+      caseId: link.caseId,
+      amount: args.amount,
+      paymentType: link.paymentType,
+      description: link.description,
+      paidAt: now,
+    });
   },
 });
 
@@ -294,6 +385,7 @@ export const confirmStripePayment = mutation({
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
+      caseId: link.caseId,
       amount: link.amount,
       currency: "USD",
       method: "Card",
@@ -308,10 +400,20 @@ export const confirmStripePayment = mutation({
     if (link.invoiceId) {
       await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
     }
+
+    await recordPaidInvoiceAndUpdateDraft(ctx, {
+      organisationId: link.organisationId,
+      clientId: link.clientId,
+      caseId: link.caseId,
+      amount: link.amount,
+      paymentType: link.paymentType,
+      description: link.description,
+      paidAt: now,
+    });
   },
 });
 
-/** Admin: update a manual payment record. */
+/** Admin / accountant: update a manual payment record. */
 export const updatePayment = authenticatedMutation({
   args: {
     id: v.id("payments"),
@@ -326,9 +428,10 @@ export const updatePayment = authenticatedMutation({
     ),
     reference: v.optional(v.string()),
     notes: v.optional(v.string()),
+    caseId: v.optional(v.id("cases")),
   },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const payment = await ctx.db.get(args.id);
     if (!payment || payment.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Payment not found." });
@@ -338,11 +441,11 @@ export const updatePayment = authenticatedMutation({
   },
 });
 
-/** Admin: delete a payment record. */
+/** Admin / accountant: delete a payment record. */
 export const removePayment = authenticatedMutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const payment = await ctx.db.get(args.id);
     if (!payment || payment.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Payment not found." });
@@ -351,7 +454,7 @@ export const removePayment = authenticatedMutation({
   },
 });
 
-/** Admin: update a payment link. */
+/** Admin / accountant: update a payment link. */
 export const updatePaymentLink = authenticatedMutation({
   args: {
     id: v.id("paymentLinks"),
@@ -365,9 +468,11 @@ export const updatePaymentLink = authenticatedMutation({
       v.literal("Deposit"),
       v.literal("Partial"),
     )),
+    caseId: v.optional(v.id("cases")),
+    nextPaymentDate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const link = await ctx.db.get(args.id);
     if (!link || link.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
@@ -377,11 +482,11 @@ export const updatePaymentLink = authenticatedMutation({
   },
 });
 
-/** Admin: delete a payment link. */
+/** Admin / accountant: delete a payment link. */
 export const removePaymentLink = authenticatedMutation({
   args: { id: v.id("paymentLinks") },
   handler: async (ctx, args) => {
-    requireAdmin(ctx);
+    requireAdminOrAccountant(ctx);
     const link = await ctx.db.get(args.id);
     if (!link || link.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
