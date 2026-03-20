@@ -103,7 +103,7 @@ export default function BankAccountsPage() {
             </CardContent>
 
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-                <DialogContent className="sm:max-w-[450px]">
+                <DialogContent style={{ maxWidth: "675px" }}>
                     <DialogHeader><DialogTitle>Add Bank Account</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">

@@ -152,7 +152,7 @@ export function TaskModal({ open, onOpenChange, task }: TaskModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent style={{ maxWidth: "750px" }}>
                 <DialogHeader>
                     <DialogTitle>{task ? "Edit Task" : "New Task"}</DialogTitle>
                 </DialogHeader>

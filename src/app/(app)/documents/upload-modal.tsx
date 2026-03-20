@@ -121,7 +121,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={uploading ? undefined : onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent style={{ maxWidth: "750px" }}>
                 <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
                 <div className="grid gap-4 py-4">
                     {/* File drop zone */}

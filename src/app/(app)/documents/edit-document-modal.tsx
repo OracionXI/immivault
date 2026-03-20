@@ -81,7 +81,7 @@ export function EditDocumentModal({ open, onOpenChange, document }: EditDocument
 
     return (
         <Dialog open={open} onOpenChange={saving ? undefined : onOpenChange}>
-            <DialogContent className="sm:max-w-[460px]">
+            <DialogContent style={{ maxWidth: "690px" }}>
                 <DialogHeader><DialogTitle>Edit Document</DialogTitle></DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">

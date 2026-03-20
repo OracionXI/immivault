@@ -55,7 +55,7 @@ export const listAll = authenticatedQuery({
       .collect();
     const inactiveClientIds = new Set(inactiveClients.map((c) => c._id));
 
-    if (role === "admin") {
+    if (role === "admin" || role === "accountant") {
       const all = await ctx.db
         .query("cases")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))

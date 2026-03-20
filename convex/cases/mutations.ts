@@ -234,7 +234,7 @@ export const updateStatus = authenticatedMutation({
   },
 });
 
-/** Admin-only: delete a case. */
+/** Admin-only: delete a case (with full cascade). */
 export const remove = authenticatedMutation({
   args: { id: v.id("cases") },
   handler: async (ctx, args) => {
@@ -243,6 +243,64 @@ export const remove = authenticatedMutation({
     if (!c || c.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
     }
+
+    const orgId = ctx.user.organisationId;
+    const caseIdStr = args.id as string;
+
+    // 1. Delete all tasks under this case (and their comments)
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_case", (q) => q.eq("caseId", args.id))
+      .collect();
+    for (const task of tasks) {
+      // Delete comments on each task
+      const taskComments = await ctx.db
+        .query("comments")
+        .withIndex("by_entity", (q) => q.eq("entityType", "task").eq("entityId", task._id as string))
+        .collect();
+      await Promise.all(taskComments.map((cm) => ctx.db.delete(cm._id)));
+      await ctx.db.delete(task._id);
+    }
+
+    // 2. Delete comments on the case itself
+    const caseComments = await ctx.db
+      .query("comments")
+      .withIndex("by_entity", (q) => q.eq("entityType", "case").eq("entityId", caseIdStr))
+      .collect();
+    await Promise.all(caseComments.map((cm) => ctx.db.delete(cm._id)));
+
+    // 3. Delete documents linked to this case (and their storage files)
+    const docs = await ctx.db
+      .query("documents")
+      .withIndex("by_case", (q) => q.eq("caseId", args.id))
+      .collect();
+    for (const doc of docs) {
+      await ctx.storage.delete(doc.storageId);
+      await ctx.db.delete(doc._id);
+    }
+
+    // 4. Unlink appointments
+    const appts = await ctx.db
+      .query("appointments")
+      .withIndex("by_org", (q) => q.eq("organisationId", orgId))
+      .collect();
+    await Promise.all(
+      appts.filter((a) => a.caseId === args.id).map((a) => ctx.db.patch(a._id, { caseId: undefined }))
+    );
+
+    // 5. Unlink invoices, payments, and payment links
+    const [invoices, payments, paymentLinks] = await Promise.all([
+      ctx.db.query("invoices").withIndex("by_client", (q) => q.eq("clientId", c.clientId)).collect(),
+      ctx.db.query("payments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
+      ctx.db.query("paymentLinks").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
+    ]);
+    await Promise.all([
+      ...invoices.filter((i) => i.caseId === args.id).map((i) => ctx.db.patch(i._id, { caseId: undefined })),
+      ...payments.filter((p) => p.caseId === args.id).map((p) => ctx.db.patch(p._id, { caseId: undefined })),
+      ...paymentLinks.filter((l) => l.caseId === args.id).map((l) => ctx.db.patch(l._id, { caseId: undefined })),
+    ]);
+
+    // 6. Delete the case
     await ctx.db.delete(args.id);
   },
 });

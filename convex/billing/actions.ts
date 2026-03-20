@@ -2,6 +2,7 @@ import { action, internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import Stripe from "stripe";
+import { ConvexError } from "convex/values";
 
 /**
  * Public action — no auth required.
@@ -22,9 +23,19 @@ export const createPaymentIntent = action({
       internal.billing.queries.getPaymentLinkForAction,
       { token: args.token }
     );
-    if (!link) throw new Error("Payment link not found.");
-    if (link.status !== "Active") throw new Error("This payment link is no longer active.");
-    if (link.expiresAt < Date.now()) throw new Error("This payment link has expired.");
+    if (!link) throw new ConvexError("Payment link not found.");
+    if (link.status !== "Active") throw new ConvexError("This payment link is no longer active.");
+    if (link.expiresAt < Date.now()) throw new ConvexError("This payment link has expired.");
+
+    // Full Amount validation: link amount must match client contract amount
+    if (link.paymentType === "Full Amount") {
+      const client = await ctx.runQuery(internal.clients.queries.getForAction, { id: link.clientId });
+      if (client?.contractAmount && link.amount !== client.contractAmount) {
+        throw new ConvexError(
+          `Payment amount ($${(link.amount / 100).toFixed(2)}) does not match the contract amount ($${(client.contractAmount / 100).toFixed(2)}). Please contact the firm.`
+        );
+      }
+    }
 
     // Get org Stripe settings
     const settings = await ctx.runQuery(internal.organisations.queries.getSettingsInternal, {

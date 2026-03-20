@@ -310,7 +310,7 @@ export default function CasesPage() {
                 open={deleteDialog.open}
                 onOpenChange={(open) => setDeleteDialog({ open, id: deleteDialog.id })}
                 title="Delete Case"
-                description="Are you sure you want to delete this case? This action cannot be undone."
+                description="Are you sure you want to delete this case? All tasks and comments associated with it will also be permanently deleted. This action cannot be undone."
                 onConfirm={handleDelete}
             />
         </div>

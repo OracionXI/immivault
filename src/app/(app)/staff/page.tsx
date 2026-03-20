@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { useRole } from "@/hooks/use-role";
 
 const DEFAULT_ROLE_LABELS: Record<string, string> = {
     admin: "Admin",
@@ -46,6 +47,7 @@ export default function StaffPage() {
         return DEFAULT_ROLE_LABELS[s.role] ?? s.role;
     };
     const deleteStaff = useAction(api.users.actions.deleteStaff);
+    const { isAdmin } = useRole();
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<ConvexUser | null>(null);
@@ -87,7 +89,7 @@ export default function StaffPage() {
         { key: "role", label: "Role", sortable: true, render: (s) => <span>{getRoleLabel(s)}</span> },
         { key: "status", label: "Status", render: (s) => <StatusBadge status={s.status} /> },
         {
-            key: "actions", label: "Actions", render: (s) => (
+            key: "actions", label: "Actions", render: (s) => isAdmin ? (
                 <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(s); setModalOpen(true); }}>
                         <Pencil className="h-3.5 w-3.5" />
@@ -101,7 +103,7 @@ export default function StaffPage() {
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
-            ),
+            ) : null,
         },
     ];
 
@@ -113,9 +115,11 @@ export default function StaffPage() {
                     title="Staff Management"
                     description="Manage your team members and their roles"
                 />
-                <Button onClick={() => setInviteOpen(true)} className="gap-2">
-                    <UserPlus className="h-4 w-4" />Invite Staff
-                </Button>
+                {isAdmin && (
+                    <Button onClick={() => setInviteOpen(true)} className="gap-2">
+                        <UserPlus className="h-4 w-4" />Invite Staff
+                    </Button>
+                )}
             </div>
             <DataTable
                 data={staff as unknown as Record<string, unknown>[]}
@@ -141,7 +145,7 @@ export default function StaffPage() {
 
             {/* Delete confirmation */}
             <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-                <DialogContent className="sm:max-w-[400px]">
+                <DialogContent style={{ maxWidth: "600px" }}>
                     <DialogHeader>
                         <DialogTitle>Remove Staff Member</DialogTitle>
                         <DialogDescription>

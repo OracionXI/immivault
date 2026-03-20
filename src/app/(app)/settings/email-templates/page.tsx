@@ -114,7 +114,7 @@ export default function EmailTemplatesPage() {
             </CardContent>
 
             <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) closeModal(); }}>
-                <DialogContent className="sm:max-w-[550px]">
+                <DialogContent style={{ maxWidth: "825px" }}>
                     <DialogHeader>
                         <DialogTitle>{editing ? "Edit Email Template" : "New Email Template"}</DialogTitle>
                     </DialogHeader>

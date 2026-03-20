@@ -87,7 +87,7 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-[420px]">
+            <DialogContent style={{ maxWidth: "630px" }}>
                 <DialogHeader>
                     <DialogTitle>Invite Staff Member</DialogTitle>
                 </DialogHeader>

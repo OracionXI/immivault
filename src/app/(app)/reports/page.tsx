@@ -27,10 +27,11 @@ type ClientReportRow = ConvexClient & {
     totalCases: number;
     totalInvoiced: number;
     totalPaid: number;
+    contractAmountDisplay: string;
 };
 
 export default function ReportsPage() {
-    const { isAdmin } = useRole();
+    const { isAdmin, isAccountant } = useRole();
     const rawClients  = useQuery(api.clients.queries.listAll);
     const rawCases    = useQuery(api.cases.queries.listAll);
     const rawInvoices = useQuery(api.billing.queries.listInvoices);
@@ -71,9 +72,11 @@ export default function ReportsPage() {
         .filter((p) => p.status === "Completed")
         .reduce((s, p) => s + p.amount, 0) / 100;
 
-    const totalPending = invoices
-        .filter((i) => i.status === "Sent" || i.status === "Overdue")
-        .reduce((s, i) => s + i.total, 0);
+    const totalPending = invoices.reduce((s, i) => {
+        if (i.isContractDraft && i.status !== "Paid") return s + i.total - (i.paidAmount ?? 0);
+        if (i.status === "Sent" || i.status === "Overdue") return s + i.total;
+        return s;
+    }, 0);
 
     const totalInvoiced = invoices.reduce((s, i) => s + i.total, 0);
     const overdueCount = invoices.filter((i) => i.status === "Overdue").length;
@@ -91,8 +94,11 @@ export default function ReportsPage() {
                     ...c,
                     fullName: `${c.firstName} ${c.lastName}`,
                     totalCases: clientCases.length,
-                    totalInvoiced: clientInvoices.reduce((s, i) => s + i.total, 0),
+                    totalInvoiced: clientInvoices.filter((i) => !i.isContractDraft).reduce((s, i) => s + i.total, 0),
                     totalPaid: clientPaid,
+                    contractAmountDisplay: c.contractAmount
+                        ? `$${(c.contractAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : "—",
                 };
             }),
         [clients, cases, invoices, payments]
@@ -172,6 +178,7 @@ export default function ReportsPage() {
         },
         { key: "status", label: "Status", render: (c) => <StatusBadge status={c.status} /> },
         { key: "totalCases", label: "Cases", sortable: true },
+        { key: "contractAmountDisplay", label: "Contract" },
         { key: "totalInvoiced", label: "Invoiced", render: (c) => `$${c.totalInvoiced.toLocaleString()}` },
         {
             key: "totalPaid",
@@ -233,7 +240,7 @@ export default function ReportsPage() {
     ];
 
     return (
-        <RoleGuard allowedRoles={["admin", "case_manager"]} redirectTo="/dashboard">
+        <RoleGuard allowedRoles={["admin", "case_manager", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
             <PageHeader title="Reports" description="Generate reports and analyse your practice" />
 
@@ -249,7 +256,7 @@ export default function ReportsPage() {
                 <TabsList>
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="clients">Clients</TabsTrigger>
-                    {isAdmin && <TabsTrigger value="financial">Financial</TabsTrigger>}
+                    {(isAdmin || isAccountant) && <TabsTrigger value="financial">Financial</TabsTrigger>}
                 </TabsList>
 
                 {/* ── Overview Tab ───────────────────────────────────────── */}
@@ -311,8 +318,8 @@ export default function ReportsPage() {
                     />
                 </TabsContent>
 
-                {/* ── Financial Tab (admin only) ─────────────────────────── */}
-                {isAdmin && (
+                {/* ── Financial Tab (admin + accountant) ─────────────────── */}
+                {(isAdmin || isAccountant) && (
                     <TabsContent value="financial" className="space-y-6 mt-4">
                         {/* Financial summary cards */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

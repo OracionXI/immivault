@@ -1,4 +1,5 @@
 import { authenticatedQuery } from "../lib/auth";
+import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { getVisibleClientIds } from "../lib/visibility";
@@ -62,5 +63,13 @@ export const get = authenticatedQuery({
       throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
     }
     return client;
+  },
+});
+
+/** Internal query — used by billing actions to fetch client contractAmount without user auth. */
+export const getForAction = internalQuery({
+  args: { id: v.id("clients") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });
