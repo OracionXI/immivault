@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2 } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
+import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -20,6 +21,7 @@ import {
 type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.list>>>[number] & { name: string };
 
 export default function ClientsPage() {
+    const { isAdmin } = useRole();
     const clientsQuery = useQuery(api.clients.queries.list);
     const rawClients = clientsQuery ?? [];
     const removeClient = useMutation(api.clients.mutations.remove);
@@ -65,10 +67,10 @@ export default function ClientsPage() {
         { key: "phone", label: "Phone", render: (c) => <span>{c.phone ?? "—"}</span> },
         { key: "nationality", label: "Nationality", sortable: true, render: (c) => <span>{c.nationality ?? "—"}</span> },
         { key: "status", label: "Status", render: (c) => <StatusBadge status={c.status} /> },
-        {
-            key: "actions",
+        ...(isAdmin ? [{
+            key: "actions" as const,
             label: "Actions",
-            render: (c) => (
+            render: (c: ConvexClient) => (
                 <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingClient(c); setModalOpen(true); }}>
                         <Pencil className="h-3.5 w-3.5" />
@@ -78,17 +80,17 @@ export default function ClientsPage() {
                     </Button>
                 </div>
             ),
-        },
+        }] : []),
     ];
 
     return (
-        <RoleGuard allowedRoles={["admin"]} redirectTo="/dashboard">
+        <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
             <div className="space-y-6">
                 <PageHeader
                     title="Clients"
                     description="Manage your clients with ease"
-                    actionLabel="Add Client"
-                    onAction={() => { setEditingClient(null); setModalOpen(true); }}
+                    actionLabel={isAdmin ? "Add Client" : undefined}
+                    onAction={isAdmin ? () => { setEditingClient(null); setModalOpen(true); } : undefined}
                 />
                 <DataTable
                     data={clients as unknown as Record<string, unknown>[]}

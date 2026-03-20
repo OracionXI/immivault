@@ -101,11 +101,13 @@ http.route({
 
       // Determine role (permission tier) from invitation metadata, defaulting to admin
       const convexRole = user.public_metadata?.convexRole;
-      const role: "admin" | "case_manager" | "staff" =
+      const role: "admin" | "case_manager" | "staff" | "accountant" =
         convexRole === "case_manager"
           ? "case_manager"
           : convexRole === "staff"
           ? "staff"
+          : convexRole === "accountant"
+          ? "accountant"
           : "admin";
 
       // convexRoleId carries the custom display role ID (may differ from role tier)

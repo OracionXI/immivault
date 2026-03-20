@@ -25,7 +25,7 @@ function Logo() {
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
     return (
         /* Outer frame — neutral bg that shows around the floating left panel */
-        <div className="flex min-h-screen w-full bg-[#f0f1f4] lg:gap-5 lg:p-5">
+        <div className="flex min-h-screen w-full bg-[#f0f1f4] lg:h-screen lg:gap-5 lg:p-5">
 
             {/* ── Left panel: floating, rounded, shadowed ── */}
             <div
@@ -106,9 +106,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     <div className="hidden w-full justify-end lg:flex"><Logo /></div>
                 </div>
 
-                {/* Form — vertically centred in all remaining space */}
-                <div className="flex flex-1 items-center justify-center px-8 py-10">
-                    <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 w-full max-w-[400px]">
+                {/* Form — vertically centred; scrollable when taller than viewport */}
+                <div className="flex flex-1 flex-col overflow-y-auto px-8 py-8">
+                    <div className="my-auto animate-in fade-in-0 slide-in-from-bottom-4 duration-500 w-full max-w-[400px] self-center">
                         {children}
                     </div>
                 </div>

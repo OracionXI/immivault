@@ -14,6 +14,7 @@ import { Trash2, Upload, Eye, Pencil, X } from "lucide-react";
 import { UploadModal } from "./upload-modal";
 import { EditDocumentModal } from "./edit-document-modal";
 import { useRole } from "@/hooks/use-role";
+import { RoleGuard } from "@/components/shared/role-guard";
 import { useSearchParams, useRouter } from "next/navigation";
 
 type EnrichedDocument = NonNullable<ReturnType<typeof useQuery<typeof api.documents.queries.listEnriched>>>[number];
@@ -37,7 +38,8 @@ export default function DocumentsPage() {
     const settings = useQuery(api.organisations.queries.getSettings);
     const docTypeOptions = (settings?.documentTypes ?? ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"])
         .map((t) => ({ label: t, value: t }));
-    const { isStaff } = useRole();
+    const { isAdmin, isCaseManager } = useRole();
+    const canManageDocs = isAdmin || isCaseManager;
 
     const [uploadOpen, setUploadOpen] = useState(false);
     const [editDoc, setEditDoc] = useState<EnrichedDocument | null>(null);
@@ -107,7 +109,7 @@ export default function DocumentsPage() {
                     >
                         <Eye className="h-3.5 w-3.5" />
                     </Button>
-                    {!isStaff && (
+                    {canManageDocs && (
                         <>
                             <Button
                                 variant="ghost"
@@ -135,6 +137,7 @@ export default function DocumentsPage() {
     ];
 
     return (
+        <RoleGuard allowedRoles={["admin", "case_manager", "staff"]}>
         <div className="space-y-6">
             <PageHeader
                 title="Documents"
@@ -192,5 +195,6 @@ export default function DocumentsPage() {
                 />
             )}
         </div>
+        </RoleGuard>
     );
 }

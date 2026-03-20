@@ -48,7 +48,7 @@ async function getCroppedBlob(imageSrc: string, cropArea: Area): Promise<Blob> {
 export default function ProfilePage() {
     const { user: clerkUser } = useUser();
     const { getToken } = useAuth();
-    const { user, isAdmin, isCaseManager } = useRole();
+    const { user, isAdmin } = useRole();
     const org = useQuery(api.organisations.queries.mine);
     const settings = useQuery(api.organisations.queries.getSettings);
     const updateProfile = useMutation(api.users.mutations.updateProfile);
@@ -220,6 +220,7 @@ export default function ProfilePage() {
     const roleLabel =
         user?.role === "admin" ? "Admin"
         : user?.role === "case_manager" ? "Case Manager"
+        : user?.role === "accountant" ? "Accountant"
         : "Staff";
 
     return (
@@ -367,9 +368,8 @@ export default function ProfilePage() {
                 </CardContent>
             </Card>
 
-            {/* Google Calendar — case managers and admins only */}
-            {(isAdmin || isCaseManager) && (
-                <Card>
+            {/* Google Calendar — all roles */}
+            <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none">
@@ -433,8 +433,7 @@ export default function ProfilePage() {
                             </div>
                         )}
                     </CardContent>
-                </Card>
-            )}
+            </Card>
 
             {/* Admin-only: billing & email settings */}
             {isAdmin && (

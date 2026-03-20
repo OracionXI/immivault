@@ -72,6 +72,7 @@ export const inviteStaff = action({
   args: {
     email: v.string(),
     roleId: v.string(), // custom role ID or "case_manager"/"staff" for built-ins
+    redirectUrl: v.optional(v.string()), // frontend passes window.location.origin + "/invite"
   },
   handler: async (ctx, args) => {
     // ── Auth & role guard ────────────────────────────────────────────────────
@@ -146,6 +147,9 @@ export const inviteStaff = action({
       },
       body: JSON.stringify({
         email_address: args.email,
+        // redirect_url tells Clerk where to send the user in the invite email.
+        // Clerk appends ?__clerk_ticket=<token> to this URL.
+        ...(args.redirectUrl ? { redirect_url: args.redirectUrl } : {}),
         // Webhook reads these to assign org + role when the user signs up.
         // convexRole carries the permission tier (backwards compat).
         // convexRoleId carries the display role ID for custom roles.
@@ -170,7 +174,7 @@ export const inviteStaff = action({
     }
 
     // ── Create Convex invite record (store Clerk invitation ID) ──────────────
-    const clerkData = await res.json().catch(() => ({})) as { id?: string };
+    const clerkData = await res.json().catch(() => ({})) as { id?: string; url?: string };
     await ctx.runMutation(internal.users.mutations.createInvite, {
       organisationId: user.organisationId,
       email: args.email,
@@ -179,5 +183,9 @@ export const inviteStaff = action({
       invitedBy: user._id,
       clerkInvitationId: clerkData.id,
     });
+
+    // Return the invite URL so the frontend can display a copy-link fallback
+    // (useful when Clerk dev-instance email delivery is unreliable).
+    return { inviteUrl: clerkData.url ?? null };
   },
 });

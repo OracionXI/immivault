@@ -95,6 +95,16 @@ export function requireAdmin(ctx: { user: { role: string } }): void {
   }
 }
 
+/** Shorthand: throws if caller is not admin or accountant. */
+export function requireAdminOrAccountant(ctx: { user: { role: string } }): void {
+  if (ctx.user.role !== "admin" && ctx.user.role !== "accountant") {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Admin or accountant privileges required.",
+    });
+  }
+}
+
 /** Shorthand: throws if caller is staff or accountant (allows admin + case_manager only). */
 export function requireAtLeastCaseManager(ctx: { user: { role: string } }): void {
   if (ctx.user.role === "staff" || ctx.user.role === "accountant") {

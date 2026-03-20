@@ -541,8 +541,8 @@ export const onComment = internalAction({
       const assignee = await ctx.runQuery(internal.users.queries.getById, {
         id: assigneeId as any,
       });
-      // Never notify admins for comments
-      if (assignee && assignee.role !== "admin") {
+      // Never notify admins or accountants for case/task comments
+      if (assignee && assignee.role !== "admin" && assignee.role !== "accountant") {
         const preview =
           comment.body.replace(/@\[([^\]]+)\]\((user|doc):[^)]+\)/g, "@$1").slice(0, 80) +
           (comment.body.length > 80 ? "…" : "");
@@ -586,6 +586,7 @@ export const onComment = internalAction({
         id: mentionedUserId as any,
       });
       if (!mentioned || !entityOrgId) continue;
+      if (mentioned.role === "accountant") continue; // accountants don't have case/task access
 
       await ctx.runMutation(internal.notifications.mutations.insert, {
         organisationId: entityOrgId as any,
@@ -626,6 +627,7 @@ export const onCaseUpdated = internalAction({
 
     for (const member of members) {
       if (member._id === args.updatedById) continue;
+      if (member.role === "accountant") continue; // accountants don't have case access
       await ctx.runMutation(internal.notifications.mutations.insert, {
         organisationId: c.organisationId,
         recipientId: member._id,
@@ -666,6 +668,7 @@ export const onTaskUpdated = internalAction({
 
     for (const member of members) {
       if (member._id === args.updatedById) continue;
+      if (member.role === "accountant") continue; // accountants don't have task access
       await ctx.runMutation(internal.notifications.mutations.insert, {
         organisationId: task.organisationId,
         recipientId: member._id,

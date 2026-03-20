@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getErrorMessage } from "@/lib/errors";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Copy, Check } from "lucide-react";
 
 interface InviteModalProps {
     open: boolean;
@@ -35,6 +35,8 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState(false);
+    const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     // Keep default in sync if roles load after mount
     useEffect(() => {
@@ -49,6 +51,8 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
         setForm({ email: "", roleId: customRoles[0]?.id ?? "staff" });
         setError("");
         setSuccess(false);
+        setInviteUrl(null);
+        setCopied(false);
     };
 
     const handleOpenChange = (open: boolean) => {
@@ -60,13 +64,25 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
         setError("");
         setLoading(true);
         try {
-            await inviteStaff({ email: form.email, roleId: form.roleId });
+            const result = await inviteStaff({
+                email: form.email,
+                roleId: form.roleId,
+                redirectUrl: typeof window !== "undefined" ? `${window.location.origin}/invite` : undefined,
+            });
+            setInviteUrl(result?.inviteUrl ?? null);
             setSuccess(true);
         } catch (e: unknown) {
             setError(getErrorMessage(e));
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleCopy = async () => {
+        if (!inviteUrl) return;
+        await navigator.clipboard.writeText(inviteUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     return (
@@ -77,15 +93,38 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
                 </DialogHeader>
 
                 {success ? (
-                    <div className="py-8 flex flex-col items-center gap-3 text-center">
+                    <div className="py-6 flex flex-col items-center gap-3 text-center">
                         <CheckCircle2 className="h-10 w-10 text-green-500" />
                         <p className="font-medium">Invitation sent!</p>
                         <p className="text-sm text-muted-foreground">
-                            <span className="font-medium">{form.email}</span> will receive an email
-                            invitation to join your organisation as{" "}
+                            An invitation email was sent to{" "}
+                            <span className="font-medium">{form.email}</span> as{" "}
                             <span className="font-medium">{selectedRole?.name ?? form.roleId}</span>.
                         </p>
-                        <Button className="mt-2" onClick={() => handleOpenChange(false)}>Done</Button>
+
+                        {inviteUrl && (
+                            <div className="w-full mt-1 rounded-lg border bg-muted/50 p-3 text-left">
+                                <p className="text-xs text-muted-foreground mb-2">
+                                    Didn&apos;t receive the email? Share this link directly:
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="flex-1 text-xs font-mono break-all text-foreground line-clamp-2">
+                                        {inviteUrl}
+                                    </p>
+                                    <button
+                                        onClick={handleCopy}
+                                        className="shrink-0 rounded-md p-1.5 hover:bg-accent transition-colors"
+                                        title="Copy link"
+                                    >
+                                        {copied
+                                            ? <Check className="h-3.5 w-3.5 text-green-500" />
+                                            : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        <Button className="mt-1" onClick={() => handleOpenChange(false)}>Done</Button>
                     </div>
                 ) : (
                     <>

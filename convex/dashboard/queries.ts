@@ -2,6 +2,14 @@ import { authenticatedQuery } from "../lib/auth";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 
+/** Returns { label: "+12%", up: true } for use in dashboard trend badges. */
+function trendPct(curr: number, prev: number): { label: string; up: boolean } {
+  if (curr === 0 && prev === 0) return { label: "0%", up: true };
+  if (prev === 0) return { label: curr > 0 ? "+100%" : "0%", up: curr >= 0 };
+  const raw = Math.round(((curr - prev) / Math.abs(prev)) * 100);
+  return { label: `${raw >= 0 ? "+" : ""}${raw}%`, up: raw >= 0 };
+}
+
 /**
  * Single query that returns all stats + preview lists for the dashboard.
  * Role-based:
@@ -15,9 +23,13 @@ export const stats = authenticatedQuery({
   handler: async (ctx) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
+    const isAdmin = ctx.user.role === "admin";
+    // accountants can see billing/revenue data but not cases/clients/tasks
+    const canSeeBilling = ctx.user.role === "admin" || ctx.user.role === "accountant";
     const now = Date.now();
     const sevenDays = now + 7 * 24 * 60 * 60 * 1000;
+    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000;
 
     // ── Cases (role-filtered) ────────────────────────────────────────────────
     const allOrgCases = await ctx.db
@@ -52,12 +64,14 @@ export const stats = authenticatedQuery({
     // ── Clients ──────────────────────────────────────────────────────────────
     let totalClients: number;
     let recentClients: { _id: string; firstName: string; lastName: string; email: string; status: string; _creationTime: number }[] = [];
+    let allClientsFull: { _creationTime: number }[] = [];
 
     if (isAdmin) {
       const allClients = await ctx.db
         .query("clients")
         .withIndex("by_org", (q) => q.eq("organisationId", orgId))
         .collect();
+      allClientsFull = allClients;
       totalClients = allClients.length;
       recentClients = [...allClients]
         .sort((a, b) => b._creationTime - a._creationTime)
@@ -73,13 +87,17 @@ export const stats = authenticatedQuery({
       ) as typeof recentClients;
     }
 
-    // ── Admin-only: revenue + overdue invoices ───────────────────────────────
+    // ── Billing data: visible to admin + accountant ──────────────────────────
     let overdueInvoices = 0;
     let monthlyRevenue = 0;
-    if (isAdmin) {
+    let revenueLastMonth = 0;
+    let overdueInvsFull: { _creationTime: number }[] = [];
+    if (canSeeBilling) {
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
+      const lastMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1).getTime();
+      const lastMonthEnd = monthStart.getTime() - 1;
 
       const [overdueInvs, allOrgPayments] = await Promise.all([
         ctx.db
@@ -93,9 +111,13 @@ export const stats = authenticatedQuery({
           .withIndex("by_org", (q) => q.eq("organisationId", orgId))
           .collect(),
       ]);
+      overdueInvsFull = overdueInvs;
       overdueInvoices = overdueInvs.length;
       monthlyRevenue = allOrgPayments
         .filter((p) => p.status === "Completed" && p.paidAt >= monthStart.getTime())
+        .reduce((sum, p) => sum + p.amount, 0) / 100;
+      revenueLastMonth = allOrgPayments
+        .filter((p) => p.status === "Completed" && p.paidAt >= lastMonthStart && p.paidAt <= lastMonthEnd)
         .reduce((sum, p) => sum + p.amount, 0) / 100;
     }
 
@@ -123,6 +145,32 @@ export const stats = authenticatedQuery({
       .sort((a, b) => b._creationTime - a._creationTime)
       .slice(0, 5);
 
+    // ── Week-over-week / month-over-month trends ──────────────────────────────
+    const casesThisWeek = allOrgCases.filter((c) => c._creationTime >= oneWeekAgo).length;
+    const casesLastWeek = allOrgCases.filter((c) => c._creationTime >= twoWeeksAgo && c._creationTime < oneWeekAgo).length;
+
+    const tasksCompletedThisWeek = allOrgTasks.filter((t) => t.status === "Completed" && t._creationTime >= oneWeekAgo).length;
+    const tasksCompletedLastWeek = allOrgTasks.filter((t) => t.status === "Completed" && t._creationTime >= twoWeeksAgo && t._creationTime < oneWeekAgo).length;
+
+    const clientsThisWeek = allClientsFull.filter((c) => c._creationTime >= oneWeekAgo).length;
+    const clientsLastWeek = allClientsFull.filter((c) => c._creationTime >= twoWeeksAgo && c._creationTime < oneWeekAgo).length;
+
+    const allActiveAppts = [...upcomingAppts, ...ongoingAppts];
+    const apptsThisWeek = allActiveAppts.filter((a) => a._creationTime >= oneWeekAgo).length;
+    const apptsLastWeek = allActiveAppts.filter((a) => a._creationTime >= twoWeeksAgo && a._creationTime < oneWeekAgo).length;
+
+    const overdueThisWeek = overdueInvsFull.filter((i) => i._creationTime >= oneWeekAgo).length;
+    const overdueLastWeek = overdueInvsFull.filter((i) => i._creationTime >= twoWeeksAgo && i._creationTime < oneWeekAgo).length;
+
+    const trends = {
+      clients: trendPct(clientsThisWeek, clientsLastWeek),
+      cases: trendPct(casesThisWeek, casesLastWeek),
+      tasks: trendPct(tasksCompletedThisWeek, tasksCompletedLastWeek),
+      revenue: trendPct(monthlyRevenue, revenueLastMonth),
+      appointments: trendPct(apptsThisWeek, apptsLastWeek),
+      overdueInvoices: trendPct(overdueThisWeek, overdueLastWeek),
+    };
+
     return {
       totalClients,
       activeCases: activeCaseCount,
@@ -134,6 +182,7 @@ export const stats = authenticatedQuery({
       recentClients,
       pendingTasksList,
       upcomingAppointmentsList: upcomingAppointments.slice(0, 3),
+      trends,
     };
   },
 });
@@ -148,7 +197,9 @@ export const chartData = authenticatedQuery({
   handler: async (ctx, args) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
+    const isAdmin = ctx.user.role === "admin";
+    const canSeeBilling = ctx.user.role === "admin" || ctx.user.role === "accountant";
+    const canSeeClients = ctx.user.role === "admin" || ctx.user.role === "accountant";
     const now = new Date();
 
     let buckets: { label: string; start: number; end: number }[];
@@ -180,11 +231,11 @@ export const chartData = authenticatedQuery({
     }
 
     const [allPayments, allOrgCases, allOrgClients, allAppointments, allOrgTasks] = await Promise.all([
-      isAdmin
+      canSeeBilling
         ? ctx.db.query("payments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
         : Promise.resolve([]),
       ctx.db.query("cases").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
-      isAdmin
+      canSeeClients
         ? ctx.db.query("clients").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
         : Promise.resolve([]),
       ctx.db.query("appointments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
@@ -196,13 +247,13 @@ export const chartData = authenticatedQuery({
 
     return buckets.map((b) => ({
       label: b.label,
-      revenue: isAdmin
+      revenue: canSeeBilling
         ? allPayments
             .filter((p) => p.status === "Completed" && p.paidAt >= b.start && p.paidAt <= b.end)
             .reduce((sum, p) => sum + p.amount, 0) / 100
         : 0,
       cases: allCases.filter((c) => c._creationTime >= b.start && c._creationTime <= b.end).length,
-      clients: isAdmin
+      clients: canSeeClients
         ? allOrgClients.filter((c) => c._creationTime >= b.start && c._creationTime <= b.end).length
         : 0,
       appointments: allAppointments.filter((a) => a.startAt >= b.start && a.startAt <= b.end).length,
@@ -224,7 +275,7 @@ export const chartBreakdown = authenticatedQuery({
   handler: async (ctx) => {
     const orgId = ctx.user.organisationId;
     const userId = ctx.user._id;
-    const isAdmin = ctx.user.role === "admin" || ctx.user.role === "accountant";
+    const isAdmin = ctx.user.role === "admin";
 
     const allOrgCases = await ctx.db
       .query("cases")
