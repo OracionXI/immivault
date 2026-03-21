@@ -67,6 +67,12 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
         task?.caseId ? { caseId: task.caseId } : "skip"
     ) ?? [];
 
+    // The linked case itself — so we can include the case manager in @mentions
+    const linkedCase = useQuery(
+        api.cases.queries.get,
+        task?.caseId ? { id: task.caseId } : "skip"
+    );
+
     // Documents on the parent case — offered for @doc mentions
     const allDocs = useQuery(api.documents.queries.list) ?? [];
     const caseDocs = task?.caseId
@@ -74,12 +80,15 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
         : [];
 
     // ── @mention data ─────────────────────────────────────────────────────────
-    // People: anyone assigned to any task on the parent case
+    // People: anyone assigned to any task on the parent case, plus the case manager
     const linkedUserIds = new Set<string>(
         tasksByCase
             .map((t) => t.assignedTo as string | undefined)
             .filter((id): id is string => Boolean(id))
     );
+    if (linkedCase?.assignedTo) {
+        linkedUserIds.add(linkedCase.assignedTo as string);
+    }
     const mentionUsers: MentionableUser[] = orgUsers
         .filter((u) => linkedUserIds.has(u._id))
         .map((u) => ({ id: u._id, name: u.fullName }));

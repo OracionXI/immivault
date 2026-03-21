@@ -32,10 +32,24 @@ export const list = authenticatedQuery({
   },
 });
 
-/** Tasks for a specific case — respects role visibility. */
+/** Tasks for a specific case — enforces org isolation + role-based visibility. */
 export const listByCase = authenticatedQuery({
   args: { caseId: v.id("cases") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    const c = await ctx.db.get(args.caseId);
+    if (!c || c.organisationId !== organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+    }
+
+    if (role !== "admin") {
+      const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+      if (!visibleCaseIds.has(args.caseId)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
     return (await ctx.db
       .query("tasks")
       .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
@@ -82,14 +96,28 @@ export const getById = internalQuery({
   },
 });
 
-/** Single task by ID. */
+/** Single task by ID — enforces org isolation + role-based visibility. */
 export const get = authenticatedQuery({
   args: { id: v.id("tasks") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
     const task = await ctx.db.get(args.id);
-    if (!task || task.organisationId !== ctx.user.organisationId) {
+    if (!task || task.organisationId !== organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
     }
+
+    if (role !== "admin") {
+      if (task.caseId) {
+        const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+        if (!visibleCaseIds.has(task.caseId)) {
+          throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+        }
+      } else if (role === "staff" && task.assignedTo !== userId) {
+        // Standalone task: staff can only see their own assigned tasks
+        throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+      }
+    }
+
     return task;
   },
 });

@@ -54,14 +54,23 @@ export const listAll = authenticatedQuery({
   },
 });
 
-/** Single client by ID — verifies it belongs to the caller's org. */
+/** Single client by ID — enforces org isolation + role-based visibility. */
 export const get = authenticatedQuery({
   args: { id: v.id("clients") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
     const client = await ctx.db.get(args.id);
-    if (!client || client.organisationId !== ctx.user.organisationId) {
+    if (!client || client.organisationId !== organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
     }
+
+    if (role !== "admin" && role !== "accountant") {
+      const visibleClientIds = await getVisibleClientIds(ctx.db, role, userId, organisationId);
+      if (!visibleClientIds.has(args.id)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+      }
+    }
+
     return client;
   },
 });

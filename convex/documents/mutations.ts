@@ -4,6 +4,24 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAtLeastCaseManager } from "../lib/rbac";
 
+const MAX_DOCUMENT_NAME_LENGTH = 255;
+
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/csv",
+]);
+
 /** Step 1 of upload: returns a one-time URL the client uploads the file to directly. */
 export const generateUploadUrl = authenticatedMutation({
   args: {},
@@ -25,6 +43,14 @@ export const create = authenticatedMutation({
     mimeType: v.string(),
   },
   handler: async (ctx, args) => {
+    const trimmedName = args.name.trim();
+    if (trimmedName.length === 0 || trimmedName.length > MAX_DOCUMENT_NAME_LENGTH) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: `Document name must be between 1 and ${MAX_DOCUMENT_NAME_LENGTH} characters.` });
+    }
+    if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "File type not allowed." });
+    }
+
     const c = await ctx.db.get(args.caseId);
     if (!c || c.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
@@ -54,6 +80,7 @@ export const create = authenticatedMutation({
 
     const id = await ctx.db.insert("documents", {
       ...args,
+      name: trimmedName,
       clientId: c.clientId,
       status: "Verified",
       organisationId: ctx.user.organisationId,

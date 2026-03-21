@@ -2,6 +2,7 @@
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatCurrency } from "./utils";
 
 // ── Audit Report types ────────────────────────────────────────────────────────
 
@@ -78,7 +79,8 @@ export function generateClientReport(
     invoices: ReportInvoice[],
     payments: ReportPayment[],
     orgName = "ImmiVault",
-    orgSignature?: string
+    orgSignature?: string,
+    currency = "USD"
 ) {
     const doc = new jsPDF({ format: "letter", unit: "mm" });
     const PW = doc.internal.pageSize.getWidth();  // 215.9 mm
@@ -312,7 +314,7 @@ export function generateClientReport(
     if (client.contractAmount && client.contractAmount > 0) {
         commentBox(
             `${boxLabel()}Contract amount:`,
-            `$${(client.contractAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            formatCurrency(client.contractAmount / 100, currency),
             M, y, CW, boxH
         );
         y += boxH;
@@ -320,21 +322,21 @@ export function generateClientReport(
 
     commentBox(
         `${boxLabel()}Total amount invoiced to client:`,
-        `$${totalInvoiced.toLocaleString()}`,
+        formatCurrency(totalInvoiced, currency),
         M, y, CW, boxH
     );
     y += boxH;
 
     commentBox(
         `${boxLabel()}Total payments received:`,
-        `$${totalPaid.toLocaleString()}`,
+        formatCurrency(totalPaid, currency),
         M, y, CW, boxH
     );
     y += boxH;
 
     const pendingLabel = overdueCount > 0
-        ? `$${totalPending.toLocaleString()}   (${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""})`
-        : `$${totalPending.toLocaleString()}`;
+        ? `${formatCurrency(totalPending, currency)}   (${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""})`
+        : formatCurrency(totalPending, currency);
     commentBox(
         `${boxLabel()}Outstanding balance:`,
         pendingLabel,
@@ -420,7 +422,8 @@ export function generateAuditReport(
     orgName = "ImmiVault",
     orgSignature?: string,
     dateFrom?: string,
-    dateTo?: string
+    dateTo?: string,
+    currency = "USD"
 ) {
     const doc = new jsPDF({ format: "letter", unit: "mm" });
     const PW = doc.internal.pageSize.getWidth();
@@ -551,7 +554,7 @@ export function generateAuditReport(
             body: rows.map((r) => [
                 r.reference ?? "—",
                 r.clientName,
-                `$${(r.amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                formatCurrency(r.amount / 100, currency),
                 r.method,
                 r.status,
                 r.dateDisplay,
@@ -597,11 +600,11 @@ export function generateAuditReport(
     y += 7;
 
     const boxH = 16;
-    commentBox("a.  Total collected (Completed):", `$${totalCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, M, y, CW, boxH, [0, 120, 0]);
+    commentBox("a.  Total collected (Completed):", formatCurrency(totalCollected, currency), M, y, CW, boxH, [0, 120, 0]);
     y += boxH;
-    commentBox("b.  Total pending:", `$${totalPending.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, M, y, CW, boxH, [160, 100, 0]);
+    commentBox("b.  Total pending:", formatCurrency(totalPending, currency), M, y, CW, boxH, [160, 100, 0]);
     y += boxH;
-    commentBox("c.  Total refunded:", `$${totalRefunded.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, M, y, CW, boxH, [160, 0, 0]);
+    commentBox("c.  Total refunded:", formatCurrency(totalRefunded, currency), M, y, CW, boxH, [160, 0, 0]);
     y += boxH;
 
     // ── Signature ─────────────────────────────────────────────────────────────

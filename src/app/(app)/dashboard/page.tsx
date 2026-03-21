@@ -27,6 +27,8 @@ import { DashboardChart } from "@/components/dashboard/dashboard-chart";
 import { BreakdownCharts } from "@/components/dashboard/breakdown-charts";
 import { DashboardTaskTable } from "@/components/dashboard/dashboard-task-table";
 import { useRole } from "@/hooks/use-role";
+import { useCurrency } from "@/hooks/use-currency";
+import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useWidgetConfig } from "@/hooks/use-widget-config";
 import { CustomizeWidgetsModal } from "@/components/dashboard/customize-widgets-modal";
@@ -41,6 +43,7 @@ function formatTime(ts: number) {
 
 export default function DashboardPage() {
     const { isAdmin, isCaseManager, isAccountant } = useRole();
+    const currency = useCurrency();
     const { config, saveConfig, isVisible } = useWidgetConfig();
     const [widgetModalOpen, setWidgetModalOpen] = useState(false);
     const [chartTab, setChartTab] = useState("6 M");
@@ -91,10 +94,10 @@ export default function DashboardPage() {
         { title: "Total Clients", value: stats?.totalClients ?? 0, icon: Users, trend: t?.clients.label ?? "0%", trendUp: t?.clients.up ?? true, period: "vs last week" },
         { title: "Active Cases", value: stats?.activeCases ?? 0, icon: Briefcase, trend: t?.cases.label ?? "0%", trendUp: t?.cases.up ?? true, period: "vs last week" },
         { title: "Completed Tasks", value: stats?.completedTasks ?? 0, icon: CheckSquare, trend: t?.tasks.label ?? "0%", trendUp: t?.tasks.up ?? true, period: "vs last week" },
-        { title: "Monthly Revenue", value: `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`, icon: DollarSign, trend: t?.revenue.label ?? "0%", trendUp: t?.revenue.up ?? true, adminOnly: true, period: "vs last month" },
+        { title: "Monthly Revenue", value: formatCurrency(stats?.monthlyRevenue ?? 0, currency), icon: DollarSign, trend: t?.revenue.label ?? "0%", trendUp: t?.revenue.up ?? true, adminOnly: true, period: "vs last month" },
         { title: "Upcoming Appts", value: stats?.upcomingAppointments ?? 0, icon: Calendar, trend: t?.appointments.label ?? "0%", trendUp: t?.appointments.up ?? true, period: "vs last week" },
         { title: "Overdue Invoices", value: stats?.overdueInvoices ?? 0, icon: AlertCircle, trend: t?.overdueInvoices.label ?? "0%", trendUp: !(t?.overdueInvoices.up ?? false), adminOnly: true, period: "vs last week" },
-        { title: "Pending Amount", value: `$${(stats?.pendingAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Hourglass, trend: "—", trendUp: false, adminOnly: true, period: "total outstanding", span2: true },
+        { title: "Pending Amount", value: formatCurrency(stats?.pendingAmount ?? 0, currency), icon: Hourglass, trend: "—", trendUp: false, adminOnly: true, period: "total outstanding", span2: true },
     ];
 
     const displayStatCards = allStatCards
@@ -235,7 +238,7 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                             <div className="px-2 pb-2">
-                                <DashboardChart isAdmin={true} chartArgs={TAB_ARGS[chartTab] ?? { months: 6 }} />
+                                <DashboardChart isAdmin={true} chartArgs={TAB_ARGS[chartTab] ?? { months: 6 }} currency={currency} />
                             </div>
                         </div>
                     )}
@@ -267,7 +270,7 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                             <div className="px-2 pb-2">
-                                <DashboardChart isAdmin={isAdmin} chartArgs={TAB_ARGS[chartTab] ?? { months: 6 }} />
+                                <DashboardChart isAdmin={isAdmin} chartArgs={TAB_ARGS[chartTab] ?? { months: 6 }} currency={currency} />
                             </div>
                         </div>
                     )}

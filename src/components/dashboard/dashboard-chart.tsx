@@ -21,18 +21,22 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { formatCurrency } from "@/lib/utils";
 
 // ── Metric config ────────────────────────────────────────────────────────────
 
 type MetricKey = "revenue" | "cases" | "clients" | "appointments" | "tasksCompleted";
+type Metric = { key: MetricKey; label: string; color: string; format: (v: number) => string; adminOnly?: boolean };
 
-const ALL_METRICS: { key: MetricKey; label: string; color: string; format: (v: number) => string; adminOnly?: boolean }[] = [
-    { key: "revenue",        label: "Revenue ($)",     color: "#14b8a6", format: (v) => `$${v.toLocaleString()}`, adminOnly: true },
-    { key: "cases",          label: "Cases Opened",    color: "#0ea5e9", format: (v) => String(v) },
-    { key: "clients",        label: "Clients Added",   color: "#6366f1", format: (v) => String(v), adminOnly: true },
-    { key: "appointments",   label: "Appointments",    color: "#38bdf8", format: (v) => String(v) },
-    { key: "tasksCompleted", label: "Tasks Completed", color: "#2dd4bf", format: (v) => String(v) },
-];
+function buildMetrics(currency: string): Metric[] {
+    return [
+        { key: "revenue",        label: `Revenue (${currency})`, color: "#14b8a6", format: (v) => formatCurrency(v, currency), adminOnly: true },
+        { key: "cases",          label: "Cases Opened",          color: "#0ea5e9", format: (v) => String(v) },
+        { key: "clients",        label: "Clients Added",         color: "#6366f1", format: (v) => String(v), adminOnly: true },
+        { key: "appointments",   label: "Appointments",          color: "#38bdf8", format: (v) => String(v) },
+        { key: "tasksCompleted", label: "Tasks Completed",       color: "#2dd4bf", format: (v) => String(v) },
+    ];
+}
 
 // ── Custom tooltip ───────────────────────────────────────────────────────────
 
@@ -40,10 +44,12 @@ function CustomTooltip({
     active,
     payload,
     label,
+    metrics,
 }: {
     active?: boolean;
     payload?: { name: string; value: number; color: string; dataKey: string }[];
     label?: string;
+    metrics?: Metric[];
 }) {
     if (!active || !payload?.length) return null;
 
@@ -59,7 +65,7 @@ function CustomTooltip({
         <div className="rounded-lg border bg-card p-3 shadow-md text-sm min-w-[140px]">
             <p className="font-semibold text-foreground mb-1.5">{label}</p>
             {unique.map((entry) => {
-                const metric = ALL_METRICS.find((m) => m.key === entry.dataKey);
+                const metric = metrics?.find((m) => m.key === entry.dataKey);
                 return (
                     <p key={entry.dataKey} style={{ color: entry.color }} className="flex justify-between gap-4">
                         <span>{metric?.label ?? entry.name}</span>
@@ -76,9 +82,11 @@ function CustomTooltip({
 interface DashboardChartProps {
     isAdmin?: boolean;
     chartArgs?: { days?: number; months?: number };
+    currency?: string;
 }
 
-export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProps) {
+export function DashboardChart({ isAdmin = true, chartArgs, currency = "USD" }: DashboardChartProps) {
+    const ALL_METRICS = buildMetrics(currency);
     const METRICS = ALL_METRICS.filter((m) => isAdmin || !m.adminOnly);
 
     const [primaryMetric, setPrimaryMetric] = useState<MetricKey>(isAdmin ? "revenue" : "cases");
@@ -159,7 +167,7 @@ export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProp
                             yAxisId="left"
                             tickFormatter={(v) =>
                                 primaryMetric === "revenue" && v >= 1000
-                                    ? `$${(v / 1000).toFixed(0)}k`
+                                    ? formatCurrency(v / 1000, currency).replace(/\.0+$/, "") + "k"
                                     : String(v)
                             }
                             tick={{ fontSize: 11, style: { fill: "var(--muted-foreground)" } }}
@@ -178,7 +186,7 @@ export function DashboardChart({ isAdmin = true, chartArgs }: DashboardChartProp
                             />
                         )}
 
-                        <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(100,116,139,0.06)" }} />
+                        <Tooltip content={<CustomTooltip metrics={METRICS} />} cursor={{ fill: "rgba(100,116,139,0.06)" }} />
                         <Legend
                             formatter={(value) => {
                                 const metric = METRICS.find((m) => m.key === value);

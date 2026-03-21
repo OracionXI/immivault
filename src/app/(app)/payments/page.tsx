@@ -25,6 +25,8 @@ import { generateAuditReport } from "@/lib/pdf-generator";
 import Link from "next/link";
 import { RoleGuard } from "@/components/shared/role-guard";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useCurrency } from "@/hooks/use-currency";
+import { formatCurrency } from "@/lib/utils";
 
 type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
 type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
@@ -37,6 +39,7 @@ function formatTs(ts: number) {
 }
 
 export default function PaymentsPage() {
+    const currency = useCurrency();
     const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
     const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
@@ -156,7 +159,7 @@ export default function PaymentsPage() {
             key: "amount",
             label: "Amount",
             sortable: true,
-            render: (p) => <span className="font-semibold">${(Number(p.amount) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>,
+            render: (p) => <span className="font-semibold">{formatCurrency(Number(p.amount) / 100, currency)}</span>,
         },
         { key: "method", label: "Method" },
         { key: "dateDisplay", label: "Date", sortable: true },
@@ -207,7 +210,7 @@ export default function PaymentsPage() {
         {
             key: "amount",
             label: "Amount",
-            render: (l) => <span className="font-semibold">${(Number(l.amount) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>,
+            render: (l) => <span className="font-semibold">{formatCurrency(Number(l.amount) / 100, currency)}</span>,
         },
         { key: "expiresDisplay", label: "Expires", sortable: true },
         { key: "status", label: "Status", render: (l) => <StatusBadge status={l.status} /> },
@@ -431,7 +434,7 @@ export default function PaymentsPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
-                                <Label>Amount ($)</Label>
+                                <Label>Amount ({currency})</Label>
                                 <Input
                                     type="number"
                                     value={linkForm.amount}
@@ -508,7 +511,7 @@ export default function PaymentsPage() {
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
-                                <Label>Amount ($)</Label>
+                                <Label>Amount ({currency})</Label>
                                 <Input
                                     type="number"
                                     value={editForm.amount}
@@ -618,7 +621,7 @@ export default function PaymentsPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="grid gap-2">
-                                <Label>Amount ($)</Label>
+                                <Label>Amount ({currency})</Label>
                                 <Input
                                     type="number"
                                     value={editLinkForm.amount}
@@ -761,6 +764,7 @@ export default function PaymentsPage() {
                                     org?.agreementSignature,
                                     auditFrom ? fmtMonth(auditFrom) : undefined,
                                     auditTo ? fmtMonth(auditTo) : undefined,
+                                    currency,
                                 );
                                 setAuditModalOpen(false);
                             }}

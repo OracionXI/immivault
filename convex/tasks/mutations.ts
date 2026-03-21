@@ -72,10 +72,13 @@ export const create = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
 
-    // Case managers can only create tasks under their own cases
-    if (ctx.user.role === "case_manager" && args.caseId) {
+    if (args.caseId) {
       const c = await ctx.db.get(args.caseId);
-      if (!c || c.assignedTo !== ctx.user._id) {
+      if (!c || c.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+      // Case managers can only create tasks under their own cases
+      if (ctx.user.role === "case_manager" && c.assignedTo !== ctx.user._id) {
         throw new ConvexError({ code: "FORBIDDEN", message: "You can only create tasks in your own cases." });
       }
     }
@@ -137,11 +140,22 @@ export const update = authenticatedMutation({
       requireAtLeastCaseManager(ctx);
     }
 
+    // Validate new caseId belongs to this org (for all roles)
+    if (args.caseId) {
+      const newCase = await ctx.db.get(args.caseId);
+      if (!newCase || newCase.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
     // Case managers can only update tasks in their assigned cases
-    if (ctx.user.role === "case_manager" && task.caseId) {
-      const c = await ctx.db.get(task.caseId);
-      if (!c || c.assignedTo !== ctx.user._id) {
-        throw new ConvexError({ code: "FORBIDDEN", message: "You can only update tasks in your own cases." });
+    if (ctx.user.role === "case_manager") {
+      const effectiveCaseId = args.caseId ?? task.caseId;
+      if (effectiveCaseId) {
+        const c = await ctx.db.get(effectiveCaseId);
+        if (!c || c.assignedTo !== ctx.user._id) {
+          throw new ConvexError({ code: "FORBIDDEN", message: "You can only update tasks in your own cases." });
+        }
       }
     }
 

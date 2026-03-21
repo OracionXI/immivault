@@ -2,6 +2,8 @@ import { authenticatedMutation } from "../lib/auth";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { getVisibleCaseIds } from "../lib/visibility";
+import type { Id } from "../_generated/dataModel";
 
 export const create = authenticatedMutation({
   args: {
@@ -10,9 +12,40 @@ export const create = authenticatedMutation({
     body: v.string(),
   },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    // Verify the entity exists in the user's org and the user has visibility
+    if (args.entityType === "case") {
+      const c = await ctx.db.get(args.entityId as Id<"cases">);
+      if (!c || c.organisationId !== organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+      if (role !== "admin") {
+        const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+        if (!visibleCaseIds.has(args.entityId)) {
+          throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+        }
+      }
+    } else {
+      const task = await ctx.db.get(args.entityId as Id<"tasks">);
+      if (!task || task.organisationId !== organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+      }
+      if (role !== "admin") {
+        if (task.caseId) {
+          const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+          if (!visibleCaseIds.has(task.caseId)) {
+            throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+          }
+        } else if (role === "staff" && task.assignedTo !== userId) {
+          throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
+        }
+      }
+    }
+
     const id = await ctx.db.insert("comments", {
       ...args,
-      organisationId: ctx.user.organisationId,
+      organisationId,
       authorId: ctx.user._id,
     });
     // Notify entity assignee + anyone @mentioned in the comment

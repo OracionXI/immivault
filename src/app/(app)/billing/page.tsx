@@ -12,6 +12,8 @@ import { InvoiceModal } from "./invoice-modal";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
+import { useCurrency } from "@/hooks/use-currency";
+import { formatCurrency } from "@/lib/utils";
 
 type ConvexInvoice = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listInvoices>>>[number];
 type DisplayInvoice = ConvexInvoice & { clientName: string; caseName: string; dueDateDisplay: string };
@@ -21,6 +23,7 @@ function formatTs(ts: number) {
 }
 
 export default function BillingPage() {
+    const currency = useCurrency();
     const rawInvoices = useQuery(api.billing.queries.listInvoices) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
@@ -62,9 +65,9 @@ export default function BillingPage() {
         { key: "caseName", label: "Case" },
         { key: "total", label: "Amount", sortable: true, render: (i) => (
             <div>
-                <span className="font-semibold">${i.total.toLocaleString()}</span>
+                <span className="font-semibold">{formatCurrency(i.total, currency)}</span>
                 {i.isContractDraft && i.paidAmount !== undefined && i.paidAmount > 0 && (
-                    <span className="text-xs text-muted-foreground ml-1">(${i.paidAmount.toLocaleString()} paid)</span>
+                    <span className="text-xs text-muted-foreground ml-1">({formatCurrency(i.paidAmount, currency)} paid)</span>
                 )}
             </div>
         ) },

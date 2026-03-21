@@ -72,14 +72,23 @@ export const listAll = authenticatedQuery({
   },
 });
 
-/** Single case by ID. */
+/** Single case by ID — enforces org isolation + role-based visibility. */
 export const get = authenticatedQuery({
   args: { id: v.id("cases") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
     const c = await ctx.db.get(args.id);
-    if (!c || c.organisationId !== ctx.user.organisationId) {
+    if (!c || c.organisationId !== organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
     }
+
+    if (role !== "admin") {
+      const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+      if (!visibleCaseIds.has(args.id)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
     return c;
   },
 });
@@ -113,15 +122,22 @@ export const listApproachingDeadline = internalQuery({
   },
 });
 
-/** Cases for a specific client. */
+/** Cases for a specific client — enforces org isolation + role-based visibility. */
 export const listByClient = authenticatedQuery({
   args: { clientId: v.id("clients") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
     const rows = await ctx.db
       .query("cases")
       .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
       .collect();
-    // Verify all returned cases belong to the caller's org
-    return rows.filter((c) => c.organisationId === ctx.user.organisationId);
+
+    const orgCases = rows.filter((c) => c.organisationId === organisationId);
+
+    if (role === "admin") return orgCases;
+
+    const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+    return orgCases.filter((c) => visibleCaseIds.has(c._id));
   },
 });

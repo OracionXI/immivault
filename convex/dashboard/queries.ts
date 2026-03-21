@@ -152,6 +152,12 @@ export const stats = authenticatedQuery({
     ]);
     const upcomingAppointments = [...upcomingAppts, ...ongoingAppts]
       .filter((a) => a.endAt >= now && a.startAt <= sevenDays) // include ongoing (started but not ended)
+      .filter((a) =>
+        isAdmin ||
+        a.createdBy === userId ||
+        a.assignedTo === userId ||
+        (a.attendees ?? []).some((att: { userId?: string }) => att.userId === userId)
+      )
       .sort((a, b) => a.startAt - b.startAt);
 
     // ── Recent cases (role-filtered) ─────────────────────────────────────────
@@ -160,11 +166,12 @@ export const stats = authenticatedQuery({
       .slice(0, 5);
 
     // ── Week-over-week / month-over-month trends ──────────────────────────────
-    const casesThisWeek = allOrgCases.filter((c) => c._creationTime >= oneWeekAgo).length;
-    const casesLastWeek = allOrgCases.filter((c) => c._creationTime >= twoWeeksAgo && c._creationTime < oneWeekAgo).length;
+    // Use scopedCases/scopedTasks so non-admins only see their own trends, not org-wide data
+    const casesThisWeek = scopedCases.filter((c) => c._creationTime >= oneWeekAgo).length;
+    const casesLastWeek = scopedCases.filter((c) => c._creationTime >= twoWeeksAgo && c._creationTime < oneWeekAgo).length;
 
-    const tasksCompletedThisWeek = allOrgTasks.filter((t) => t.status === "Completed" && t._creationTime >= oneWeekAgo).length;
-    const tasksCompletedLastWeek = allOrgTasks.filter((t) => t.status === "Completed" && t._creationTime >= twoWeeksAgo && t._creationTime < oneWeekAgo).length;
+    const tasksCompletedThisWeek = scopedTasks.filter((t) => t.status === "Completed" && t._creationTime >= oneWeekAgo).length;
+    const tasksCompletedLastWeek = scopedTasks.filter((t) => t.status === "Completed" && t._creationTime >= twoWeeksAgo && t._creationTime < oneWeekAgo).length;
 
     const clientsThisWeek = allClientsFull.filter((c) => c._creationTime >= oneWeekAgo).length;
     const clientsLastWeek = allClientsFull.filter((c) => c._creationTime >= twoWeeksAgo && c._creationTime < oneWeekAgo).length;
@@ -259,6 +266,15 @@ export const chartData = authenticatedQuery({
 
     const allCases = isAdmin ? allOrgCases : allOrgCases.filter((c) => c.assignedTo === userId);
     const allTasks = isAdmin ? allOrgTasks : allOrgTasks.filter((t) => t.assignedTo === userId);
+    // Non-admins only see appointments they are involved in
+    const scopedAppointments = isAdmin
+      ? allAppointments
+      : allAppointments.filter(
+          (a) =>
+            a.createdBy === userId ||
+            a.assignedTo === userId ||
+            (a.attendees ?? []).some((att: { userId?: string }) => att.userId === userId)
+        );
 
     return buckets.map((b) => ({
       label: b.label,
@@ -271,7 +287,7 @@ export const chartData = authenticatedQuery({
       clients: canSeeClients
         ? allOrgClients.filter((c) => c._creationTime >= b.start && c._creationTime <= b.end).length
         : 0,
-      appointments: allAppointments.filter((a) => a.startAt >= b.start && a.startAt <= b.end).length,
+      appointments: scopedAppointments.filter((a) => a.startAt >= b.start && a.startAt <= b.end).length,
       tasksCompleted: allTasks.filter(
         (t) => t.status === "Completed" && t._creationTime >= b.start && t._creationTime <= b.end
       ).length,

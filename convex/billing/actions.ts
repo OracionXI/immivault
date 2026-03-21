@@ -109,6 +109,7 @@ export const handleWebhookEvent = internalAction({
           token,
           stripePaymentIntentId: intent.id,
           amount: intent.amount,
+          organisationId: args.organisationId,
         });
       }
     }
