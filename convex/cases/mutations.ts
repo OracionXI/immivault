@@ -67,6 +67,11 @@ export const create = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAdmin(ctx);
 
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+
     if (args.assignedTo) {
       await requireCaseManagerTarget(ctx, args.assignedTo, ctx.user.organisationId);
     }
@@ -135,6 +140,12 @@ export const update = authenticatedMutation({
     if (ctx.user.role === "case_manager" && c.assignedTo !== ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only update cases assigned to you." });
     }
+    if (fields.clientId) {
+      const client = await ctx.db.get(fields.clientId);
+      if (!client || client.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+      }
+    }
 
     const patch: Record<string, unknown> = { ...fields, updatedAt: Date.now(), updatedBy: ctx.user._id };
 
@@ -163,11 +174,16 @@ export const update = authenticatedMutation({
 
     await ctx.db.patch(id, patch as any);
 
-    // Fire notifications after the patch
-    await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
-      caseId: id,
-      updatedById: ctx.user._id,
-    });
+    // Fire the generic "case updated" notification only when something other
+    // than the assignee changed — if we also fire onCaseAssigned we skip this
+    // to avoid a duplicate notification for the same action.
+    const hasOtherChanges = Object.keys(fields).length > 0 || assignedTo === null;
+    if (!newAssigneeId || hasOtherChanges) {
+      await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
+        caseId: id,
+        updatedById: ctx.user._id,
+      });
+    }
     if (newAssigneeId) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {
         caseId: id,
@@ -325,10 +341,6 @@ export const assign = authenticatedMutation({
 
     await ctx.db.patch(args.id, { assignedTo: args.assignedTo, updatedAt: Date.now(), updatedBy: ctx.user._id });
 
-    await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
-      caseId: args.id,
-      updatedById: ctx.user._id,
-    });
     // Notify new assignee (only when assigning, not when clearing)
     if (args.assignedTo && args.assignedTo !== c.assignedTo) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {

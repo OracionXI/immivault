@@ -102,7 +102,7 @@ export const checkConflict = authenticatedQuery({
   },
 });
 
-/** Single appointment by ID. */
+/** Single appointment by ID. Non-admins can only fetch appointments they are involved in. */
 export const get = authenticatedQuery({
   args: { id: v.id("appointments") },
   handler: async (ctx, args) => {
@@ -110,6 +110,17 @@ export const get = authenticatedQuery({
     if (!appt || appt.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
     }
+
+    if (ctx.user.role !== "admin") {
+      const isInvolved =
+        appt.createdBy === ctx.user._id ||
+        appt.assignedTo === ctx.user._id ||
+        (appt.attendees ?? []).some((att) => att.userId === ctx.user._id);
+      if (!isInvolved) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
+      }
+    }
+
     return appt;
   },
 });

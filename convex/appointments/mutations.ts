@@ -45,6 +45,26 @@ export const create = authenticatedMutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "Accountants can only create general meetings." });
     }
 
+    // Case managers can only create case_appointments for cases assigned to them
+    if (ctx.user.role === "case_manager" && args.meetingType === "case_appointment" && args.caseId) {
+      const c = await ctx.db.get(args.caseId);
+      if (!c || c.organisationId !== ctx.user.organisationId || c.assignedTo !== ctx.user._id) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "You can only create appointments for your own cases." });
+      }
+    }
+
+    // Validate that internal attendees belong to the same organisation
+    if (args.attendees) {
+      for (const att of args.attendees) {
+        if (att.type === "internal" && att.userId) {
+          const u = await ctx.db.get(att.userId);
+          if (!u || u.organisationId !== ctx.user.organisationId) {
+            throw new ConvexError({ code: "BAD_REQUEST", message: "Invalid attendee: user does not belong to your organisation." });
+          }
+        }
+      }
+    }
+
     const appointmentId = await ctx.db.insert("appointments", {
       ...args,
       organisationId: ctx.user.organisationId,

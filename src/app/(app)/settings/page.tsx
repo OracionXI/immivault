@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save, Loader2, Camera, CheckCircle2, Unlink } from "lucide-react";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
@@ -444,12 +445,33 @@ export default function ProfilePage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="grid gap-2">
                                     <Label>Default Currency</Label>
-                                    <Input
+                                    <Select
                                         value={settingsForm.defaultCurrency}
-                                        onChange={(e) => setSettingsForm({ ...settingsForm, defaultCurrency: e.target.value.toUpperCase() })}
-                                        placeholder="USD"
-                                        maxLength={3}
-                                    />
+                                        onValueChange={(v) => setSettingsForm({ ...settingsForm, defaultCurrency: v })}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {[
+                                                { code: "USD", label: "USD — US Dollar" },
+                                                { code: "EUR", label: "EUR — Euro" },
+                                                { code: "GBP", label: "GBP — British Pound" },
+                                                { code: "CAD", label: "CAD — Canadian Dollar" },
+                                                { code: "AUD", label: "AUD — Australian Dollar" },
+                                                { code: "NZD", label: "NZD — New Zealand Dollar" },
+                                                { code: "SGD", label: "SGD — Singapore Dollar" },
+                                                { code: "HKD", label: "HKD — Hong Kong Dollar" },
+                                                { code: "CHF", label: "CHF — Swiss Franc" },
+                                                { code: "JPY", label: "JPY — Japanese Yen" },
+                                                { code: "INR", label: "INR — Indian Rupee" },
+                                                { code: "AED", label: "AED — UAE Dirham" },
+                                                { code: "SAR", label: "SAR — Saudi Riyal" },
+                                                { code: "MYR", label: "MYR — Malaysian Ringgit" },
+                                                { code: "BDT", label: "BDT — Bangladeshi Taka" },
+                                            ].map(({ code, label }) => (
+                                                <SelectItem key={code} value={code}>{label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 <div className="grid gap-2">
                                     <Label>Default Tax Rate (%)</Label>

@@ -99,6 +99,35 @@ export const createInvoice = authenticatedMutation({
     requireAdminOrAccountant(ctx);
     const { items, taxRate, ...rest } = args;
 
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+    if (args.caseId) {
+      const c = await ctx.db.get(args.caseId);
+      if (!c || c.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
+    if (items.length === 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Invoice must have at least one line item." });
+    }
+    if (taxRate < 0 || taxRate > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Tax rate must be between 0 and 100." });
+    }
+    for (const item of items) {
+      if (item.quantity <= 0) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Item quantity must be greater than 0." });
+      }
+      if (item.unitPrice < 0) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Item unit price cannot be negative." });
+      }
+      if (item.description.trim().length === 0 || item.description.length > 500) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Item description must be between 1 and 500 characters." });
+      }
+    }
+
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
@@ -157,11 +186,11 @@ export const updateInvoice = authenticatedMutation({
   },
 });
 
-/** Deletes an invoice and all its line items. */
+/** Deletes an invoice and all its line items. Admin-only — accountants cannot delete financial records. */
 export const removeInvoice = authenticatedMutation({
   args: { id: v.id("invoices") },
   handler: async (ctx, args) => {
-    requireAdminOrAccountant(ctx);
+    requireAdmin(ctx);
     const invoice = await ctx.db.get(args.id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -242,13 +271,19 @@ export const processPaymentLink = mutation({
 
     const now = Date.now();
 
+    const orgSettings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", link.organisationId))
+      .unique();
+    const currency = orgSettings?.defaultCurrency ?? "USD";
+
     await ctx.db.insert("payments", {
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
       caseId: link.caseId,
       amount: link.amount,
-      currency: "USD",
+      currency,
       method: "Online",
       status: "Completed",
       paidAt: now,
@@ -294,10 +329,27 @@ export const createPaymentLink = authenticatedMutation({
     // Rate limit: max 20 payment links per hour per org
     await checkRateLimit(ctx, `createPaymentLink:${ctx.user.organisationId}`, 20, 3_600_000);
 
-    // Generate a short unique token
-    const urlToken =
-      Math.random().toString(36).slice(2, 10) +
-      Math.random().toString(36).slice(2, 10);
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+    if (args.invoiceId) {
+      const invoice = await ctx.db.get(args.invoiceId);
+      if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
+      }
+    }
+    if (args.caseId) {
+      const c = await ctx.db.get(args.caseId);
+      if (!c || c.organisationId !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
+    // Generate a cryptographically secure 128-bit token (32 hex chars)
+    const randomBytes = new Uint8Array(16);
+    crypto.getRandomValues(randomBytes);
+    const urlToken = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 
     return await ctx.db.insert("paymentLinks", {
       ...args,
@@ -312,12 +364,15 @@ export const createPaymentLink = authenticatedMutation({
 /**
  * Internal mutation — called by the Stripe webhook action after verifying signature.
  * Idempotent: skips if the PaymentIntent was already recorded.
+ * organisationId is passed from the webhook handler and verified against the payment link
+ * to ensure the signature was verified with the correct org's secret.
  */
 export const processStripeWebhookPayment = internalMutation({
   args: {
     token: v.string(),
     stripePaymentIntentId: v.string(),
     amount: v.number(),
+    organisationId: v.id("organisations"),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db
@@ -327,7 +382,16 @@ export const processStripeWebhookPayment = internalMutation({
 
     if (!link || link.status === "Used") return; // already processed
 
+    // Verify the payment link belongs to the organisation whose webhook secret was used
+    if (link.organisationId !== args.organisationId) return;
+
     const now = Date.now();
+
+    const orgSettings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", link.organisationId))
+      .unique();
+    const currency = orgSettings?.defaultCurrency ?? "USD";
 
     await ctx.db.insert("payments", {
       organisationId: link.organisationId,
@@ -335,7 +399,7 @@ export const processStripeWebhookPayment = internalMutation({
       clientId: link.clientId,
       caseId: link.caseId,
       amount: args.amount,
-      currency: "USD",
+      currency,
       method: "Card",
       status: "Completed",
       paidAt: now,
@@ -381,13 +445,19 @@ export const confirmStripePayment = mutation({
 
     const now = Date.now();
 
+    const orgSettings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", link.organisationId))
+      .unique();
+    const currency = orgSettings?.defaultCurrency ?? "USD";
+
     await ctx.db.insert("payments", {
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
       caseId: link.caseId,
       amount: link.amount,
-      currency: "USD",
+      currency,
       method: "Card",
       status: "Completed",
       paidAt: now,

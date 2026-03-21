@@ -51,7 +51,7 @@ const PERMISSIONS: Record<Role, Record<Resource, Action[]>> = {
     tasks:        [],
     documents:    [],
     appointments: ["create", "read", "update"],  // general meetings only; delete is admin-only
-    billing:      ["create", "read", "update", "delete"],
+    billing:      ["create", "read", "update"],  // delete is admin-only — financial records must not be deleted by accountants
     staff:        ["read", "update"],
     settings:     [],
   },

@@ -64,8 +64,6 @@ export default function WelcomePage() {
                 <div className="logo-enter mb-8">
                     <div className="relative flex h-20 w-auto items-center justify-center">
                         <img src="/ordena_logo.png" alt="Ordena" className="h-20 w-auto [mix-blend-mode:multiply]" />
-                        {/* Glow ring */}
-                        <div className="absolute inset-0 rounded-2xl ring-4 ring-primary/10" />
                     </div>
                 </div>
 

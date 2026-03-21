@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useCurrency } from "@/hooks/use-currency";
+import { formatCurrency } from "@/lib/utils";
 
 type ConvexInvoice = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listInvoices>>>[number];
 
@@ -28,6 +30,7 @@ interface InvoiceModalProps {
 }
 
 export function InvoiceModal({ open, onOpenChange, invoice }: InvoiceModalProps) {
+    const currency = useCurrency();
     const createInvoice = useMutation(api.billing.mutations.createInvoice);
     const updateInvoice = useMutation(api.billing.mutations.updateInvoice);
     const clients = useQuery(api.clients.queries.listAll) ?? [];
@@ -221,14 +224,14 @@ export function InvoiceModal({ open, onOpenChange, invoice }: InvoiceModalProps)
 
                             {(items[0].unitPrice > 0 || form.taxRate > 0) && (
                                 <div className="space-y-1 text-right text-sm">
-                                    <p className="text-muted-foreground">Subtotal: ${items[0].unitPrice.toLocaleString()}</p>
+                                    <p className="text-muted-foreground">Subtotal: {formatCurrency(items[0].unitPrice, currency)}</p>
                                     {form.taxRate > 0 && (
                                         <p className="text-muted-foreground">
-                                            Tax ({form.taxRate}%): ${(items[0].unitPrice * form.taxRate / 100).toFixed(2)}
+                                            Tax ({form.taxRate}%): {formatCurrency(items[0].unitPrice * form.taxRate / 100, currency)}
                                         </p>
                                     )}
                                     <p className="font-semibold text-base">
-                                        Total: ${(items[0].unitPrice * (1 + form.taxRate / 100)).toLocaleString()}
+                                        Total: {formatCurrency(items[0].unitPrice * (1 + form.taxRate / 100), currency)}
                                     </p>
                                 </div>
                             )}

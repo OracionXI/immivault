@@ -2,7 +2,7 @@ import { authenticatedQuery } from "../lib/auth";
 import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getVisibleCaseIds } from "../lib/visibility";
+import { getVisibleCaseIds, getVisibleClientIds } from "../lib/visibility";
 
 /**
  * Visible documents scoped by role:
@@ -88,10 +88,24 @@ export const listEnriched = authenticatedQuery({
   },
 });
 
-/** Documents for a specific client. */
+/** Documents for a specific client. Enforces org isolation + role-based visibility. */
 export const listByClient = authenticatedQuery({
   args: { clientId: v.id("clients") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+
+    if (role !== "admin") {
+      const visibleClientIds = await getVisibleClientIds(ctx.db, role, userId, organisationId);
+      if (!visibleClientIds.has(args.clientId)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+      }
+    }
+
     return await ctx.db
       .query("documents")
       .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
@@ -99,10 +113,24 @@ export const listByClient = authenticatedQuery({
   },
 });
 
-/** Documents for a specific case. */
+/** Documents for a specific case. Enforces org isolation + role-based visibility. */
 export const listByCase = authenticatedQuery({
   args: { caseId: v.id("cases") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
+    const c = await ctx.db.get(args.caseId);
+    if (!c || c.organisationId !== organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+    }
+
+    if (role !== "admin") {
+      const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+      if (!visibleCaseIds.has(args.caseId)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
+      }
+    }
+
     return await ctx.db
       .query("documents")
       .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
@@ -118,14 +146,25 @@ export const getById = internalQuery({
   },
 });
 
-/** Returns a short-lived signed URL for viewing/downloading a document. */
+/** Returns a short-lived signed URL for viewing/downloading a document.
+ *  Enforces org isolation + role-based visibility before issuing the URL. */
 export const getViewUrl = authenticatedQuery({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
+    const { role, _id: userId, organisationId } = ctx.user;
+
     const doc = await ctx.db.get(args.id);
-    if (!doc || doc.organisationId !== ctx.user.organisationId) {
+    if (!doc || doc.organisationId !== organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
     }
+
+    if (role !== "admin" && doc.caseId) {
+      const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
+      if (!visibleCaseIds.has(doc.caseId)) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
+      }
+    }
+
     return await ctx.storage.getUrl(doc.storageId);
   },
 });

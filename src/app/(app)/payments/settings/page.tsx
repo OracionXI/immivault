@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CreditCard, Building2, ExternalLink, Copy, CheckCircle2 } from "lucide-react";
+import { CreditCard, Building2, ExternalLink, Copy, CheckCircle2, Eye, EyeOff } from "lucide-react";
 
 export default function PaymentSettingsPage() {
     const settings = useQuery(api.organisations.queries.getSettings);
@@ -27,6 +27,7 @@ export default function PaymentSettingsPage() {
     const [webhookSecret, setWebhookSecret] = useState("");
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [webhookRevealed, setWebhookRevealed] = useState(false);
 
     // Populate from saved settings
     useEffect(() => {
@@ -151,13 +152,31 @@ export default function PaymentSettingsPage() {
                                 Add this URL in your Stripe Dashboard → Webhooks:
                             </p>
                             <div className="flex items-center gap-2">
-                                <code className="text-xs flex-1 break-all">{webhookUrl}</code>
+                                <code className="text-xs flex-1 font-mono truncate select-none">
+                                    {webhookRevealed
+                                        ? webhookUrl
+                                        : webhookUrl.slice(0, 8) + "•".repeat(Math.max(0, webhookUrl.length - 8))}
+                                </code>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0"
+                                    onClick={() => setWebhookRevealed((v) => !v)}
+                                    title={webhookRevealed ? "Hide URL" : "Reveal URL"}
+                                >
+                                    {webhookRevealed
+                                        ? <EyeOff className="h-3.5 w-3.5" />
+                                        : <Eye className="h-3.5 w-3.5" />
+                                    }
+                                </Button>
                                 <Button
                                     type="button"
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7 shrink-0"
                                     onClick={handleCopyWebhookUrl}
+                                    title="Copy to clipboard"
                                 >
                                     {copied
                                         ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />

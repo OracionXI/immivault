@@ -19,6 +19,8 @@ import { RoleGuard } from "@/components/shared/role-guard";
 import { DashboardChart } from "@/components/dashboard/dashboard-chart";
 import { BreakdownCharts } from "@/components/dashboard/breakdown-charts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCurrency } from "@/hooks/use-currency";
+import { formatCurrency } from "@/lib/utils";
 
 type ConvexClient = NonNullable<ReturnType<typeof useQuery<typeof api.clients.queries.listAll>>>[number];
 
@@ -32,6 +34,7 @@ type ClientReportRow = ConvexClient & {
 
 export default function ReportsPage() {
     const { isAdmin, isAccountant } = useRole();
+    const currency = useCurrency();
     const rawClients  = useQuery(api.clients.queries.listAll);
     const rawCases    = useQuery(api.cases.queries.listAll);
     const rawInvoices = useQuery(api.billing.queries.listInvoices);
@@ -97,7 +100,7 @@ export default function ReportsPage() {
                     totalInvoiced: clientInvoices.filter((i) => !i.isContractDraft).reduce((s, i) => s + i.total, 0),
                     totalPaid: clientPaid,
                     contractAmountDisplay: c.contractAmount
-                        ? `$${(c.contractAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ? formatCurrency(c.contractAmount / 100, currency)
                         : "—",
                 };
             }),
@@ -179,13 +182,13 @@ export default function ReportsPage() {
         { key: "status", label: "Status", render: (c) => <StatusBadge status={c.status} /> },
         { key: "totalCases", label: "Cases", sortable: true },
         { key: "contractAmountDisplay", label: "Contract" },
-        { key: "totalInvoiced", label: "Invoiced", render: (c) => `$${c.totalInvoiced.toLocaleString()}` },
+        { key: "totalInvoiced", label: "Invoiced", render: (c) => formatCurrency(c.totalInvoiced, currency) },
         {
             key: "totalPaid",
             label: "Paid",
             render: (c) => (
                 <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                    ${c.totalPaid.toLocaleString()}
+                    {formatCurrency(c.totalPaid, currency)}
                 </span>
             ),
         },
@@ -229,7 +232,8 @@ export default function ReportsPage() {
                                     reference: p.reference,
                                 })),
                             org?.name,
-                            org?.agreementSignature
+                            org?.agreementSignature,
+                            currency
                         );
                     }}
                 >
@@ -248,8 +252,8 @@ export default function ReportsPage() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-blue-500/10"><Users className="h-5 w-5 text-blue-500" /></div><div><p className="text-2xl font-bold">{clients.length}</p><p className="text-xs text-muted-foreground">Total Clients</p></div></div></CardContent></Card>
                 <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-amber-500/10"><Briefcase className="h-5 w-5 text-amber-500" /></div><div><p className="text-2xl font-bold">{cases.length}</p><p className="text-xs text-muted-foreground">Total Cases</p></div></div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-emerald-500/10"><DollarSign className="h-5 w-5 text-emerald-500" /></div><div><p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p><p className="text-xs text-muted-foreground">Total Revenue</p></div></div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-orange-500/10"><TrendingUp className="h-5 w-5 text-orange-500" /></div><div><p className="text-2xl font-bold">${totalPending.toLocaleString()}</p><p className="text-xs text-muted-foreground">Pending</p></div></div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-emerald-500/10"><DollarSign className="h-5 w-5 text-emerald-500" /></div><div><p className="text-2xl font-bold">{formatCurrency(totalRevenue, currency)}</p><p className="text-xs text-muted-foreground">Total Revenue</p></div></div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-orange-500/10"><TrendingUp className="h-5 w-5 text-orange-500" /></div><div><p className="text-2xl font-bold">{formatCurrency(totalPending, currency)}</p><p className="text-xs text-muted-foreground">Pending</p></div></div></CardContent></Card>
             </div>
 
             <Tabs defaultValue="overview">
@@ -266,7 +270,7 @@ export default function ReportsPage() {
                             <CardTitle className="text-base font-semibold">Activity Trends</CardTitle>
                         </CardHeader>
                         <CardContent className="pt-2">
-                            <DashboardChart isAdmin={isAdmin} />
+                            <DashboardChart isAdmin={isAdmin} currency={currency} />
                         </CardContent>
                     </Card>
 
@@ -324,8 +328,8 @@ export default function ReportsPage() {
                         {/* Financial summary cards */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-blue-500/10"><Receipt className="h-5 w-5 text-blue-500" /></div><div><p className="text-2xl font-bold">{invoices.length}</p><p className="text-xs text-muted-foreground">Total Invoices</p></div></div></CardContent></Card>
-                            <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-purple-500/10"><DollarSign className="h-5 w-5 text-purple-500" /></div><div><p className="text-2xl font-bold">${totalInvoiced.toLocaleString()}</p><p className="text-xs text-muted-foreground">Total Invoiced</p></div></div></CardContent></Card>
-                            <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-emerald-500/10"><CheckSquare className="h-5 w-5 text-emerald-500" /></div><div><p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p><p className="text-xs text-muted-foreground">Collected</p></div></div></CardContent></Card>
+                            <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-purple-500/10"><DollarSign className="h-5 w-5 text-purple-500" /></div><div><p className="text-2xl font-bold">{formatCurrency(totalInvoiced, currency)}</p><p className="text-xs text-muted-foreground">Total Invoiced</p></div></div></CardContent></Card>
+                            <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-emerald-500/10"><CheckSquare className="h-5 w-5 text-emerald-500" /></div><div><p className="text-2xl font-bold">{formatCurrency(totalRevenue, currency)}</p><p className="text-xs text-muted-foreground">Collected</p></div></div></CardContent></Card>
                             <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-red-500/10"><AlertCircle className="h-5 w-5 text-red-500" /></div><div><p className="text-2xl font-bold">{overdueCount}</p><p className="text-xs text-muted-foreground">Overdue Invoices</p></div></div></CardContent></Card>
                         </div>
 
@@ -336,7 +340,7 @@ export default function ReportsPage() {
                                     <CardTitle className="text-base font-semibold">Revenue Trend</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-2">
-                                    <DashboardChart isAdmin={isAdmin} />
+                                    <DashboardChart isAdmin={isAdmin} currency={currency} />
                                 </CardContent>
                             </Card>
 
@@ -364,7 +368,7 @@ export default function ReportsPage() {
                                                                 <span className="font-medium">{status}</span>
                                                                 <span className="text-muted-foreground text-xs">({count})</span>
                                                             </div>
-                                                            <span className="font-medium">${total.toLocaleString()}</span>
+                                                            <span className="font-medium">{formatCurrency(total, currency)}</span>
                                                         </div>
                                                         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                                                             <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
