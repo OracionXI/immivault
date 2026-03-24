@@ -94,3 +94,40 @@ export const listPaymentLinks = authenticatedQuery({
       .collect();
   },
 });
+
+/** All disputes in the org. */
+export const listDisputes = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("disputes")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .order("desc")
+      .collect();
+  },
+});
+
+/**
+ * Internal: load a single payment by ID.
+ * Used by refundPayment action to verify ownership before calling Stripe.
+ */
+export const getPaymentInternal = internalQuery({
+  args: { id: v.id("payments") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal: check whether a Stripe event has already been logged.
+ * Used for idempotency in handleWebhookEvent.
+ */
+export const getWebhookLog = internalQuery({
+  args: { stripeEventId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("webhookLogs")
+      .withIndex("by_event_id", (q) => q.eq("stripeEventId", args.stripeEventId))
+      .first();
+  },
+});

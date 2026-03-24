@@ -17,7 +17,7 @@ import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StaffModal } from "./staff-modal";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Pencil, UserPlus, Trash2 } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
 import { InviteModal } from "./invite-modal";
@@ -75,6 +75,7 @@ export default function StaffPage() {
             key: "fullName", label: "Name", sortable: true, render: (s) => (
                 <div className="flex items-center gap-3">
                     <Avatar className="h-8 w-8">
+                        <AvatarImage src={s.avatarUrl} alt={s.fullName} />
                         <AvatarFallback className="text-xs bg-primary/10 text-primary">
                             {s.fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
                         </AvatarFallback>
@@ -121,9 +122,9 @@ export default function StaffPage() {
                     </Button>
                 )}
             </div>
-            <DataTable
-                data={staff as unknown as Record<string, unknown>[]}
-                columns={columns as unknown as Column<Record<string, unknown>>[]}
+            <DataTable<ConvexUser>
+                data={staff}
+                columns={columns}
                 searchKey="fullName"
                 searchPlaceholder="Search staff..."
                 loading={staffQuery === undefined}

@@ -26,6 +26,8 @@ interface ClientModalProps {
 export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
     const createClient = useMutation(api.clients.mutations.create);
     const updateClient = useMutation(api.clients.mutations.update);
+    const settings = useQuery(api.organisations.queries.getSettings);
+    const currency = settings?.defaultCurrency ?? "USD";
 
     const [form, setForm] = useState({
         firstName: "", lastName: "", email: "", phone: "", nationality: "",
@@ -138,7 +140,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
                         </div>
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="contractAmount">Contract Amount (USD)</Label>
+                        <Label htmlFor="contractAmount">Contract Amount ({currency})</Label>
                         <Input
                             id="contractAmount"
                             type="number"

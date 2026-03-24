@@ -160,9 +160,9 @@ export default function DocumentsPage() {
                     </span>
                 </div>
             )}
-            <DataTable
-                data={filteredDocuments as unknown as Record<string, unknown>[]}
-                columns={columns as unknown as Column<Record<string, unknown>>[]}
+            <DataTable<DisplayDocument>
+                data={filteredDocuments}
+                columns={columns}
                 searchKey="name"
                 searchPlaceholder="Search documents..."
                 loading={documentsQuery === undefined}

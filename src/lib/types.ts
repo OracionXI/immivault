@@ -136,25 +136,6 @@ export interface CaseStageConfig {
   order: number;
 }
 
-export interface EmailTemplate {
-  id: string;
-  name: string;
-  subject: string;
-  body: string;
-  category: string;
-  updatedAt: string;
-}
-
-export interface AutomationRule {
-  id: string;
-  name: string;
-  trigger: string;
-  condition: string;
-  action: string;
-  status: Status;
-  createdAt: string;
-}
-
 export interface BankAccount {
   id: string;
   bankName: string;
@@ -162,16 +143,6 @@ export interface BankAccount {
   accountNumber: string;
   routingNumber: string;
   isDefault: boolean;
-}
-
-export interface BookingSettings {
-  id: string;
-  slotDuration: number;
-  bufferTime: number;
-  availableDays: string[];
-  startTime: string;
-  endTime: string;
-  maxAdvanceBooking: number;
 }
 
 export interface CompanyProfile {

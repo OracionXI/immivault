@@ -1,8 +1,8 @@
 import { internalMutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { internal } from "../_generated/api";
-import { v } from "convex/values";
-import { ConvexError } from "convex/values";
+import { v, ConvexError } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { requireAtLeastCaseManager } from "../lib/rbac";
 
 const statusValidator = v.union(
@@ -21,22 +21,20 @@ const priorityValidator = v.union(
   v.literal("Urgent")
 );
 
-/** Builds a sequential human-readable task ID like TASK-0001. */
+/** Builds a sequential human-readable task ID like TASK-0001.
+ *  Uses the most recently created task (by _creationTime) to find the current max number.
+ *  This is O(1) instead of O(n) — no full table scan. */
 async function buildTaskId(ctx: { db: any }, organisationId: string): Promise<string> {
-  const tasks = await ctx.db
+  const lastTask = await ctx.db
     .query("tasks")
     .withIndex("by_org", (q: any) => q.eq("organisationId", organisationId))
-    .collect();
+    .order("desc")
+    .first();
 
-  let max = 0;
-  for (const t of tasks) {
-    if (t.taskId) {
-      const parts = t.taskId.split("-");
-      const num = parseInt(parts[1] ?? "0", 10);
-      if (num > max) max = num;
-    }
-  }
-  return `TASK-${String(max + 1).padStart(4, "0")}`;
+  if (!lastTask?.taskId) return "TASK-0001";
+  const parts = lastTask.taskId.split("-");
+  const num = parseInt(parts[1] ?? "0", 10);
+  return `TASK-${String((isNaN(num) ? 0 : num) + 1).padStart(4, "0")}`;
 }
 
 /** Tasks can only be assigned to case managers or staff — never admins. */
@@ -71,6 +69,14 @@ export const create = authenticatedMutation({
   },
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
+
+    const title = args.title.trim();
+    if (title.length === 0 || title.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Task title must be between 1 and 500 characters." });
+    }
+    if (args.description !== undefined && args.description.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Task description cannot exceed 5000 characters." });
+    }
 
     if (args.caseId) {
       const c = await ctx.db.get(args.caseId);
@@ -123,6 +129,17 @@ export const update = authenticatedMutation({
   },
   handler: async (ctx, args) => {
     const { id, assignedTo, ...fields } = args;
+
+    if (fields.title !== undefined) {
+      const title = fields.title.trim();
+      if (title.length === 0 || title.length > 500) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Task title must be between 1 and 500 characters." });
+      }
+    }
+    if (fields.description !== undefined && fields.description.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Task description cannot exceed 5000 characters." });
+    }
+
     const task = await ctx.db.get(id);
     if (!task || task.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Task not found." });
@@ -189,7 +206,7 @@ export const update = authenticatedMutation({
     if (newAssigneeId) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onTaskAssigned, {
         taskId: id,
-        newAssigneeId: newAssigneeId as any,
+        newAssigneeId: newAssigneeId as Id<"users">,
         assignerId: ctx.user._id,
       });
     }
@@ -254,6 +271,8 @@ export const markOverdueUrgent = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
+    // Cap at 500 per run to prevent memory/timeout issues on large tables.
+    // The cron fires hourly so any remainder is caught on the next run.
     const overdue = await ctx.db
       .query("tasks")
       .filter((q) =>
@@ -263,7 +282,7 @@ export const markOverdueUrgent = internalMutation({
           q.lt(q.field("dueDate"), now)
         )
       )
-      .collect();
+      .take(500);
 
     await Promise.all(
       overdue.map(async (task) => {

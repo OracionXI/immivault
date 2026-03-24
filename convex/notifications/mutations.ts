@@ -18,7 +18,8 @@ const notificationTypeValidator = v.union(
   v.literal("document_uploaded"),
   v.literal("appointment_created"),
   v.literal("appointment_updated"),
-  v.literal("appointment_cancelled")
+  v.literal("appointment_cancelled"),
+  v.literal("payment_dispute")
 );
 
 /** Internal: insert a single notification record. Called from internalActions. */

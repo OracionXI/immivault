@@ -1,4 +1,22 @@
 import { internalMutation } from "../_generated/server";
+import type { MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+
+async function nextInvoiceNumber(ctx: MutationCtx, organisationId: Id<"organisations">): Promise<string> {
+  const counter = await ctx.db
+    .query("invoiceCounters")
+    .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
+    .unique();
+
+  if (counter) {
+    const n = counter.nextNumber;
+    await ctx.db.patch(counter._id, { nextNumber: n + 1 });
+    return `INV-${String(n).padStart(4, "0")}`;
+  }
+
+  await ctx.db.insert("invoiceCounters", { organisationId, nextNumber: 2 });
+  return "INV-0001";
+}
 
 /**
  * Scheduled daily at 00:00 UTC.
@@ -45,12 +63,7 @@ export const markOverdueInvoices = internalMutation({
         link.nextPaymentDate < now &&
         !link.nextPaymentOverdueCreated
       ) {
-        // Count existing invoices for org to generate invoice number
-        const invoiceCount = await ctx.db
-          .query("invoices")
-          .withIndex("by_org", (q) => q.eq("organisationId", link.organisationId))
-          .collect();
-        const invoiceNumber = `INV-${String(invoiceCount.length + 1).padStart(4, "0")}`;
+        const invoiceNumber = await nextInvoiceNumber(ctx, link.organisationId);
 
         await ctx.db.insert("invoices", {
           organisationId: link.organisationId,

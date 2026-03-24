@@ -2,7 +2,26 @@ import { ConvexError } from "convex/values";
 
 // ─── Role & Permission Definitions ────────────────────────────────────────────
 
-type Role = "admin" | "case_manager" | "staff" | "accountant";
+export type Role = "admin" | "case_manager" | "staff" | "accountant";
+
+/** Runtime type guard — validates that a string from the database is a known Role. */
+function isValidRole(role: string): role is Role {
+  return role === "admin" || role === "case_manager" || role === "staff" || role === "accountant";
+}
+
+/**
+ * Asserts a role is valid and returns it narrowed to the Role union.
+ * Throws FORBIDDEN for any role value not defined in the permission matrix.
+ */
+function assertValidRole(role: string): Role {
+  if (!isValidRole(role)) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: `Unrecognised role: "${role}". Access denied.`,
+    });
+  }
+  return role;
+}
 type Resource =
   | "clients"
   | "cases"
@@ -46,8 +65,8 @@ const PERMISSIONS: Record<Role, Record<Resource, Action[]>> = {
     settings:     [],
   },
   accountant: {
-    clients:      [],
-    cases:        [],
+    clients:      ["read"],                      // needed to create/view invoices and payments
+    cases:        ["read"],                      // needed for billing dropdowns and invoice linking
     tasks:        [],
     documents:    [],
     appointments: ["create", "read", "update"],  // general meetings only; delete is admin-only
@@ -70,13 +89,14 @@ export function hasPermission(
 /**
  * Throws ConvexError FORBIDDEN if the user's role lacks the requested permission.
  * `ctx` must have a `user` property with a `role` field (authenticatedQuery/Mutation ctx).
+ * Also throws for any role value not in the known Role union.
  */
 export function requirePermission(
   ctx: { user: { role: string } },
   resource: Resource,
   action: Action
 ): void {
-  const role = ctx.user.role as Role;
+  const role = assertValidRole(ctx.user.role);
   if (!hasPermission(role, resource, action)) {
     throw new ConvexError({
       code: "FORBIDDEN",
@@ -87,6 +107,7 @@ export function requirePermission(
 
 /** Shorthand: throws if caller is not admin. */
 export function requireAdmin(ctx: { user: { role: string } }): void {
+  assertValidRole(ctx.user.role);
   if (ctx.user.role !== "admin") {
     throw new ConvexError({
       code: "FORBIDDEN",
@@ -97,6 +118,7 @@ export function requireAdmin(ctx: { user: { role: string } }): void {
 
 /** Shorthand: throws if caller is not admin or accountant. */
 export function requireAdminOrAccountant(ctx: { user: { role: string } }): void {
+  assertValidRole(ctx.user.role);
   if (ctx.user.role !== "admin" && ctx.user.role !== "accountant") {
     throw new ConvexError({
       code: "FORBIDDEN",
@@ -107,6 +129,7 @@ export function requireAdminOrAccountant(ctx: { user: { role: string } }): void 
 
 /** Shorthand: throws if caller is staff or accountant (allows admin + case_manager only). */
 export function requireAtLeastCaseManager(ctx: { user: { role: string } }): void {
+  assertValidRole(ctx.user.role);
   if (ctx.user.role === "staff" || ctx.user.role === "accountant") {
     throw new ConvexError({
       code: "FORBIDDEN",

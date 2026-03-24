@@ -11,6 +11,8 @@ const isPublicRoute = createRouteMatcher([
   "/pay/(.*)",
   "/onboarding(.*)",
   "/waiting(.*)",
+  "/privacy",
+  "/terms",
 ]);
 
 const isAuthRoute = createRouteMatcher([

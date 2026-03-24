@@ -274,7 +274,8 @@ export default defineSchema({
     caseId: v.optional(v.id("cases")),
   })
     .index("by_org", ["organisationId"])
-    .index("by_invoice", ["invoiceId"]),
+    .index("by_invoice", ["invoiceId"])
+    .index("by_stripe_intent", ["organisationId", "stripePaymentIntentId"]),
 
   // ─── Payment Links ────────────────────────────────────────────────────────────
   paymentLinks: defineTable({
@@ -311,16 +312,9 @@ export default defineSchema({
     entityId: v.string(),
     authorId: v.id("users"),
     body: v.string(),
-  }).index("by_entity", ["entityType", "entityId"]),
-
-  // ─── Email Templates ──────────────────────────────────────────────────────────
-  emailTemplates: defineTable({
-    organisationId: v.id("organisations"),
-    name: v.string(),
-    subject: v.string(),
-    body: v.string(),
-    category: v.string(),
-  }).index("by_org", ["organisationId"]),
+  })
+    .index("by_entity", ["entityType", "entityId"])
+    .index("by_org", ["organisationId"]),
 
   // ─── Bank Accounts ────────────────────────────────────────────────────────────
   bankAccounts: defineTable({
@@ -332,10 +326,17 @@ export default defineSchema({
     isDefault: v.boolean(),
   }).index("by_org", ["organisationId"]),
 
-  // ─── Rate Limits (sliding-window, server-side only) ───────────────────────────
+  // ─── Invoice Counters (atomic per-org counter to prevent duplicate invoice numbers) ─
+  invoiceCounters: defineTable({
+    organisationId: v.id("organisations"),
+    nextNumber: v.number(), // starts at 1, incremented atomically on each use
+  }).index("by_org", ["organisationId"]),
+
+  // ─── Rate Limits (fixed-window counter, server-side only) ────────────────────
   rateLimits: defineTable({
     key: v.string(),       // e.g. "inviteStaff:<orgId>"
-    timestamp: v.number(), // ms epoch — used for window expiry
+    timestamp: v.number(), // ms epoch — start of the current fixed window
+    count: v.optional(v.number()), // number of requests in this window
   }).index("by_key", ["key"]),
 
   // ─── Notifications ────────────────────────────────────────────────────────────
@@ -357,7 +358,8 @@ export default defineSchema({
       v.literal("document_uploaded"),
       v.literal("appointment_created"),
       v.literal("appointment_updated"),
-      v.literal("appointment_cancelled")
+      v.literal("appointment_cancelled"),
+      v.literal("payment_dispute")
     ),
     title: v.string(),
     message: v.string(),
@@ -366,7 +368,8 @@ export default defineSchema({
     read: v.boolean(),
   })
     .index("by_recipient", ["recipientId"])
-    .index("by_recipient_unread", ["recipientId", "read"]),
+    .index("by_recipient_unread", ["recipientId", "read"])
+    .index("by_org", ["organisationId"]),
 
   // ─── Organisation Settings ────────────────────────────────────────────────────
   organisationSettings: defineTable({
@@ -380,14 +383,6 @@ export default defineSchema({
     taxRate: v.optional(v.number()),
     emailFromName: v.optional(v.string()),
     emailFromAddress: v.optional(v.string()),
-    bookingEnabled: v.optional(v.boolean()),
-    bookingUrl: v.optional(v.string()),
-    // Slot configuration (Phase 3)
-    slotDuration: v.optional(v.number()),    // minutes, e.g. 30 or 60
-    bufferTime: v.optional(v.number()),      // minutes between slots
-    availableStartTime: v.optional(v.string()), // "HH:MM" 24h
-    availableEndTime: v.optional(v.string()),   // "HH:MM" 24h
-    availableDays: v.optional(v.array(v.string())), // ["Mon","Tue",...]
     documentTypes: v.optional(v.array(v.string())),
     appointmentTypes: v.optional(v.array(v.string())),
     // Custom roles: org-scoped role catalog. Each role maps to a permission tier.
@@ -398,10 +393,59 @@ export default defineSchema({
       permissionLevel: v.union(v.literal("case_manager"), v.literal("staff"), v.literal("accountant")),
       isDefault: v.boolean(),
     }))),
+    // Appointment booking toggle (per-org)
+    bookingEnabled: v.optional(v.boolean()),
     // Stripe payment gateway (per-org)
     stripeEnabled: v.optional(v.boolean()),
     stripePublishableKey: v.optional(v.string()),
+    // Legacy plaintext fields — kept for backward compat; prefer *Enc fields below.
     stripeSecretKey: v.optional(v.string()),
     stripeWebhookSecret: v.optional(v.string()),
+    // AES-256-GCM encrypted fields: format "{iv_hex}:{ciphertext_hex}"
+    // Encrypted with STRIPE_MASTER_KEY Convex env var. Preferred over plaintext.
+    stripeSecretKeyEnc: v.optional(v.string()),
+    stripeWebhookSecretEnc: v.optional(v.string()),
   }).index("by_org", ["organisationId"]),
+
+  // ─── Stripe Disputes / Chargebacks ────────────────────────────────────────────
+  disputes: defineTable({
+    organisationId: v.id("organisations"),
+    paymentId: v.optional(v.id("payments")),        // linked Convex payment record (if found)
+    stripeDisputeId: v.string(),                     // e.g. dp_xxx
+    stripePaymentIntentId: v.optional(v.string()),
+    amount: v.number(),                              // in cents
+    currency: v.string(),
+    reason: v.string(),                              // Stripe dispute reason
+    status: v.union(
+      v.literal("warning_needs_response"),
+      v.literal("warning_under_review"),
+      v.literal("warning_closed"),
+      v.literal("needs_response"),
+      v.literal("under_review"),
+      v.literal("charge_refunded"),
+      v.literal("won"),
+      v.literal("lost")
+    ),
+    dueBy: v.optional(v.number()),                  // epoch ms — when evidence is due
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_stripe_dispute", ["stripeDisputeId"]),
+
+  // ─── Stripe Webhook Audit Log ─────────────────────────────────────────────────
+  webhookLogs: defineTable({
+    organisationId: v.id("organisations"),
+    stripeEventId: v.string(),                       // Stripe event ID (idempotency)
+    eventType: v.string(),                           // e.g. "payment_intent.succeeded"
+    status: v.union(
+      v.literal("processed"),
+      v.literal("skipped"),
+      v.literal("failed")
+    ),
+    error: v.optional(v.string()),
+    processedAt: v.number(),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_event_id", ["stripeEventId"]),
 });

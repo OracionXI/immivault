@@ -36,7 +36,6 @@ export const initCurrentUser = mutation({
         organisationId: orgId,
         defaultCurrency: "USD",
         taxRate: 0,
-        bookingEnabled: false,
         customRoles: DEFAULT_CUSTOM_ROLES,
       });
     }
@@ -79,6 +78,9 @@ export const initCurrentUser = mutation({
 export const repairOrg = mutation({
   args: {},
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated — log in first.");
+
     const orgName = "My Immigration Firm";
     const slug = orgName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 
@@ -93,7 +95,6 @@ export const repairOrg = mutation({
       organisationId: orgId,
       defaultCurrency: "USD",
       taxRate: 0,
-      bookingEnabled: false,
       customRoles: DEFAULT_CUSTOM_ROLES,
     });
 
@@ -110,7 +111,6 @@ export const repairOrg = mutation({
       "payments",
       "paymentLinks",
       "comments",
-      "emailTemplates",
       "bankAccounts",
       "invitations",
     ] as const;
@@ -141,6 +141,9 @@ export const repairOrg = mutation({
 export const clearAllData = mutation({
   args: {},
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated — log in first.");
+
     const tables = [
       "comments",
       "invoiceItems",
@@ -154,7 +157,6 @@ export const clearAllData = mutation({
       "clients",
       "rateLimits",
       "invitations",
-      "emailTemplates",
       "bankAccounts",
       "organisationSettings",
       "users",

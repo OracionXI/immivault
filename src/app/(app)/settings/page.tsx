@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Loader2, Camera, CheckCircle2, Unlink } from "lucide-react";
+import { Save, Loader2, Camera, CheckCircle2, Unlink, Trash2, AlertTriangle, RotateCcw } from "lucide-react";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
@@ -54,6 +54,8 @@ export default function ProfilePage() {
     const settings = useQuery(api.organisations.queries.getSettings);
     const updateProfile = useMutation(api.users.mutations.updateProfile);
     const updateSettings = useMutation(api.organisations.mutations.updateSettings);
+    const softDeleteOrg = useMutation(api.organisations.mutations.softDeleteOrg);
+    const reactivateOrg = useMutation(api.organisations.mutations.reactivateOrg);
     const disconnectGoogle = useMutation(api.users.mutations.disconnectGoogle);
     const [googleConnecting, setGoogleConnecting] = useState(false);
     const [googleDisconnecting, setGoogleDisconnecting] = useState(false);
@@ -106,11 +108,15 @@ export default function ProfilePage() {
     const [settingsForm, setSettingsForm] = useState({
         defaultCurrency: "USD",
         taxRate: 0,
-        emailFromName: "",
-        emailFromAddress: "",
     });
     const [settingsSaving, setSettingsSaving] = useState(false);
     const [settingsSaved, setSettingsSaved] = useState(false);
+
+    // Delete organisation state
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [deleteConfirmText, setDeleteConfirmText] = useState("");
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [reactivateLoading, setReactivateLoading] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -123,8 +129,6 @@ export default function ProfilePage() {
             setSettingsForm({
                 defaultCurrency: settings.defaultCurrency ?? "USD",
                 taxRate: settings.taxRate ?? 0,
-                emailFromName: settings.emailFromName ?? "",
-                emailFromAddress: settings.emailFromAddress ?? "",
             });
         }
     }, [settings]);
@@ -158,8 +162,6 @@ export default function ProfilePage() {
             await updateSettings({
                 defaultCurrency: settingsForm.defaultCurrency,
                 taxRate: Number(settingsForm.taxRate),
-                emailFromName: settingsForm.emailFromName || undefined,
-                emailFromAddress: settingsForm.emailFromAddress || undefined,
             });
             setSettingsSaved(true);
             setTimeout(() => setSettingsSaved(false), 2500);
@@ -215,6 +217,32 @@ export default function ProfilePage() {
             toast.error(getErrorMessage(error));
         } finally {
             setGoogleDisconnecting(false);
+        }
+    };
+
+    const handleDeleteOrg = async () => {
+        setDeleteLoading(true);
+        try {
+            await softDeleteOrg({ confirmName: deleteConfirmText });
+            setDeleteDialogOpen(false);
+            setDeleteConfirmText("");
+            toast.success("Organisation scheduled for deletion. You have 30 days to recover it.");
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
+    const handleReactivateOrg = async () => {
+        setReactivateLoading(true);
+        try {
+            await reactivateOrg({});
+            toast.success("Organisation reactivated. Deletion cancelled.");
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setReactivateLoading(false);
         }
     };
 
@@ -488,38 +516,123 @@ export default function ProfilePage() {
                         </CardContent>
                     </Card>
 
-                    <Card>
-                        <CardHeader><CardTitle>Email Sender Identity</CardTitle></CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="grid gap-2">
-                                    <Label>From Name</Label>
-                                    <Input
-                                        value={settingsForm.emailFromName}
-                                        onChange={(e) => setSettingsForm({ ...settingsForm, emailFromName: e.target.value })}
-                                        placeholder="e.g. Chen Immigration Law"
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label>From Email Address</Label>
-                                    <Input
-                                        type="email"
-                                        value={settingsForm.emailFromAddress}
-                                        onChange={(e) => setSettingsForm({ ...settingsForm, emailFromAddress: e.target.value })}
-                                        placeholder="e.g. noreply@yourfirm.com"
-                                    />
-                                </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                Used as the sender identity for outgoing emails (Phase 4 — Resend integration).
-                            </p>
-                        </CardContent>
-                    </Card>
-
                     <Button onClick={handleSettingsSave} disabled={settingsSaving} className="gap-2">
                         {settingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         {settingsSaved ? "Saved!" : "Save Settings"}
                     </Button>
+
+                    {/* Recovery banner — shown when org is already pending deletion */}
+                    {org?.deletedAt && (
+                        <Card className="border-destructive/50 bg-destructive/5">
+                            <CardContent className="pt-6 space-y-3">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="font-semibold text-destructive">Organisation pending deletion</p>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            This organisation and all its data will be permanently deleted on{" "}
+                                            <strong>
+                                                {new Date(org.deletedAt + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
+                                                    month: "long", day: "numeric", year: "numeric",
+                                                })}
+                                            </strong>.
+                                            You can cancel this and restore full access before that date.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10"
+                                    onClick={handleReactivateOrg}
+                                    disabled={reactivateLoading}
+                                >
+                                    {reactivateLoading
+                                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                                        : <RotateCcw className="h-4 w-4" />
+                                    }
+                                    Cancel deletion &amp; restore organisation
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Danger Zone — shown when org is active */}
+                    {!org?.deletedAt && (
+                        <Card className="border-destructive/40">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2 text-destructive">
+                                    <AlertTriangle className="h-5 w-5" />
+                                    Danger Zone
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <p className="text-sm text-muted-foreground">
+                                    Deleting your organisation will schedule all data — cases, clients, documents, billing records, and staff accounts — for permanent removal after a <strong>30-day grace period</strong>. You can cancel during this period to restore full access.
+                                </p>
+                                <Button
+                                    variant="destructive"
+                                    className="gap-2"
+                                    onClick={() => { setDeleteConfirmText(""); setDeleteDialogOpen(true); }}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete Organisation
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Delete confirmation dialog */}
+                    <Dialog open={deleteDialogOpen} onOpenChange={(open) => { if (!open) { setDeleteDialogOpen(false); setDeleteConfirmText(""); } }}>
+                        <DialogContent style={{ maxWidth: 480 }}>
+                            <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2 text-destructive">
+                                    <AlertTriangle className="h-5 w-5" />
+                                    Delete Organisation
+                                </DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 py-2">
+                                <p className="text-sm text-muted-foreground">
+                                    This will schedule <strong>{org?.name}</strong> and all associated data for permanent deletion after 30 days. This action cannot be undone after the grace period.
+                                </p>
+                                <div className="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive">
+                                    All cases, clients, documents, billing records, staff accounts, and settings will be permanently removed.
+                                </div>
+                                <div className="space-y-2">
+                                    <p className="text-sm font-medium">
+                                        To confirm, type{" "}
+                                        <span className="font-mono font-semibold select-none">
+                                            Delete {org?.name}
+                                        </span>
+                                        {" "}below:
+                                    </p>
+                                    <Input
+                                        value={deleteConfirmText}
+                                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                        placeholder={`Delete ${org?.name ?? ""}`}
+                                        autoComplete="off"
+                                        spellCheck={false}
+                                    />
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => { setDeleteDialogOpen(false); setDeleteConfirmText(""); }}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    className="gap-2"
+                                    disabled={deleteConfirmText !== `Delete ${org?.name}` || deleteLoading}
+                                    onClick={handleDeleteOrg}
+                                >
+                                    {deleteLoading
+                                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                                        : <Trash2 className="h-4 w-4" />
+                                    }
+                                    Delete Organisation
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </>
             )}
         </div>

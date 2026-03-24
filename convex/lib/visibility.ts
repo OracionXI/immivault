@@ -12,46 +12,49 @@
  * getVisibleClientIds — clients of those visible cases (for the clients list).
  */
 
+import type { DatabaseReader } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+
 export async function getVisibleCaseIds(
-  db: any,
+  db: DatabaseReader,
   role: string,
-  userId: string,
-  organisationId: string
-): Promise<Set<string>> {
-  const caseIds = new Set<string>();
+  userId: Id<"users">,
+  organisationId: Id<"organisations">
+): Promise<Set<Id<"cases">>> {
+  const caseIds = new Set<Id<"cases">>();
 
   // case_manager: directly assigned cases + cases with assigned tasks
   if (role === "case_manager") {
     const myCases = await db
       .query("cases")
-      .withIndex("by_assigned", (q: any) => q.eq("assignedTo", userId))
+      .withIndex("by_assigned", (q) => q.eq("assignedTo", userId))
       .collect();
     for (const c of myCases) {
       if (c.organisationId === organisationId) caseIds.add(c._id);
     }
   }
 
-  // both roles: cases containing their assigned tasks
+  // both roles: cases containing their assigned tasks (scoped to this org)
   const myTasks = await db
     .query("tasks")
-    .withIndex("by_assigned", (q: any) => q.eq("assignedTo", userId))
+    .withIndex("by_assigned", (q) => q.eq("assignedTo", userId))
     .collect();
   for (const task of myTasks) {
-    if (task.caseId) caseIds.add(task.caseId);
+    if (task.caseId && task.organisationId === organisationId) caseIds.add(task.caseId);
   }
   return caseIds;
 }
 
 export async function getVisibleClientIds(
-  db: any,
+  db: DatabaseReader,
   role: string,
-  userId: string,
-  organisationId: string
-): Promise<Set<string>> {
+  userId: Id<"users">,
+  organisationId: Id<"organisations">
+): Promise<Set<Id<"clients">>> {
   const caseIds = await getVisibleCaseIds(db, role, userId, organisationId);
-  const clientIds = new Set<string>();
-  for (const caseId of caseIds) {
-    const c = await db.get(caseId);
+  const cases = await Promise.all([...caseIds].map((id) => db.get(id)));
+  const clientIds = new Set<Id<"clients">>();
+  for (const c of cases) {
     if (c && c.organisationId === organisationId) clientIds.add(c.clientId);
   }
   return clientIds;

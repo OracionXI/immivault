@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown } from "lucide-react";
+import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown, RotateCcw, AlertTriangle } from "lucide-react";
 import { generateAuditReport } from "@/lib/pdf-generator";
 import Link from "next/link";
 import { RoleGuard } from "@/components/shared/role-guard";
@@ -30,6 +30,7 @@ import { formatCurrency } from "@/lib/utils";
 
 type ConvexPayment = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPayments>>>[number];
 type ConvexPaymentLink = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listPaymentLinks>>>[number];
+type ConvexDispute = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listDisputes>>>[number];
 
 type PaymentRow = ConvexPayment & { clientName: string; caseName: string; dateDisplay: string };
 type LinkRow = ConvexPaymentLink & { clientName: string; caseName: string; expiresDisplay: string; linkUrl: string };
@@ -42,6 +43,7 @@ export default function PaymentsPage() {
     const currency = useCurrency();
     const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
     const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
+    const rawDisputes = useQuery(api.billing.queries.listDisputes) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const org = useQuery(api.organisations.queries.mine);
@@ -50,6 +52,10 @@ export default function PaymentsPage() {
     const removePayment = useMutation(api.billing.mutations.removePayment);
     const updatePaymentLink = useMutation(api.billing.mutations.updatePaymentLink);
     const removePaymentLink = useMutation(api.billing.mutations.removePaymentLink);
+    const refundPayment = useAction(api.billing.actions.refundPayment);
+
+    const [refundingId, setRefundingId] = useState<Id<"payments"> | null>(null);
+    const [refundConfirmId, setRefundConfirmId] = useState<Id<"payments"> | null>(null);
 
     const [editPayment, setEditPayment] = useState<PaymentRow | null>(null);
     const [editForm, setEditForm] = useState({ amount: "", method: "", status: "", reference: "", notes: "", caseId: "" as Id<"cases"> | "" });
@@ -69,6 +75,20 @@ export default function PaymentsPage() {
         () => new Map(cases.map((c) => [c._id, c.title])),
         [cases]
     );
+
+    const handleRefund = async () => {
+        if (!refundConfirmId) return;
+        setRefundingId(refundConfirmId);
+        setRefundConfirmId(null);
+        try {
+            await refundPayment({ paymentId: refundConfirmId });
+            toast.success("Refund issued successfully.");
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setRefundingId(null);
+        }
+    };
 
     const payments: PaymentRow[] = rawPayments.map((p) => ({
         ...p,
@@ -169,6 +189,18 @@ export default function PaymentsPage() {
             label: "",
             render: (p) => (
                 <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                    {p.status === "Completed" && p.stripePaymentIntentId && (
+                        <Button
+                            variant="ghost" size="icon" className="h-8 w-8 text-amber-600 hover:text-amber-700"
+                            onClick={() => setRefundConfirmId(p._id)}
+                            disabled={refundingId === p._id}
+                            title="Refund payment"
+                        >
+                            {refundingId === p._id
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <RotateCcw className="h-3.5 w-3.5" />}
+                        </Button>
+                    )}
                     <Button
                         variant="ghost" size="icon" className="h-8 w-8"
                         onClick={() => {
@@ -265,6 +297,33 @@ export default function PaymentsPage() {
         },
     ];
 
+    const disputeColumns: Column<ConvexDispute>[] = [
+        {
+            key: "stripeDisputeId",
+            label: "Dispute ID",
+            render: (d) => <span className="font-mono text-xs">{d.stripeDisputeId}</span>,
+        },
+        {
+            key: "amount",
+            label: "Amount",
+            render: (d) => <span className="font-semibold">{formatCurrency(Number(d.amount) / 100, d.currency.toUpperCase())}</span>,
+        },
+        { key: "reason", label: "Reason", render: (d) => <span className="capitalize">{d.reason.replace(/_/g, " ")}</span> },
+        {
+            key: "status",
+            label: "Status",
+            render: (d) => <StatusBadge status={d.status.replace(/_/g, " ")} />,
+        },
+        {
+            key: "dueBy",
+            label: "Evidence Due",
+            render: (d) => d.dueBy
+                ? <span className={d.dueBy < Date.now() ? "text-destructive font-medium" : ""}>{formatTs(d.dueBy)}</span>
+                : <span className="text-muted-foreground">—</span>,
+        },
+        { key: "createdAt", label: "Opened", render: (d) => <span>{formatTs(d.createdAt)}</span> },
+    ];
+
     const handleEditLinkSave = async () => {
         if (!editLink) return;
         setEditLinkLoading(true);
@@ -341,12 +400,18 @@ export default function PaymentsPage() {
                 <TabsList>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
                     <TabsTrigger value="payment-links">Payment Links</TabsTrigger>
+                    <TabsTrigger value="disputes" className="gap-1.5">
+                        Disputes
+                        {rawDisputes.some((d) => d.status === "needs_response" || d.status === "warning_needs_response") && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                        )}
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="transactions">
-                    <DataTable
-                        data={payments as unknown as Record<string, unknown>[]}
-                        columns={paymentColumns as unknown as Column<Record<string, unknown>>[]}
+                    <DataTable<PaymentRow>
+                        data={payments}
+                        columns={paymentColumns}
                         searchKey="clientName"
                         searchPlaceholder="Search transactions..."
                         filterDropdown={{
@@ -374,9 +439,9 @@ export default function PaymentsPage() {
                 </TabsContent>
 
                 <TabsContent value="payment-links">
-                    <DataTable
-                        data={paymentLinks as unknown as Record<string, unknown>[]}
-                        columns={linkColumns as unknown as Column<Record<string, unknown>>[]}
+                    <DataTable<LinkRow>
+                        data={paymentLinks}
+                        columns={linkColumns}
                         searchKey="clientName"
                         searchPlaceholder="Search payment links..."
                         filterDropdown={{
@@ -392,6 +457,35 @@ export default function PaymentsPage() {
                             <Button size="sm" onClick={() => setLinkModalOpen(true)}>Create Payment Link</Button>
                         }
                     />
+                </TabsContent>
+
+                <TabsContent value="disputes">
+                    {rawDisputes.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
+                            <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+                            <p className="text-sm text-muted-foreground">No disputes on record. Good standing!</p>
+                        </div>
+                    ) : (
+                        <DataTable<ConvexDispute>
+                            data={rawDisputes}
+                            columns={disputeColumns}
+                            searchKey="stripeDisputeId"
+                            searchPlaceholder="Search disputes..."
+                            filterDropdown={{
+                                key: "status",
+                                placeholder: "All Statuses",
+                                options: [
+                                    { label: "Needs Response", value: "needs_response" },
+                                    { label: "Warning – Needs Response", value: "warning_needs_response" },
+                                    { label: "Under Review", value: "under_review" },
+                                    { label: "Won", value: "won" },
+                                    { label: "Lost", value: "lost" },
+                                    { label: "Charge Refunded", value: "charge_refunded" },
+                                    { label: "Warning Closed", value: "warning_closed" },
+                                ],
+                            }}
+                        />
+                    )}
                 </TabsContent>
             </Tabs>
 
@@ -704,6 +798,17 @@ export default function PaymentsPage() {
                 onConfirm={handleDeleteLink}
             />
         </div>
+
+            {/* Refund Confirm Dialog */}
+            <ConfirmDialog
+                open={!!refundConfirmId}
+                onOpenChange={(open) => { if (!open) setRefundConfirmId(null); }}
+                title="Issue Refund"
+                description="Are you sure you want to issue a full refund for this payment? This will charge the refund to your Stripe account and cannot be undone."
+                confirmText="Issue Refund"
+                variant="destructive"
+                onConfirm={handleRefund}
+            />
 
             {/* Audit PDF Period Dialog */}
             <Dialog open={auditModalOpen} onOpenChange={setAuditModalOpen}>

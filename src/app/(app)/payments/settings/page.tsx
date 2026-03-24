@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -19,7 +19,7 @@ import { CreditCard, Building2, ExternalLink, Copy, CheckCircle2, Eye, EyeOff } 
 export default function PaymentSettingsPage() {
     const settings = useQuery(api.organisations.queries.getSettings);
     const org = useQuery(api.organisations.queries.mine);
-    const updateStripe = useMutation(api.organisations.mutations.updateStripeSettings);
+    const saveStripe = useAction(api.organisations.actions.saveStripeSettings);
 
     const [stripeEnabled, setStripeEnabled] = useState(false);
     const [publishableKey, setPublishableKey] = useState("");
@@ -34,13 +34,14 @@ export default function PaymentSettingsPage() {
         if (!settings) return;
         setStripeEnabled(settings.stripeEnabled ?? false);
         setPublishableKey(settings.stripePublishableKey ?? "");
-        // Secret key is write-only — show placeholder if saved
+        // Secret key is write-only — show placeholder if a value is saved (backend returns "REDACTED")
         if (settings.stripeSecretKey) setSecretKey("••••••••••••••••••••");
         if (settings.stripeWebhookSecret) setWebhookSecret("••••••••••••••••••••");
     }, [settings]);
 
-    const webhookUrl = org
-        ? `https://tremendous-poodle-485.convex.site/stripe-webhook?orgId=${org._id}`
+    const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "";
+    const webhookUrl = org && convexSiteUrl
+        ? `${convexSiteUrl}/stripe-webhook?orgId=${org._id}`
         : "";
 
     const handleCopyWebhookUrl = () => {
@@ -52,12 +53,13 @@ export default function PaymentSettingsPage() {
 
     const handleSave = async () => {
         // Don't overwrite saved keys if user left the masked placeholder
-        const sk = secretKey === "••••••••••••••••••••" ? (settings?.stripeSecretKey ?? "") : secretKey;
-        const wh = webhookSecret === "••••••••••••••••••••" ? (settings?.stripeWebhookSecret ?? "") : webhookSecret;
+        // Pass empty string if key is masked (backend will skip updating encrypted field when empty)
+        const sk = secretKey === "••••••••••••••••••••" ? "" : secretKey;
+        const wh = webhookSecret === "••••••••••••••••••••" ? "" : webhookSecret;
 
         setSaving(true);
         try {
-            await updateStripe({
+            await saveStripe({
                 stripeEnabled,
                 stripePublishableKey: publishableKey,
                 stripeSecretKey: sk,

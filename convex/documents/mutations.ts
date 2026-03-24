@@ -65,13 +65,8 @@ export const create = authenticatedMutation({
     if (ctx.user.role === "staff") {
       const staffTask = await ctx.db
         .query("tasks")
-        .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-        .filter((q) =>
-          q.and(
-            q.eq(q.field("caseId"), args.caseId),
-            q.eq(q.field("assignedTo"), ctx.user._id)
-          )
-        )
+        .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
+        .filter((q) => q.eq(q.field("assignedTo"), ctx.user._id))
         .first();
       if (!staffTask) {
         throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to cases where you have assigned tasks." });

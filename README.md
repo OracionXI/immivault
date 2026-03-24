@@ -110,16 +110,6 @@ npx convex dev     # starts Convex dev server + generates types
 npm run dev        # starts Next.js on http://localhost:3000
 ```
 
-Required environment variables (`.env.local`):
-
-```
-NEXT_PUBLIC_CONVEX_URL=
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
-CLERK_JWT_ISSUER_DOMAIN=
-CLERK_WEBHOOK_SECRET=
-```
-
 ## UI Conventions
 
 - **Kanban boards** — drag-and-drop columns; click card to open detail dialog with description and activity feed

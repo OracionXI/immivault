@@ -9,10 +9,15 @@ export const create = authenticatedMutation({
   args: {
     entityType: v.union(v.literal("case"), v.literal("task")),
     entityId: v.string(),
-    body: v.string(),
+    body: v.string(), // validated below (1–5000 chars)
   },
   handler: async (ctx, args) => {
     const { role, _id: userId, organisationId } = ctx.user;
+
+    const body = args.body.trim();
+    if (body.length === 0 || body.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Comment must be between 1 and 5000 characters." });
+    }
 
     // Verify the entity exists in the user's org and the user has visibility
     if (args.entityType === "case") {
@@ -22,7 +27,7 @@ export const create = authenticatedMutation({
       }
       if (role !== "admin") {
         const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-        if (!visibleCaseIds.has(args.entityId)) {
+        if (!visibleCaseIds.has(c._id)) {
           throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
         }
       }
@@ -60,6 +65,10 @@ export const create = authenticatedMutation({
 export const update = authenticatedMutation({
   args: { id: v.id("comments"), body: v.string() },
   handler: async (ctx, args) => {
+    const body = args.body.trim();
+    if (body.length === 0 || body.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Comment must be between 1 and 5000 characters." });
+    }
     const comment = await ctx.db.get(args.id);
     if (!comment || comment.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Comment not found." });
@@ -67,7 +76,7 @@ export const update = authenticatedMutation({
     if (comment.authorId !== ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only edit your own comments." });
     }
-    await ctx.db.patch(args.id, { body: args.body });
+    await ctx.db.patch(args.id, { body });
   },
 });
 

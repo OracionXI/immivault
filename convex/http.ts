@@ -164,10 +164,16 @@ http.route({
  * Stripe webhook endpoint — per-organisation.
  *
  * Each organisation configures their Stripe webhook to point to:
- *   https://<your-convex-site-url>/stripe-webhook?orgId=<organisationId>
+ *   https://<NEXT_PUBLIC_CONVEX_SITE_URL>/stripe-webhook?orgId=<organisationId>
  *
- * The handler verifies the signature using the org's webhook secret,
- * then processes payment_intent.succeeded events.
+ * Events handled:
+ *   - payment_intent.succeeded
+ *   - charge.refunded
+ *   - charge.dispute.created
+ *   - charge.dispute.updated
+ *   - charge.dispute.closed
+ *
+ * All events are idempotent via the webhookLogs table.
  */
 http.route({
   path: "/stripe-webhook",
@@ -185,7 +191,11 @@ http.route({
       return new Response("Missing stripe-signature header", { status: 400 });
     }
 
+    // Read body exactly once before it's consumed
     const payload = await request.text();
+    if (!payload) {
+      return new Response("Empty request body", { status: 400 });
+    }
 
     try {
       await ctx.runAction(internal.billing.actions.handleWebhookEvent, {
@@ -194,8 +204,15 @@ http.route({
         organisationId: orgId as Id<"organisations">,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Webhook processing failed";
-      return new Response(msg, { status: 400 });
+      // Classify error without leaking internal details to the caller.
+      // Return 400 for signature failures (Stripe won't retry) and
+      // 500 for processing failures (Stripe will retry automatically).
+      const msg = err instanceof Error ? err.message : "";
+      const isSignatureError = msg.includes("signature");
+      return new Response(
+        isSignatureError ? "Invalid webhook signature." : "Webhook processing failed.",
+        { status: isSignatureError ? 400 : 500 }
+      );
     }
 
     return new Response("OK", { status: 200 });

@@ -31,7 +31,7 @@ export const listByEntity = authenticatedQuery({
       }
       if (role !== "admin") {
         const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-        if (!visibleCaseIds.has(args.entityId)) {
+        if (!visibleCaseIds.has(c._id)) {
           throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
         }
       }

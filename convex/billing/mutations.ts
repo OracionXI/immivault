@@ -7,18 +7,32 @@ import { requireAdmin, requireAdminOrAccountant } from "../lib/rbac";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 
-/** Helper: generate next invoice number for an org. */
+/**
+ * Helper: atomically generate the next invoice number for an org.
+ * Uses a dedicated counter document to prevent race conditions under concurrent mutations.
+ * Convex serialises writes to the same document, guaranteeing uniqueness.
+ */
 async function nextInvoiceNumber(ctx: MutationCtx, organisationId: Id<"organisations">): Promise<string> {
-  const all = await ctx.db
-    .query("invoices")
+  const counter = await ctx.db
+    .query("invoiceCounters")
     .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
-    .collect();
-  return `INV-${String(all.length + 1).padStart(4, "0")}`;
+    .unique();
+
+  if (counter) {
+    const n = counter.nextNumber;
+    await ctx.db.patch(counter._id, { nextNumber: n + 1 });
+    return `INV-${String(n).padStart(4, "0")}`;
+  }
+
+  // First invoice for this org — seed the counter at 2 (this call uses 1)
+  await ctx.db.insert("invoiceCounters", { organisationId, nextNumber: 2 });
+  return "INV-0001";
 }
 
 /**
- * Helper: after a successful payment, create a Paid invoice record and
- * increment paidAmount on the client's contract Draft invoice (if any).
+ * Helper: after a successful payment:
+ * - If no existing invoice was linked to the payment link, create a new "Paid" receipt invoice.
+ * - Update paidAmount on the client's contract Draft invoice (if any).
  */
 async function recordPaidInvoiceAndUpdateDraft(
   ctx: MutationCtx,
@@ -31,36 +45,40 @@ async function recordPaidInvoiceAndUpdateDraft(
     description: string;
     paidAt: number;
     createdBy?: Id<"users">;
+    invoiceId?: Id<"invoices">; // if provided, skip creating a new receipt invoice
   }
 ) {
   const amountInDollars = opts.amount / 100;
-  const invoiceNumber = await nextInvoiceNumber(ctx, opts.organisationId);
 
-  await ctx.db.insert("invoices", {
-    organisationId: opts.organisationId,
-    clientId: opts.clientId,
-    caseId: opts.caseId,
-    status: "Paid",
-    taxRate: 0,
-    subtotal: amountInDollars,
-    taxAmount: 0,
-    total: amountInDollars,
-    invoiceNumber,
-    dueDate: opts.paidAt,
-    paidAt: opts.paidAt,
-    issuedAt: opts.paidAt,
-    createdBy: opts.createdBy,
-    notes: opts.description,
-  });
+  // Only create a new receipt invoice when no invoice was already linked
+  if (!opts.invoiceId) {
+    const invoiceNumber = await nextInvoiceNumber(ctx, opts.organisationId);
+    await ctx.db.insert("invoices", {
+      organisationId: opts.organisationId,
+      clientId: opts.clientId,
+      caseId: opts.caseId,
+      status: "Paid",
+      taxRate: 0,
+      subtotal: amountInDollars,
+      taxAmount: 0,
+      total: amountInDollars,
+      invoiceNumber,
+      dueDate: opts.paidAt,
+      paidAt: opts.paidAt,
+      issuedAt: opts.paidAt,
+      createdBy: opts.createdBy,
+      notes: opts.description,
+    });
+  }
 
   // Update paidAmount on the contract Draft invoice for this client
   const contractDraft = await ctx.db
     .query("invoices")
-    .withIndex("by_org", (q) => q.eq("organisationId", opts.organisationId))
+    .withIndex("by_client", (q) => q.eq("clientId", opts.clientId))
     .filter((q) =>
       q.and(
-        q.eq(q.field("clientId"), opts.clientId),
-        q.eq(q.field("isContractDraft"), true)
+        q.eq(q.field("isContractDraft"), true),
+        q.eq(q.field("organisationId"), opts.organisationId)
       )
     )
     .first();
@@ -132,12 +150,7 @@ export const createInvoice = authenticatedMutation({
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
 
-    // Generate invoice number
-    const count = await ctx.db
-      .query("invoices")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
-      .collect();
-    const invoiceNumber = `INV-${String(count.length + 1).padStart(4, "0")}`;
+    const invoiceNumber = await nextInvoiceNumber(ctx, ctx.user.organisationId);
 
     const invoiceId = await ctx.db.insert("invoices", {
       ...rest,
@@ -178,6 +191,9 @@ export const updateInvoice = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAdminOrAccountant(ctx);
     const { id, ...fields } = args;
+    if (fields.notes !== undefined && fields.notes.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 5000 characters." });
+    }
     const invoice = await ctx.db.get(id);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -226,6 +242,25 @@ export const recordPayment = authenticatedMutation({
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
+    // Rate limit: max 100 manual payments per hour per org
+    await checkRateLimit(ctx, `recordPayment:${ctx.user.organisationId}`, 100, 3_600_000);
+
+    if (args.amount <= 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Payment amount must be greater than 0." });
+    }
+    if (args.amount > 100_000_000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Payment amount exceeds the maximum allowed value." });
+    }
+    if (args.currency.length > 10) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Invalid currency code." });
+    }
+    if (args.reference !== undefined && args.reference.length > 255) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Reference cannot exceed 255 characters." });
+    }
+    if (args.notes !== undefined && args.notes.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 5000 characters." });
+    }
+
     const invoice = await ctx.db.get(args.invoiceId);
     if (!invoice || invoice.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Invoice not found." });
@@ -254,6 +289,9 @@ export const recordPayment = authenticatedMutation({
 export const processPaymentLink = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
+    // Rate limit: max 5 attempts per token per hour (brute-force / double-submit protection)
+    await checkRateLimit(ctx, `processPaymentLink:${args.token}`, 5, 3_600_000);
+
     const link = await ctx.db
       .query("paymentLinks")
       .withIndex("by_token", (q) => q.eq("urlToken", args.token))
@@ -303,6 +341,7 @@ export const processPaymentLink = mutation({
       paymentType: link.paymentType,
       description: link.description,
       paidAt: now,
+      invoiceId: link.invoiceId,
     });
   },
 });
@@ -328,6 +367,16 @@ export const createPaymentLink = authenticatedMutation({
     requireAdminOrAccountant(ctx);
     // Rate limit: max 20 payment links per hour per org
     await checkRateLimit(ctx, `createPaymentLink:${ctx.user.organisationId}`, 20, 3_600_000);
+
+    if (args.description.trim().length === 0 || args.description.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Description must be between 1 and 500 characters." });
+    }
+    if (args.amount <= 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Amount must be greater than 0." });
+    }
+    if (args.amount > 100_000_000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Amount exceeds the maximum allowed value." });
+    }
 
     const client = await ctx.db.get(args.clientId);
     if (!client || client.organisationId !== ctx.user.organisationId) {
@@ -421,67 +470,13 @@ export const processStripeWebhookPayment = internalMutation({
       paymentType: link.paymentType,
       description: link.description,
       paidAt: now,
-    });
-  },
-});
-
-/**
- * Public mutation — called by the frontend after stripe.confirmCardPayment succeeds.
- * Also idempotent via stripePaymentIntentId check.
- */
-export const confirmStripePayment = mutation({
-  args: {
-    token: v.string(),
-    stripePaymentIntentId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const link = await ctx.db
-      .query("paymentLinks")
-      .withIndex("by_token", (q) => q.eq("urlToken", args.token))
-      .unique();
-
-    if (!link) throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
-    if (link.status === "Used") return; // idempotent — webhook may have already run
-
-    const now = Date.now();
-
-    const orgSettings = await ctx.db
-      .query("organisationSettings")
-      .withIndex("by_org", (q) => q.eq("organisationId", link.organisationId))
-      .unique();
-    const currency = orgSettings?.defaultCurrency ?? "USD";
-
-    await ctx.db.insert("payments", {
-      organisationId: link.organisationId,
       invoiceId: link.invoiceId,
-      clientId: link.clientId,
-      caseId: link.caseId,
-      amount: link.amount,
-      currency,
-      method: "Card",
-      status: "Completed",
-      paidAt: now,
-      stripePaymentIntentId: args.stripePaymentIntentId,
-      reference: args.stripePaymentIntentId,
-    });
-
-    await ctx.db.patch(link._id, { status: "Used" });
-
-    if (link.invoiceId) {
-      await ctx.db.patch(link.invoiceId, { status: "Paid", paidAt: now });
-    }
-
-    await recordPaidInvoiceAndUpdateDraft(ctx, {
-      organisationId: link.organisationId,
-      clientId: link.clientId,
-      caseId: link.caseId,
-      amount: link.amount,
-      paymentType: link.paymentType,
-      description: link.description,
-      paidAt: now,
     });
   },
 });
+
+// confirmStripePayment has been moved to billing/actions.ts as a server-side
+// verified action. The frontend now calls api.billing.actions.confirmStripePayment.
 
 /** Admin / accountant: update a manual payment record. */
 export const updatePayment = authenticatedMutation({
@@ -562,5 +557,214 @@ export const removePaymentLink = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Payment link not found." });
     }
     await ctx.db.delete(args.id);
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERNAL MUTATIONS — called by billing actions (webhook + refund handlers)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Internal: rate-limit check callable from actions.
+ * Actions cannot use MutationCtx directly, so they call this via ctx.runMutation.
+ */
+export const checkRateLimitPublic = internalMutation({
+  args: {
+    key: v.string(),
+    maxRequests: v.number(),
+    windowMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await checkRateLimit(ctx, args.key, args.maxRequests, args.windowMs);
+  },
+});
+
+/** Marks a payment as Refunded by its Convex ID. Called by refundPayment action. */
+export const markPaymentRefunded = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    stripeRefundId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) return;
+    await ctx.db.patch(args.paymentId, {
+      status: "Refunded",
+      notes: payment.notes
+        ? `${payment.notes} | Stripe refund: ${args.stripeRefundId}`
+        : `Stripe refund: ${args.stripeRefundId}`,
+    });
+    // Reopen the associated invoice back to Sent if it was Paid
+    if (payment.invoiceId) {
+      const invoice = await ctx.db.get(payment.invoiceId);
+      if (invoice?.status === "Paid") {
+        await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
+      }
+    }
+  },
+});
+
+/**
+ * Marks a payment as Refunded by its Stripe PaymentIntent ID.
+ * Called by the charge.refunded webhook handler.
+ */
+export const markPaymentRefundedByIntentId = internalMutation({
+  args: {
+    stripePaymentIntentId: v.string(),
+    organisationId: v.id("organisations"),
+  },
+  handler: async (ctx, args) => {
+    const payment = await ctx.db
+      .query("payments")
+      .withIndex("by_stripe_intent", (q) =>
+        q
+          .eq("organisationId", args.organisationId)
+          .eq("stripePaymentIntentId", args.stripePaymentIntentId)
+      )
+      .first();
+    if (!payment || payment.status === "Refunded") return;
+    await ctx.db.patch(payment._id, { status: "Refunded" });
+    // Reopen the associated invoice
+    if (payment.invoiceId) {
+      const invoice = await ctx.db.get(payment.invoiceId);
+      if (invoice?.status === "Paid") {
+        await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
+      }
+    }
+  },
+});
+
+/** Creates a dispute record from a charge.dispute.created webhook. */
+export const createDispute = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    stripeDisputeId: v.string(),
+    stripePaymentIntentId: v.optional(v.string()),
+    amount: v.number(),
+    currency: v.string(),
+    reason: v.string(),
+    status: v.union(
+      v.literal("warning_needs_response"),
+      v.literal("warning_under_review"),
+      v.literal("warning_closed"),
+      v.literal("needs_response"),
+      v.literal("under_review"),
+      v.literal("charge_refunded"),
+      v.literal("won"),
+      v.literal("lost")
+    ),
+    dueBy: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Avoid duplicate dispute records
+    const existing = await ctx.db
+      .query("disputes")
+      .withIndex("by_stripe_dispute", (q) =>
+        q.eq("stripeDisputeId", args.stripeDisputeId)
+      )
+      .first();
+    if (existing) return;
+
+    // Try to find the linked payment record
+    let paymentId: Id<"payments"> | undefined;
+    if (args.stripePaymentIntentId) {
+      const payment = await ctx.db
+        .query("payments")
+        .withIndex("by_stripe_intent", (q) =>
+          q
+            .eq("organisationId", args.organisationId)
+            .eq("stripePaymentIntentId", args.stripePaymentIntentId)
+        )
+        .first();
+      if (payment) paymentId = payment._id;
+    }
+
+    const now = Date.now();
+    await ctx.db.insert("disputes", {
+      organisationId: args.organisationId,
+      paymentId,
+      stripeDisputeId: args.stripeDisputeId,
+      stripePaymentIntentId: args.stripePaymentIntentId,
+      amount: args.amount,
+      currency: args.currency,
+      reason: args.reason,
+      status: args.status,
+      dueBy: args.dueBy,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Notify all admins in the org
+    const admins = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("role"), "admin"),
+          q.eq(q.field("status"), "active")
+        )
+      )
+      .collect();
+
+    await Promise.all(
+      admins.map((admin) =>
+        ctx.db.insert("notifications", {
+          organisationId: args.organisationId,
+          recipientId: admin._id,
+          type: "payment_dispute" as const,
+          title: "Payment Dispute Received",
+          message: `A chargeback has been filed for ${args.currency.toUpperCase()} ${(args.amount / 100).toFixed(2)}. Reason: ${args.reason}. Response due by: ${args.dueBy ? new Date(args.dueBy).toLocaleDateString() : "N/A"}.`,
+          read: false,
+        })
+      )
+    );
+  },
+});
+
+/** Updates the status of an existing dispute record. */
+export const updateDisputeStatus = internalMutation({
+  args: {
+    stripeDisputeId: v.string(),
+    organisationId: v.id("organisations"),
+    status: v.union(
+      v.literal("warning_needs_response"),
+      v.literal("warning_under_review"),
+      v.literal("warning_closed"),
+      v.literal("needs_response"),
+      v.literal("under_review"),
+      v.literal("charge_refunded"),
+      v.literal("won"),
+      v.literal("lost")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const dispute = await ctx.db
+      .query("disputes")
+      .withIndex("by_stripe_dispute", (q) =>
+        q.eq("stripeDisputeId", args.stripeDisputeId)
+      )
+      .first();
+    if (!dispute || dispute.organisationId !== args.organisationId) return;
+    await ctx.db.patch(dispute._id, {
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/** Appends a webhook event to the audit log. */
+export const insertWebhookLog = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    stripeEventId: v.string(),
+    eventType: v.string(),
+    status: v.union(v.literal("processed"), v.literal("skipped"), v.literal("failed")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("webhookLogs", {
+      ...args,
+      processedAt: Date.now(),
+    });
   },
 });

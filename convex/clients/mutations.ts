@@ -44,6 +44,30 @@ export const create = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAdmin(ctx);
 
+    const firstName = args.firstName.trim();
+    const lastName = args.lastName.trim();
+    if (firstName.length === 0 || firstName.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "First name must be between 1 and 100 characters." });
+    }
+    if (lastName.length === 0 || lastName.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Last name must be between 1 and 100 characters." });
+    }
+    if (args.email.length === 0 || args.email.length > 254) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Email address is invalid." });
+    }
+    if (args.phone !== undefined && args.phone.length > 50) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Phone number cannot exceed 50 characters." });
+    }
+    if (args.nationality !== undefined && args.nationality.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Nationality cannot exceed 100 characters." });
+    }
+    if (args.address !== undefined && args.address.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Address cannot exceed 500 characters." });
+    }
+    if (args.contractAmount !== undefined && args.contractAmount < 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Contract amount cannot be negative." });
+    }
+
     const clientId = await ctx.db.insert("clients", {
       ...args,
       organisationId: ctx.user.organisationId,
@@ -113,6 +137,35 @@ export const update = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAdmin(ctx);
     const { id, contractAmount, ...fields } = args;
+
+    if (fields.firstName !== undefined) {
+      const fn = fields.firstName.trim();
+      if (fn.length === 0 || fn.length > 100) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "First name must be between 1 and 100 characters." });
+      }
+    }
+    if (fields.lastName !== undefined) {
+      const ln = fields.lastName.trim();
+      if (ln.length === 0 || ln.length > 100) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Last name must be between 1 and 100 characters." });
+      }
+    }
+    if (fields.email !== undefined && (fields.email.length === 0 || fields.email.length > 254)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Email address is invalid." });
+    }
+    if (fields.phone !== undefined && fields.phone.length > 50) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Phone number cannot exceed 50 characters." });
+    }
+    if (fields.nationality !== undefined && fields.nationality.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Nationality cannot exceed 100 characters." });
+    }
+    if (fields.address !== undefined && fields.address.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Address cannot exceed 500 characters." });
+    }
+    if (contractAmount !== undefined && contractAmount < 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Contract amount cannot be negative." });
+    }
+
     const client = await ctx.db.get(id);
     if (!client || client.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
@@ -196,6 +249,7 @@ export const update = authenticatedMutation({
             hidden: false,
             status: "To Do",
             assignedTo: undefined,
+            completedAt: undefined,
           });
         }
       }

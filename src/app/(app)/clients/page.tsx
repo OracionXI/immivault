@@ -92,9 +92,9 @@ export default function ClientsPage() {
                     actionLabel={isAdmin ? "Add Client" : undefined}
                     onAction={isAdmin ? () => { setEditingClient(null); setModalOpen(true); } : undefined}
                 />
-                <DataTable
-                    data={clients as unknown as Record<string, unknown>[]}
-                    columns={columns as unknown as Column<Record<string, unknown>>[]}
+                <DataTable<ConvexClient>
+                    data={clients}
+                    columns={columns}
                     searchKey="name"
                     searchPlaceholder="Search clients..."
                     loading={clientsQuery === undefined}

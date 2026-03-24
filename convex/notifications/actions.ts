@@ -1,6 +1,7 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 
 // ---------------------------------------------------------------------------
 // All email sending is internalAction — never on the public API.
@@ -8,9 +9,18 @@ import { v } from "convex/values";
 // Email is optional: if RESEND_API_KEY is not set, email is silently skipped.
 // ---------------------------------------------------------------------------
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderHtml(title: string, body: string): string {
   return `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111">
-<h2 style="color:#1d4ed8">${title}</h2>
+<h2 style="color:#1d4ed8">${escapeHtml(title)}</h2>
 ${body}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
 <p style="font-size:12px;color:#6b7280">Ordena — Immigration Case Management</p>
@@ -63,9 +73,9 @@ export const sendCaseAssigned = internalAction({
       `New Case Assigned: ${args.caseTitle}`,
       renderHtml(
         "New Case Assigned",
-        `<p>Hi ${args.assigneeName},</p>
+        `<p>Hi ${escapeHtml(args.assigneeName)},</p>
          <p>You have been assigned to the following case:</p>
-         <p><strong>${args.caseTitle}</strong> (${args.caseNumber})</p>
+         <p><strong>${escapeHtml(args.caseTitle)}</strong> (${escapeHtml(args.caseNumber)})</p>
          <p>Log in to Ordena to review the case details and get started.</p>`
       )
     );
@@ -100,8 +110,8 @@ export const sendInvoiceSent = internalAction({
       args.clientEmail,
       `Invoice ${args.invoiceNumber} — ${fmtAmount} due ${fmtDue}`,
       renderHtml(
-        `Invoice ${args.invoiceNumber}`,
-        `<p>Dear ${args.clientName},</p>
+        `Invoice ${escapeHtml(args.invoiceNumber)}`,
+        `<p>Dear ${escapeHtml(args.clientName)},</p>
          <p>An invoice for <strong>${fmtAmount}</strong> has been issued and is due by <strong>${fmtDue}</strong>.</p>
          ${payBtn}
          <p>If you have any questions, please contact your attorney.</p>`
@@ -129,7 +139,7 @@ export const sendAppointmentReminder = internalAction({
     });
 
     const locationLine = args.location
-      ? `<p><strong>Location:</strong> ${args.location}</p>`
+      ? `<p><strong>Location:</strong> ${escapeHtml(args.location)}</p>`
       : "";
 
     await sendEmailOptional(
@@ -137,9 +147,9 @@ export const sendAppointmentReminder = internalAction({
       `Reminder: ${args.appointmentTitle} — ${fmtDate}`,
       renderHtml(
         "Appointment Reminder",
-        `<p>Hi ${args.recipientName},</p>
+        `<p>Hi ${escapeHtml(args.recipientName)},</p>
          <p>This is a reminder for your upcoming appointment:</p>
-         <p><strong>${args.appointmentTitle}</strong></p>
+         <p><strong>${escapeHtml(args.appointmentTitle)}</strong></p>
          <p><strong>When:</strong> ${fmtDate}</p>
          ${locationLine}
          <p>Please ensure you arrive on time with all required documents.</p>`
@@ -167,9 +177,9 @@ export const sendTaskDueReminder = internalAction({
       `Task Due Tomorrow: ${args.taskTitle}`,
       renderHtml(
         "Task Due Reminder",
-        `<p>Hi ${args.assigneeName},</p>
+        `<p>Hi ${escapeHtml(args.assigneeName)},</p>
          <p>This is a reminder that the following task is due tomorrow:</p>
-         <p><strong>${args.taskTitle}</strong></p>
+         <p><strong>${escapeHtml(args.taskTitle)}</strong></p>
          <p><strong>Due:</strong> ${fmtDue}</p>
          <p>Log in to Ordena to update the task status.</p>`
       )
@@ -206,9 +216,9 @@ export const onCaseCreated = internalAction({
         `New Case Created: ${c.title}`,
         renderHtml(
           "New Case Created",
-          `<p>Hi ${admin.fullName},</p>
+          `<p>Hi ${escapeHtml(admin.fullName)},</p>
            <p>A new case has been created in your organisation:</p>
-           <p><strong>${c.title}</strong> (${c.caseNumber})</p>
+           <p><strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)})</p>
            <p>Log in to Ordena to review the case details.</p>`
         )
       );
@@ -245,9 +255,9 @@ export const onCaseAssigned = internalAction({
       `New Case Assigned: ${c.title}`,
       renderHtml(
         "New Case Assigned",
-        `<p>Hi ${assignee.fullName},</p>
+        `<p>Hi ${escapeHtml(assignee.fullName)},</p>
          <p>You have been assigned to the following case:</p>
-         <p><strong>${c.title}</strong> (${c.caseNumber})</p>
+         <p><strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)})</p>
          <p>Log in to Ordena to review the case details and get started.</p>`
       )
     );
@@ -260,12 +270,14 @@ export const onCaseStatusChanged = internalAction({
     caseId: v.id("cases"),
     changedById: v.id("users"),
     newStatus: v.string(),
+    excludeUserId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const c = await ctx.runQuery(internal.cases.queries.getById, { id: args.caseId });
     if (!c) return;
 
     const notified = new Set<string>([args.changedById]);
+    if (args.excludeUserId) notified.add(args.excludeUserId);
 
     // Notify the assigned case manager (if they didn't make the change)
     if (c.assignedTo && !notified.has(c.assignedTo)) {
@@ -286,9 +298,9 @@ export const onCaseStatusChanged = internalAction({
           `Case Status Updated: ${c.title}`,
           renderHtml(
             "Case Status Updated",
-            `<p>Hi ${assignee.fullName},</p>
+            `<p>Hi ${escapeHtml(assignee.fullName)},</p>
              <p>The status of your case has been updated:</p>
-             <p><strong>${c.title}</strong> (${c.caseNumber}) → <strong>${args.newStatus}</strong></p>
+             <p><strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)}) → <strong>${escapeHtml(args.newStatus)}</strong></p>
              <p>Log in to Ordena for more details.</p>`
           )
         );
@@ -346,9 +358,9 @@ export const onCaseDeadline = internalAction({
       `Deadline Approaching: ${c.title}`,
       renderHtml(
         "Case Deadline Approaching",
-        `<p>Hi ${assignee.fullName},</p>
+        `<p>Hi ${escapeHtml(assignee.fullName)},</p>
          <p>The following case has a deadline within the next 48 hours:</p>
-         <p><strong>${c.title}</strong> (${c.caseNumber})</p>
+         <p><strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)})</p>
          <p><strong>Deadline:</strong> ${fmtDeadline}</p>
          <p>Please ensure all required work is completed on time.</p>`
       )
@@ -388,9 +400,9 @@ export const onTaskAssigned = internalAction({
       `New Task Assigned: ${task.title}`,
       renderHtml(
         "New Task Assigned",
-        `<p>Hi ${assignee.fullName},</p>
+        `<p>Hi ${escapeHtml(assignee.fullName)},</p>
          <p>You have been assigned the following task:</p>
-         <p><strong>${task.title}</strong> (${task.taskId})</p>
+         <p><strong>${escapeHtml(task.title)}</strong> (${escapeHtml(task.taskId)})</p>
          <p>Log in to Ordena to view the task details.</p>`
       )
     );
@@ -429,9 +441,9 @@ export const onTaskStatusChanged = internalAction({
           `Task Status Updated: ${task.title}`,
           renderHtml(
             "Task Status Updated",
-            `<p>Hi ${assignee.fullName},</p>
+            `<p>Hi ${escapeHtml(assignee.fullName)},</p>
              <p>The status of your task has been updated:</p>
-             <p><strong>${task.title}</strong> (${task.taskId}) → <strong>${args.newStatus}</strong></p>
+             <p><strong>${escapeHtml(task.title)}</strong> (${escapeHtml(task.taskId)}) → <strong>${escapeHtml(args.newStatus)}</strong></p>
              <p>Log in to Ordena for more details.</p>`
           )
         );
@@ -492,9 +504,9 @@ export const onTaskOverdue = internalAction({
       `Task Overdue: ${task.title}`,
       renderHtml(
         "Task Overdue",
-        `<p>Hi ${assignee.fullName},</p>
+        `<p>Hi ${escapeHtml(assignee.fullName)},</p>
          <p>The following task has passed its due date:</p>
-         <p><strong>${task.title}</strong> (${task.taskId})</p>
+         <p><strong>${escapeHtml(task.title)}</strong> (${escapeHtml(task.taskId)})</p>
          <p><strong>Was due:</strong> ${fmtDue}</p>
          <p>Please update the task status or contact your manager.</p>`
       )
@@ -519,7 +531,7 @@ export const onComment = internalAction({
 
     if (comment.entityType === "case") {
       const c = await ctx.runQuery(internal.cases.queries.getById, {
-        id: comment.entityId as any,
+        id: comment.entityId as Id<"cases">,
       });
       if (c) {
         assigneeId = c.assignedTo;
@@ -528,7 +540,7 @@ export const onComment = internalAction({
       }
     } else {
       const task = await ctx.runQuery(internal.tasks.queries.getById, {
-        id: comment.entityId as any,
+        id: comment.entityId as Id<"tasks">,
       });
       if (task) {
         assigneeId = task.assignedTo;
@@ -538,7 +550,7 @@ export const onComment = internalAction({
         // Also notify the case manager of the linked case (if any, and not already the task assignee or commenter)
         if (task.caseId) {
           const linkedCase = await ctx.runQuery(internal.cases.queries.getById, {
-            id: task.caseId as any,
+            id: task.caseId,
           });
           if (
             linkedCase?.assignedTo &&
@@ -546,15 +558,15 @@ export const onComment = internalAction({
             linkedCase.assignedTo !== task.assignedTo
           ) {
             const caseManager = await ctx.runQuery(internal.users.queries.getById, {
-              id: linkedCase.assignedTo as any,
+              id: linkedCase.assignedTo,
             });
             if (caseManager && caseManager.organisationId === linkedCase.organisationId) {
               const preview =
                 comment.body.replace(/@\[([^\]]+)\]\((user|doc):[^)]+\)/g, "@$1").slice(0, 80) +
                 (comment.body.length > 80 ? "…" : "");
               await ctx.runMutation(internal.notifications.mutations.insert, {
-                organisationId: linkedCase.organisationId as any,
-                recipientId: linkedCase.assignedTo as any,
+                organisationId: linkedCase.organisationId,
+                recipientId: linkedCase.assignedTo,
                 type: "comment",
                 title: `New comment on task: ${task.title}`,
                 message: `${commenter.fullName}: ${preview}`,
@@ -566,9 +578,9 @@ export const onComment = internalAction({
                 `New Comment on Task: ${task.title}`,
                 renderHtml(
                   "New Comment on Your Case's Task",
-                  `<p>Hi ${caseManager.fullName},</p>
-                   <p>${commenter.fullName} commented on a task in your case <strong>${linkedCase.title}</strong>:</p>
-                   <blockquote style="border-left:3px solid #e5e7eb;margin:12px 0;padding:8px 16px;color:#374151">${preview}</blockquote>
+                  `<p>Hi ${escapeHtml(caseManager.fullName)},</p>
+                   <p>${escapeHtml(commenter.fullName)} commented on a task in your case <strong>${escapeHtml(linkedCase.title)}</strong>:</p>
+                   <blockquote style="border-left:3px solid #e5e7eb;margin:12px 0;padding:8px 16px;color:#374151">${escapeHtml(preview)}</blockquote>
                    <p>Log in to Ordena to view the full comment.</p>`
                 )
               );
@@ -580,7 +592,7 @@ export const onComment = internalAction({
 
     if (assigneeId && entityOrgId && assigneeId !== comment.authorId) {
       const assignee = await ctx.runQuery(internal.users.queries.getById, {
-        id: assigneeId as any,
+        id: assigneeId as Id<"users">,
       });
       // Never notify admins or accountants for case/task comments
       if (assignee && assignee.role !== "admin" && assignee.role !== "accountant") {
@@ -589,8 +601,8 @@ export const onComment = internalAction({
           (comment.body.length > 80 ? "…" : "");
 
         await ctx.runMutation(internal.notifications.mutations.insert, {
-          organisationId: entityOrgId as any,
-          recipientId: assigneeId as any,
+          organisationId: entityOrgId as Id<"organisations">,
+          recipientId: assigneeId as Id<"users">,
           type: "comment",
           title: `New comment on ${comment.entityType === "case" ? "case" : "task"}: ${entityName}`,
           message: `${commenter.fullName}: ${preview}`,
@@ -602,9 +614,9 @@ export const onComment = internalAction({
           `New Comment on ${entityName}`,
           renderHtml(
             "New Comment",
-            `<p>Hi ${assignee.fullName},</p>
-             <p>${commenter.fullName} commented on <strong>${entityName}</strong>:</p>
-             <blockquote style="border-left:3px solid #e5e7eb;margin:12px 0;padding:8px 16px;color:#374151">${preview}</blockquote>
+            `<p>Hi ${escapeHtml(assignee.fullName)},</p>
+             <p>${escapeHtml(commenter.fullName)} commented on <strong>${escapeHtml(entityName)}</strong>:</p>
+             <blockquote style="border-left:3px solid #e5e7eb;margin:12px 0;padding:8px 16px;color:#374151">${escapeHtml(preview)}</blockquote>
              <p>Log in to Ordena to view the full comment.</p>`
           )
         );
@@ -618,10 +630,10 @@ export const onComment = internalAction({
     notifiedIds.add(comment.authorId); // don't self-notify commenter
     // Track the case manager we already notified above (task comments only)
     if (comment.entityType === "task") {
-      const _task = await ctx.runQuery(internal.tasks.queries.getById, { id: comment.entityId as any });
+      const _task = await ctx.runQuery(internal.tasks.queries.getById, { id: comment.entityId as Id<"tasks"> });
       if (_task?.caseId) {
-        const _case = await ctx.runQuery(internal.cases.queries.getById, { id: _task.caseId as any });
-        if (_case?.assignedTo) notifiedIds.add(_case.assignedTo as string);
+        const _case = await ctx.runQuery(internal.cases.queries.getById, { id: _task.caseId });
+        if (_case?.assignedTo) notifiedIds.add(_case.assignedTo);
       }
     }
 
@@ -632,7 +644,7 @@ export const onComment = internalAction({
       notifiedIds.add(mentionedUserId);
 
       const mentioned = await ctx.runQuery(internal.users.queries.getById, {
-        id: mentionedUserId as any,
+        id: mentionedUserId as Id<"users">,
       });
       if (!mentioned || !entityOrgId) continue;
       // Only notify users from the same organisation — prevents cross-org notification via crafted @mentions
@@ -640,8 +652,8 @@ export const onComment = internalAction({
       if (mentioned.role === "accountant") continue; // accountants don't have case/task access
 
       await ctx.runMutation(internal.notifications.mutations.insert, {
-        organisationId: entityOrgId as any,
-        recipientId: mentionedUserId as any,
+        organisationId: entityOrgId as Id<"organisations">,
+        recipientId: mentionedUserId as Id<"users">,
         type: "mention",
         title: "You were mentioned in a comment",
         message: `${commenter.fullName} mentioned you in ${entityName}`,
@@ -653,8 +665,8 @@ export const onComment = internalAction({
         `You were mentioned by ${commenter.fullName}`,
         renderHtml(
           "You Were Mentioned",
-          `<p>Hi ${mentioned.fullName},</p>
-           <p>${commenter.fullName} mentioned you in a comment on <strong>${entityName}</strong>.</p>
+          `<p>Hi ${escapeHtml(mentioned.fullName)},</p>
+           <p>${escapeHtml(commenter.fullName)} mentioned you in a comment on <strong>${escapeHtml(entityName)}</strong>.</p>
            <p>Log in to Ordena to view the comment.</p>`
         )
       );
@@ -693,9 +705,9 @@ export const onCaseUpdated = internalAction({
           `Case Updated: ${c.title}`,
           renderHtml(
             "Case Updated",
-            `<p>Hi ${assignee.fullName},</p>
-             <p>${updaterName} has made updates to the following case:</p>
-             <p><strong>${c.title}</strong> (${c.caseNumber})</p>
+            `<p>Hi ${escapeHtml(assignee.fullName)},</p>
+             <p>${escapeHtml(updaterName)} has made updates to the following case:</p>
+             <p><strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)})</p>
              <p>Log in to Ordena to review the changes.</p>`
           )
         );
@@ -753,9 +765,9 @@ export const onTaskUpdated = internalAction({
           `Task Updated: ${task.title}`,
           renderHtml(
             "Task Updated",
-            `<p>Hi ${assignee.fullName},</p>
-             <p>${updaterName} has made updates to the following task:</p>
-             <p><strong>${task.title}</strong> (${task.taskId})</p>
+            `<p>Hi ${escapeHtml(assignee.fullName)},</p>
+             <p>${escapeHtml(updaterName)} has made updates to the following task:</p>
+             <p><strong>${escapeHtml(task.title)}</strong> (${escapeHtml(task.taskId)})</p>
              <p>Log in to Ordena to review the changes.</p>`
           )
         );
@@ -833,9 +845,9 @@ export const onDocumentUploaded = internalAction({
       `New Document Uploaded: ${doc.name}`,
       renderHtml(
         "New Document Uploaded",
-        `<p>Hi ${assignee.fullName},</p>
-         <p>${uploaderName} uploaded a new document to your case:</p>
-         <p><strong>${doc.name}</strong> on case <strong>${c.title}</strong> (${c.caseNumber})</p>
+        `<p>Hi ${escapeHtml(assignee.fullName)},</p>
+         <p>${escapeHtml(uploaderName)} uploaded a new document to your case:</p>
+         <p><strong>${escapeHtml(doc.name)}</strong> on case <strong>${escapeHtml(c.title)}</strong> (${escapeHtml(c.caseNumber)})</p>
          <p>Log in to Ordena to view the document.</p>`
       )
     );

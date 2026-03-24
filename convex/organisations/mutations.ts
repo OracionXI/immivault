@@ -2,6 +2,7 @@ import { internalMutation, mutation } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import { checkRateLimit } from "../lib/rateLimit";
 
 /** Default roles seeded for every new organisation. Admin is always fixed; only
  *  case_manager and staff are included here as configurable defaults. */
@@ -32,7 +33,6 @@ export const getOrCreateDefault = internalMutation({
       organisationId: orgId,
       defaultCurrency: "USD",
       taxRate: 0,
-      bookingEnabled: false,
       customRoles: DEFAULT_CUSTOM_ROLES,
     });
 
@@ -82,19 +82,34 @@ export const completeOnboarding = mutation({
     }
 
     const orgName = args.orgName.trim();
-    if (orgName.length < 2) {
+    if (orgName.length < 2 || orgName.length > 100) {
       throw new ConvexError({
         code: "VALIDATION",
-        message: "Organisation name must be at least 2 characters.",
+        message: "Organisation name must be between 2 and 100 characters.",
       });
     }
 
-    // Generate a URL-safe slug from the org name
-    const baseSlug = orgName
+    const sig = args.agreementSignature.trim();
+    const isDataUrl = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig);
+    const isTypedName = sig.length >= 2 && sig.length <= 100;
+    if (!isDataUrl && !isTypedName) {
+      throw new ConvexError({
+        code: "VALIDATION",
+        message: "Agreement signature must be a typed name (2–100 characters) or a PNG data URL.",
+      });
+    }
+
+    // Generate a URL-safe slug from the org name.
+    // If the name contains only special characters the regex may produce an
+    // empty string — fall back to a random hex suffix to guarantee non-empty.
+    const rawSlug = orgName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 50);
+    const baseSlug = rawSlug.length > 0
+      ? rawSlug
+      : `org-${Math.random().toString(36).slice(2, 10)}`;
 
     // Ensure slug uniqueness by appending a counter if necessary
     let slug = baseSlug;
@@ -132,15 +147,6 @@ export const updateSettings = authenticatedMutation({
     )),
     defaultCurrency: v.optional(v.string()),
     taxRate: v.optional(v.number()),
-    emailFromName: v.optional(v.string()),
-    emailFromAddress: v.optional(v.string()),
-    bookingEnabled: v.optional(v.boolean()),
-    bookingUrl: v.optional(v.string()),
-    slotDuration: v.optional(v.number()),
-    bufferTime: v.optional(v.number()),
-    availableStartTime: v.optional(v.string()),
-    availableEndTime: v.optional(v.string()),
-    availableDays: v.optional(v.array(v.string())),
     documentTypes: v.optional(v.array(v.string())),
     appointmentTypes: v.optional(v.array(v.string())),
     customRoles: v.optional(v.array(v.object({
@@ -154,12 +160,44 @@ export const updateSettings = authenticatedMutation({
     if (ctx.user.role !== "admin") {
       throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
     }
+    // Limit settings changes: 60 updates per hour per org to prevent automated abuse.
+    await checkRateLimit(ctx, `updateSettings:${ctx.user.organisationId}`, 60, 3_600_000);
     const settings = await ctx.db
       .query("organisationSettings")
       .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
       .unique();
     if (!settings) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Organisation settings not found." });
+    }
+
+    // ── Input bounds ────────────────────────────────────────────────────────
+    if (args.caseStages !== undefined && args.caseStages.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 100 case stages." });
+    }
+    if (args.caseTypes !== undefined && args.caseTypes.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 100 case types." });
+    }
+    if (args.documentTypes !== undefined && args.documentTypes.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 100 document types." });
+    }
+    if (args.appointmentTypes !== undefined && args.appointmentTypes.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 100 appointment types." });
+    }
+    if (args.customRoles !== undefined && args.customRoles.length > 50) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 50 custom roles." });
+    }
+    if (args.customRoles !== undefined) {
+      for (const r of args.customRoles) {
+        if (r.name.trim().length === 0 || r.name.length > 100) {
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Role name must be between 1 and 100 characters." });
+        }
+      }
+    }
+    if (args.taxRate !== undefined && (args.taxRate < 0 || args.taxRate > 100)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Tax rate must be between 0 and 100." });
+    }
+    if (args.defaultCurrency !== undefined && (args.defaultCurrency.length < 3 || args.defaultCurrency.length > 10)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Currency code must be 3–10 characters." });
     }
 
     // Enforce non-removable built-in roles and cascade-reassign members when a custom role is deleted.
@@ -214,31 +252,34 @@ export const updateSettings = authenticatedMutation({
   },
 });
 
-/** Saves Stripe gateway settings. Admin only. */
-export const updateStripeSettings = authenticatedMutation({
+/**
+ * Internal: raw DB update for Stripe settings.
+ * Called by the saveStripeSettings action (which handles auth + encryption).
+ */
+export const updateStripeSettingsInternal = internalMutation({
   args: {
+    organisationId: v.id("organisations"),
     stripeEnabled: v.boolean(),
-    stripePublishableKey: v.string(),
-    stripeSecretKey: v.string(),
-    stripeWebhookSecret: v.string(),
+    stripePublishableKey: v.optional(v.string()),
+    stripeSecretKey: v.optional(v.string()),
+    stripeWebhookSecret: v.optional(v.string()),
+    stripeSecretKeyEnc: v.optional(v.string()),
+    stripeWebhookSecretEnc: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (ctx.user.role !== "admin") {
-      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
-    }
+    const { organisationId, ...rawFields } = args;
     const settings = await ctx.db
       .query("organisationSettings")
-      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
       .unique();
     if (!settings) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Organisation settings not found." });
     }
-    await ctx.db.patch(settings._id, {
-      stripeEnabled: args.stripeEnabled,
-      stripePublishableKey: args.stripePublishableKey || undefined,
-      stripeSecretKey: args.stripeSecretKey || undefined,
-      stripeWebhookSecret: args.stripeWebhookSecret || undefined,
-    });
+    // Strip undefined values — db.patch treats undefined as "delete field"
+    const fields = Object.fromEntries(
+      Object.entries(rawFields).filter(([, v]) => v !== undefined)
+    ) as typeof rawFields;
+    await ctx.db.patch(settings._id, fields);
   },
 });
 
@@ -269,12 +310,72 @@ export const permanentDeleteOrg = internalMutation({
     await deleteAll("appointments", "by_org");
     await deleteAll("notifications", "by_org");
     await deleteAll("organisationSettings", "by_org");
+    await deleteAll("invoiceCounters", "by_org");
+    await deleteAll("paymentLinks", "by_org");
+    await deleteAll("payments", "by_org");
+    await deleteAll("bankAccounts", "by_org");
+    await deleteAll("disputes", "by_org");
+    await deleteAll("webhookLogs", "by_org");
 
     await ctx.db.delete(organisationId);
   },
 });
 
-/** Clears the deletedAt timestamp, restoring the organisation. Admin only. */
+/**
+ * Soft-deletes the organisation, starting the 30-day grace period.
+ * Admin only. Requires the caller to pass the exact confirmation string
+ * "Delete {org name}" — verified server-side to prevent API exploitation.
+ * Rate-limited to 3 attempts per hour to block brute-force name guessing.
+ */
+export const softDeleteOrg = authenticatedMutation({
+  args: { confirmName: v.string() },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+
+    // Rate limit: max 3 attempts per hour per org
+    await checkRateLimit(ctx, `softDeleteOrg:${ctx.user.organisationId}`, 3, 3_600_000);
+
+    const org = await ctx.db.get(ctx.user.organisationId);
+    if (!org) throw new ConvexError({ code: "NOT_FOUND", message: "Organisation not found." });
+
+    if (org.deletedAt) {
+      throw new ConvexError({ code: "CONFLICT", message: "Organisation is already scheduled for deletion." });
+    }
+
+    // Server-side confirmation: typed string must match exactly
+    const expected = `Delete ${org.name}`;
+    if (args.confirmName !== expected) {
+      throw new ConvexError({
+        code: "CONFIRMATION_MISMATCH",
+        message: `Confirmation text does not match. Type exactly: "${expected}"`,
+      });
+    }
+
+    await ctx.db.patch(ctx.user.organisationId, { deletedAt: Date.now() });
+
+    // Deactivate all staff except the calling admin so they can no longer
+    // log in or access data during the grace period.
+    // The admin stays active so they can still reactivate the org.
+    const allUsers = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .collect();
+
+    await Promise.all(
+      allUsers
+        .filter((u) => u._id !== ctx.user._id && u.status === "active")
+        .map((u) => ctx.db.patch(u._id, { status: "inactive" }))
+    );
+  },
+});
+
+/**
+ * Clears the deletedAt timestamp, restoring the organisation.
+ * Re-activates all staff members that were deactivated by softDeleteOrg.
+ * Admin only.
+ */
 export const reactivateOrg = authenticatedMutation({
   args: {},
   handler: async (ctx) => {
@@ -283,6 +384,22 @@ export const reactivateOrg = authenticatedMutation({
     }
     const org = await ctx.db.get(ctx.user.organisationId);
     if (!org) throw new ConvexError({ code: "NOT_FOUND", message: "Organisation not found." });
+    if (!org.deletedAt) {
+      throw new ConvexError({ code: "CONFLICT", message: "Organisation is not scheduled for deletion." });
+    }
+
     await ctx.db.patch(ctx.user.organisationId, { deletedAt: undefined });
+
+    // Restore all inactive staff (those deactivated by softDeleteOrg)
+    const allUsers = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .collect();
+
+    await Promise.all(
+      allUsers
+        .filter((u) => u._id !== ctx.user._id && u.status === "inactive")
+        .map((u) => ctx.db.patch(u._id, { status: "active" }))
+    );
   },
 });
