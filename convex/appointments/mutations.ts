@@ -5,6 +5,20 @@ import { ConvexError } from "convex/values";
 import { requireAtLeastCaseManager, requireAdmin } from "../lib/rbac";
 import { internal } from "../_generated/api";
 
+// Reasonable date bounds: year 2000–2100
+const MIN_DATE_MS = new Date("2000-01-01T00:00:00Z").getTime();
+const MAX_DATE_MS = new Date("2100-01-01T00:00:00Z").getTime();
+const MAX_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function validateAppointmentTimes(startAt: number, endAt: number) {
+  if (startAt < MIN_DATE_MS || startAt > MAX_DATE_MS || endAt < MIN_DATE_MS || endAt > MAX_DATE_MS) {
+    throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment date is out of the valid range (2000–2100)." });
+  }
+  if (endAt - startAt > MAX_DURATION_MS) {
+    throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment cannot exceed 24 hours." });
+  }
+}
+
 const statusValidator = v.union(
   v.literal("Upcoming"),
   v.literal("Ongoing"),
@@ -14,13 +28,13 @@ const statusValidator = v.union(
 
 // Appointment types are user-configurable via Settings → Appt Types.
 // We accept any string here; built-in defaults include the values below.
-const typeValidator = v.string();
+const typeValidator = v.string(); // validated at handler level (max 200)
 
 const attendeeValidator = v.object({
   type: v.union(v.literal("internal"), v.literal("external")),
   userId: v.optional(v.id("users")),
-  email: v.string(),
-  name: v.string(),
+  email: v.string(), // validated at handler level (max 254)
+  name: v.string(),  // validated at handler level (max 200)
 });
 
 /** Admin, Case Manager, or Accountant (general meetings only): create an appointment. */
@@ -43,6 +57,32 @@ export const create = authenticatedMutation({
     }
     if (ctx.user.role === "accountant" && args.meetingType !== "general_meeting") {
       throw new ConvexError({ code: "FORBIDDEN", message: "Accountants can only create general meetings." });
+    }
+
+    if (args.startAt >= args.endAt) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment end time must be after start time." });
+    }
+    validateAppointmentTimes(args.startAt, args.endAt);
+
+    const titleTrimmed = args.title.trim();
+    if (titleTrimmed.length === 0 || titleTrimmed.length > 255) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment title must be between 1 and 255 characters." });
+    }
+    if (args.type.trim().length === 0 || args.type.length > 200) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment type must be between 1 and 200 characters." });
+    }
+    if (args.notes !== undefined && args.notes.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 5000 characters." });
+    }
+    if (args.attendees !== undefined) {
+      if (args.attendees.length > 200) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 200 attendees." });
+      }
+      for (const att of args.attendees) {
+        if (att.email.length > 254 || att.name.length > 200) {
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Attendee email or name exceeds maximum length." });
+        }
+      }
     }
 
     // Case managers can only create case_appointments for cases assigned to them
@@ -123,6 +163,36 @@ export const update = authenticatedMutation({
 
     if (appt.status === "Cancelled" || appt.status === "Expired") {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot edit a cancelled or expired appointment." });
+    }
+
+    const effectiveStart = args.startAt ?? appt.startAt;
+    const effectiveEnd = args.endAt ?? appt.endAt;
+    if (effectiveStart >= effectiveEnd) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment end time must be after start time." });
+    }
+    validateAppointmentTimes(effectiveStart, effectiveEnd);
+
+    if (args.title !== undefined) {
+      const t = args.title.trim();
+      if (t.length === 0 || t.length > 255) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment title must be between 1 and 255 characters." });
+      }
+    }
+    if (args.type !== undefined && (args.type.trim().length === 0 || args.type.length > 200)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment type must be between 1 and 200 characters." });
+    }
+    if (args.notes !== undefined && args.notes.length > 5000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 5000 characters." });
+    }
+    if (args.attendees !== undefined) {
+      if (args.attendees.length > 200) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot have more than 200 attendees." });
+      }
+      for (const att of args.attendees) {
+        if (att.email.length > 254 || att.name.length > 200) {
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Attendee email or name exceeds maximum length." });
+        }
+      }
     }
 
     const { id, ...fields } = args;
@@ -225,11 +295,11 @@ export const transitionStatuses = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
 
-    // Upcoming → Ongoing (startAt has passed but endAt hasn't)
+    // Upcoming → Ongoing: process up to 500 per run; cron cadence catches the rest.
     const upcoming = await ctx.db
       .query("appointments")
       .filter((q) => q.eq(q.field("status"), "Upcoming"))
-      .collect();
+      .take(500);
 
     for (const appt of upcoming) {
       if (appt.startAt <= now) {
@@ -237,11 +307,11 @@ export const transitionStatuses = internalMutation({
       }
     }
 
-    // Ongoing → Expired (endAt has passed)
+    // Ongoing → Expired: process up to 500 per run.
     const ongoing = await ctx.db
       .query("appointments")
       .filter((q) => q.eq(q.field("status"), "Ongoing"))
-      .collect();
+      .take(500);
 
     for (const appt of ongoing) {
       if (appt.endAt <= now) {
@@ -260,16 +330,11 @@ export const purgeExpired = internalMutation({
   handler: async (ctx) => {
     const cutoff = Date.now() - 40 * 24 * 60 * 60 * 1000; // 40 days ago
 
+    // Cap at 500 per run to prevent memory/timeout issues on large tables.
     const toDelete = await ctx.db
       .query("appointments")
-      .withIndex("by_deleted_at")
-      .filter((q) =>
-        q.and(
-          q.neq(q.field("deletedAt"), undefined),
-          q.lt(q.field("deletedAt"), cutoff)
-        )
-      )
-      .collect();
+      .withIndex("by_deleted_at", (q) => q.lt("deletedAt", cutoff))
+      .take(500);
 
     for (const appt of toDelete) {
       await ctx.db.delete(appt._id);

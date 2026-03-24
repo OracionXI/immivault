@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvex } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
@@ -10,10 +10,13 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { InvoiceModal } from "./invoice-modal";
 import { Button } from "@/components/ui/button";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, FileDown } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/utils";
+import { generateInvoicePdf } from "@/lib/pdf-generator";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 type ConvexInvoice = NonNullable<ReturnType<typeof useQuery<typeof api.billing.queries.listInvoices>>>[number];
 type DisplayInvoice = ConvexInvoice & { clientName: string; caseName: string; dueDateDisplay: string };
@@ -24,10 +27,15 @@ function formatTs(ts: number) {
 
 export default function BillingPage() {
     const currency = useCurrency();
+    const convex = useConvex();
     const rawInvoices = useQuery(api.billing.queries.listInvoices) ?? [];
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
+    const org = useQuery(api.organisations.queries.mine);
+    const settings = useQuery(api.organisations.queries.getSettings);
     const removeInvoice = useMutation(api.billing.mutations.removeInvoice);
+
+    const [pdfLoadingId, setPdfLoadingId] = useState<Id<"invoices"> | null>(null);
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
@@ -47,6 +55,36 @@ export default function BillingPage() {
         })),
         [rawInvoices, clientMap, caseMap]
     );
+
+    const handleDownloadPdf = async (invoice: DisplayInvoice) => {
+        setPdfLoadingId(invoice._id);
+        try {
+            const full = await convex.query(api.billing.queries.getInvoice, { id: invoice._id });
+            generateInvoicePdf(
+                {
+                    invoiceNumber: full.invoiceNumber,
+                    status: full.status,
+                    issuedAt: full.issuedAt,
+                    dueDate: full.dueDate,
+                    subtotal: full.subtotal,
+                    taxRate: full.taxRate,
+                    taxAmount: full.taxAmount,
+                    total: full.total,
+                    notes: full.notes,
+                    paidAt: full.paidAt,
+                    items: full.items,
+                },
+                invoice.clientName,
+                org?.name ?? "Ordena",
+                org?.agreementSignature,
+                settings?.defaultCurrency ?? currency
+            );
+        } catch (err) {
+            toast.error(getErrorMessage(err));
+        } finally {
+            setPdfLoadingId(null);
+        }
+    };
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<ConvexInvoice | null>(null);
@@ -76,6 +114,14 @@ export default function BillingPage() {
         {
             key: "actions", label: "Actions", render: (i) => (
                 <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => handleDownloadPdf(i)}
+                        disabled={pdfLoadingId === i._id}
+                        title="Download Invoice PDF"
+                    >
+                        <FileDown className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(i); setModalOpen(true); }}>
                         <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -96,9 +142,9 @@ export default function BillingPage() {
                 actionLabel="New Invoice"
                 onAction={() => { setEditing(null); setModalOpen(true); }}
             />
-            <DataTable
-                data={invoices as unknown as Record<string, unknown>[]}
-                columns={columns as unknown as Column<Record<string, unknown>>[]}
+            <DataTable<DisplayInvoice>
+                data={invoices}
+                columns={columns}
                 searchKey="clientName"
                 searchPlaceholder="Search invoices..."
                 filterDropdown={{

@@ -229,6 +229,8 @@ export const updateMember = authenticatedMutation({
     if (ctx.user.role !== "admin") {
       throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
     }
+    // Limit bulk member changes: 50 updates per hour per org.
+    await checkRateLimit(ctx, `updateMember:${ctx.user.organisationId}`, 50, 3_600_000);
     const member = await ctx.db.get(args.id);
     if (!member || member.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "User not found." });

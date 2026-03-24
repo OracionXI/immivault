@@ -5,7 +5,7 @@ import { useRef, useEffect } from "react";
 import { api } from "@/../convex/_generated/api";
 import type { Id } from "@/../convex/_generated/dataModel";
 import { useRouter } from "next/navigation";
-import { Bell, Briefcase, CheckSquare, MessageSquare, AtSign, FileText } from "lucide-react";
+import { Bell, Briefcase, CheckSquare, MessageSquare, AtSign, FileText, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -50,7 +50,23 @@ type NotificationType =
   | "task_updated"
   | "comment"
   | "mention"
-  | "document_uploaded";
+  | "document_uploaded"
+  | "appointment_created"
+  | "appointment_updated"
+  | "appointment_cancelled"
+  | "payment_dispute";
+
+const VALID_NOTIFICATION_TYPES = new Set<string>([
+  "case_created", "case_assigned", "case_status_changed", "case_deadline", "case_updated",
+  "task_assigned", "task_status_changed", "task_overdue", "task_updated",
+  "comment", "mention", "document_uploaded",
+  "appointment_created", "appointment_updated", "appointment_cancelled",
+  "payment_dispute",
+]);
+
+function toNotificationType(raw: string): NotificationType | null {
+  return VALID_NOTIFICATION_TYPES.has(raw) ? (raw as NotificationType) : null;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -61,6 +77,8 @@ function notificationIcon(type: NotificationType) {
   if (type === "comment") return <MessageSquare className={cn(cls, "text-emerald-500")} />;
   if (type === "mention") return <AtSign className={cn(cls, "text-amber-500")} />;
   if (type === "document_uploaded") return <FileText className={cn(cls, "text-rose-500")} />;
+  if (type === "payment_dispute") return <AlertTriangle className={cn(cls, "text-destructive")} />;
+  if (type.startsWith("appointment_")) return <Bell className={cn(cls, "text-sky-500")} />;
   return <Bell className={cn(cls, "text-muted-foreground")} />;
 }
 
@@ -108,7 +126,13 @@ export function NotificationBell() {
       await markRead({ id: notif._id as Id<"notifications"> });
     }
     const id = notif.entityId;
-    const type = notif.type as NotificationType;
+    const type = toNotificationType(notif.type);
+
+    if (type === null) {
+      // Unknown type from a future schema version — route to dashboard as safe fallback
+      router.push("/dashboard");
+      return;
+    }
 
     if (type === "document_uploaded") {
       router.push(`/documents${id ? `?doc=${id}` : ""}`);
@@ -122,9 +146,18 @@ export function NotificationBell() {
       router.push(`/tasks${id ? `?open=${id}` : ""}`);
       return;
     }
+    if (type === "payment_dispute") {
+      router.push("/payments");
+      return;
+    }
+    if (type === "appointment_created" || type === "appointment_updated" || type === "appointment_cancelled") {
+      router.push(`/appointments${id ? `?open=${id}` : ""}`);
+      return;
+    }
     // comment / mention — use entityType to determine destination
     if (notif.entityType === "case") router.push(`/cases${id ? `?open=${id}` : ""}`);
     else if (notif.entityType === "task") router.push(`/tasks${id ? `?open=${id}` : ""}`);
+    else router.push("/dashboard");
   }
 
   const badgeLabel = unreadCount > 99 ? "99+" : String(unreadCount);
@@ -180,7 +213,7 @@ export function NotificationBell() {
                 >
                   {/* Icon */}
                   <div className="mt-0.5">
-                    {notificationIcon(notif.type as NotificationType)}
+                    {notificationIcon(toNotificationType(notif.type) ?? "comment")}
                   </div>
 
                   {/* Content */}

@@ -96,12 +96,16 @@ export default function LoginPage() {
     }
 
     async function resendCode() {
-        if (!isLoaded) return;
+        if (!isLoaded || loading) return;
+        setError("");
+        setLoading(true);
         try {
             await signIn.prepareSecondFactor({ strategy: "email_code" });
         } catch (err: unknown) {
             const e = err as { errors?: { message: string }[] };
             setError(e.errors?.[0]?.message ?? "Failed to resend code");
+        } finally {
+            setLoading(false);
         }
     }
 
@@ -236,8 +240,13 @@ export default function LoginPage() {
 
                     <p className="text-center text-sm text-gray-500">
                         Didn&apos;t receive it?{" "}
-                        <button type="button" onClick={() => void resendCode()} className="font-semibold text-gray-900 underline-offset-2 hover:underline">
-                            Resend code
+                        <button
+                            type="button"
+                            onClick={() => void resendCode()}
+                            disabled={loading}
+                            className="font-semibold text-gray-900 underline-offset-2 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? "Sending…" : "Resend code"}
                         </button>
                     </p>
                 </form>

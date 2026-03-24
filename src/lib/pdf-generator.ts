@@ -415,6 +415,242 @@ export function generateClientReport(
     );
 }
 
+// ── Invoice PDF Generator ─────────────────────────────────────────────────────
+
+export type InvoiceLineItem = {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+};
+
+export type InvoicePdfData = {
+    invoiceNumber: string;
+    status: string;
+    issuedAt?: number;
+    dueDate: number;
+    subtotal: number;
+    taxRate: number;
+    taxAmount: number;
+    total: number;
+    notes?: string;
+    paidAt?: number;
+    items: InvoiceLineItem[];
+};
+
+export function generateInvoicePdf(
+    invoice: InvoicePdfData,
+    clientName: string,
+    orgName = "Ordena",
+    orgSignature?: string,
+    currency = "USD"
+) {
+    const doc = new jsPDF({ format: "letter", unit: "mm" });
+    const PW = doc.internal.pageSize.getWidth();
+    const M  = 14;
+    const CW = PW - 2 * M;
+
+    const today = new Date().toLocaleDateString("en-US", {
+        month: "long", day: "numeric", year: "numeric",
+    });
+
+    function cell(x: number, y: number, w: number, h: number) {
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.3);
+        doc.rect(x, y, w, h);
+    }
+
+    function sectionBar(label: string, x: number, y: number, w: number, h = 7) {
+        doc.setFillColor(220, 220, 220);
+        doc.rect(x, y, w, h, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(0, 0, 0);
+        doc.text(label, x + w / 2, y + h / 2 + 1.5, { align: "center" });
+        doc.setFont("helvetica", "normal");
+    }
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    let y = M;
+    const hdrH   = 20;
+    const titleW = CW * 0.44;
+    const instrW = CW - titleW;
+
+    cell(M, y, titleW, hdrH);
+    cell(M + titleW, y, instrW, hdrH);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(0, 0, 0);
+    doc.text(orgName.toUpperCase(), M + titleW / 2, y + 7.5, { align: "center" });
+    doc.setFontSize(10.5);
+    doc.text("INVOICE", M + titleW / 2, y + 14.5, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(
+        `Invoice No: ${invoice.invoiceNumber}\nStatus: ${invoice.status}`,
+        M + titleW + 3,
+        y + 8,
+        { maxWidth: instrW - 5 }
+    );
+    y += hdrH;
+
+    // ── Info rows ─────────────────────────────────────────────────────────────
+    const rowH = 12;
+    const half = CW / 2;
+
+    const issuedStr = invoice.issuedAt
+        ? new Date(invoice.issuedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+        : today;
+    const dueStr = new Date(invoice.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+    cell(M, y, half, rowH);
+    cell(M + half, y, half, rowH);
+    doc.setFontSize(6.5); doc.text("CLIENT NAME:", M + 1.5, y + 3);
+    doc.setFontSize(9);   doc.text(clientName, M + 2, y + 8.5, { maxWidth: half - 4 });
+    doc.setFontSize(6.5); doc.text("ORGANISATION:", M + half + 1.5, y + 3);
+    doc.setFontSize(9);   doc.text(orgName, M + half + 2, y + 8.5, { maxWidth: half - 4 });
+    y += rowH;
+
+    cell(M, y, half, rowH);
+    cell(M + half, y, half, rowH);
+    doc.setFontSize(6.5); doc.text("ISSUE DATE:", M + 1.5, y + 3);
+    doc.setFontSize(9);   doc.text(issuedStr, M + 2, y + 8.5);
+    doc.setFontSize(6.5); doc.text("DUE DATE:", M + half + 1.5, y + 3);
+    doc.setFontSize(9);   doc.text(dueStr, M + half + 2, y + 8.5);
+    y += rowH;
+
+    // ── Line items ────────────────────────────────────────────────────────────
+    sectionBar("LINE ITEMS", M, y, CW);
+    y += 7;
+
+    autoTable(doc, {
+        startY: y,
+        margin: { left: M, right: M },
+        head: [["Description", "Qty", "Unit Price", "Total"]],
+        body: invoice.items.map((item) => [
+            item.description,
+            item.quantity.toString(),
+            formatCurrency(item.unitPrice, currency),
+            formatCurrency(item.total, currency),
+        ]),
+        headStyles: {
+            fillColor: [200, 200, 200],
+            textColor: [0, 0, 0],
+            fontStyle: "bold",
+            fontSize: 8,
+            cellPadding: 2.5,
+            lineColor: [0, 0, 0],
+            lineWidth: 0.2,
+        },
+        bodyStyles: {
+            fontSize: 8.5,
+            cellPadding: 2.5,
+            lineColor: [0, 0, 0],
+            lineWidth: 0.2,
+            textColor: [0, 0, 0],
+        },
+        columnStyles: {
+            0: { cellWidth: "auto" },
+            1: { cellWidth: 18, halign: "center" },
+            2: { cellWidth: 36, halign: "right" },
+            3: { cellWidth: 36, halign: "right" },
+        },
+    });
+    y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    y += 2;
+
+    // ── Totals ────────────────────────────────────────────────────────────────
+    const totW = 80;
+    const totX = M + CW - totW;
+    const totRowH = 8;
+
+    const totRows: [string, string][] = [
+        ["Subtotal", formatCurrency(invoice.subtotal, currency)],
+        ...(invoice.taxRate > 0
+            ? [[`Tax (${invoice.taxRate}%)`, formatCurrency(invoice.taxAmount, currency)] as [string, string]]
+            : []),
+        ["TOTAL", formatCurrency(invoice.total, currency)],
+    ];
+
+    for (let i = 0; i < totRows.length; i++) {
+        const [label, value] = totRows[i];
+        const isLast = i === totRows.length - 1;
+        if (isLast) {
+            doc.setFillColor(220, 220, 220);
+            doc.rect(totX, y, totW, totRowH, "FD");
+            doc.setDrawColor(0);
+            doc.setLineWidth(0.3);
+            doc.rect(totX, y, totW, totRowH);
+        } else {
+            cell(totX, y, totW, totRowH);
+        }
+        doc.setFont("helvetica", isLast ? "bold" : "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(0, 0, 0);
+        doc.text(label, totX + 3, y + 5.5);
+        doc.text(value, totX + totW - 3, y + 5.5, { align: "right" });
+        y += totRowH;
+    }
+
+    y += 4;
+
+    // ── Notes ─────────────────────────────────────────────────────────────────
+    if (invoice.notes) {
+        sectionBar("NOTES", M, y, CW);
+        y += 7;
+        cell(M, y, CW, 20);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(0, 0, 0);
+        doc.text(invoice.notes, M + 3, y + 6, { maxWidth: CW - 6 });
+        y += 22;
+    }
+
+    // ── Signature ─────────────────────────────────────────────────────────────
+    const sigH     = 20;
+    const sigNameW = CW * 0.65;
+    const sigDateW = CW - sigNameW;
+
+    cell(M, y, sigNameW, sigH);
+    cell(M + sigNameW, y, sigDateW, sigH);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text("AUTHORISED SIGNATURE:", M + 2, y + 4.5);
+    doc.text("DATE:", M + sigNameW + 2, y + 4.5);
+
+    if (orgSignature) {
+        if (orgSignature.startsWith("data:image")) {
+            try {
+                doc.addImage(orgSignature, "PNG", M + 3, y + 6, sigNameW - 6, sigH - 8);
+            } catch {
+                doc.setFont("helvetica", "bolditalic");
+                doc.setFontSize(13);
+                doc.setTextColor(0, 0, 0);
+                doc.text(orgName, M + 4, y + sigH - 4, { maxWidth: sigNameW - 8 });
+            }
+        } else {
+            doc.setFont("helvetica", "bolditalic");
+            doc.setFontSize(14);
+            doc.setTextColor(0, 0, 100);
+            doc.text(orgSignature, M + 4, y + sigH - 4, { maxWidth: sigNameW - 8 });
+        }
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text(invoice.paidAt
+        ? new Date(invoice.paidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+        : today,
+        M + sigNameW + 2, y + sigH - 5);
+
+    doc.save(`Invoice_${invoice.invoiceNumber}_${clientName.replace(/\s+/g, "_")}.pdf`);
+}
+
 // ── Audit Report Generator ────────────────────────────────────────────────────
 
 export function generateAuditReport(

@@ -314,9 +314,9 @@ export default function ReportsPage() {
                         </CardContent>
                     </Card>
 
-                    <DataTable
-                        data={filteredRows as unknown as Record<string, unknown>[]}
-                        columns={columns as unknown as Column<Record<string, unknown>>[]}
+                    <DataTable<ClientReportRow>
+                        data={filteredRows}
+                        columns={columns}
                         searchKey="fullName"
                         searchPlaceholder="Search clients..."
                     />

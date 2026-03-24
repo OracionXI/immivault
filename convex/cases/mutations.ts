@@ -1,9 +1,24 @@
 import { authenticatedMutation } from "../lib/auth";
 import { internalMutation } from "../_generated/server";
+import type { MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
+import type { Id, Doc } from "../_generated/dataModel";
 import { requireAdmin, requireAtLeastCaseManager } from "../lib/rbac";
+
+/** Mutable fields of a case document (excludes Convex system fields). */
+type CasePatch = Partial<Omit<Doc<"cases">, "_id" | "_creationTime">>;
+
+// Reasonable date bounds for case deadlines: year 2000–2100
+const MIN_DEADLINE_MS = new Date("2000-01-01T00:00:00Z").getTime();
+const MAX_DEADLINE_MS = new Date("2100-01-01T00:00:00Z").getTime();
+
+function validateDeadline(deadline: number) {
+  if (deadline < MIN_DEADLINE_MS || deadline > MAX_DEADLINE_MS) {
+    throw new ConvexError({ code: "BAD_REQUEST", message: "Deadline must be between year 2000 and 2100." });
+  }
+}
 
 const statusValidator = v.string();
 
@@ -19,23 +34,23 @@ const priorityValidator = v.union(
  * Called whenever a case manager is removed or replaced on a case.
  */
 async function unassignCaseManagerTasks(
-  ctx: { db: any },
-  caseId: string,
-  oldAssigneeId: string
+  ctx: Pick<MutationCtx, "db">,
+  caseId: Id<"cases">,
+  oldAssigneeId: Id<"users">
 ) {
   const tasks = await ctx.db
     .query("tasks")
-    .withIndex("by_case", (q: any) => q.eq("caseId", caseId))
+    .withIndex("by_case", (q) => q.eq("caseId", caseId))
     .collect();
-  const affected = tasks.filter((t: any) => t.assignedTo === oldAssigneeId);
-  await Promise.all(affected.map((t: any) => ctx.db.patch(t._id, { assignedTo: undefined })));
+  const affected = tasks.filter((t) => t.assignedTo === oldAssigneeId);
+  await Promise.all(affected.map((t) => ctx.db.patch(t._id, { assignedTo: undefined })));
 }
 
 /** Cases can only be assigned to case managers — not admins or staff. */
 async function requireCaseManagerTarget(
-  ctx: { db: any },
-  userId: string,
-  organisationId: string
+  ctx: Pick<MutationCtx, "db">,
+  userId: Id<"users">,
+  organisationId: Id<"organisations">
 ) {
   const target = await ctx.db.get(userId);
   if (
@@ -66,6 +81,26 @@ export const create = authenticatedMutation({
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
+
+    const title = args.title.trim();
+    if (title.length === 0 || title.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Case title must be between 1 and 500 characters." });
+    }
+    if (args.visaType.trim().length === 0 || args.visaType.length > 200) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Visa type must be between 1 and 200 characters." });
+    }
+    if (args.issue !== undefined && args.issue.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Issue cannot exceed 500 characters." });
+    }
+    if (args.description !== undefined && args.description.length > 10000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Description cannot exceed 10000 characters." });
+    }
+    if (args.notes !== undefined && args.notes.length > 10000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 10000 characters." });
+    }
+    if (args.deadline !== undefined) {
+      validateDeadline(args.deadline);
+    }
 
     const client = await ctx.db.get(args.clientId);
     if (!client || client.organisationId !== ctx.user.organisationId) {
@@ -132,6 +167,29 @@ export const update = authenticatedMutation({
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
     const { id, assignedTo, ...fields } = args;
+
+    if (fields.title !== undefined) {
+      const title = fields.title.trim();
+      if (title.length === 0 || title.length > 500) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Case title must be between 1 and 500 characters." });
+      }
+    }
+    if (fields.visaType !== undefined && (fields.visaType.trim().length === 0 || fields.visaType.length > 200)) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Visa type must be between 1 and 200 characters." });
+    }
+    if (fields.issue !== undefined && fields.issue.length > 500) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Issue cannot exceed 500 characters." });
+    }
+    if (fields.description !== undefined && fields.description.length > 10000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Description cannot exceed 10000 characters." });
+    }
+    if (fields.notes !== undefined && fields.notes.length > 10000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Notes cannot exceed 10000 characters." });
+    }
+    if (fields.deadline !== undefined) {
+      validateDeadline(fields.deadline);
+    }
+
     const c = await ctx.db.get(id);
     if (!c || c.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
@@ -147,9 +205,9 @@ export const update = authenticatedMutation({
       }
     }
 
-    const patch: Record<string, unknown> = { ...fields, updatedAt: Date.now(), updatedBy: ctx.user._id };
+    const patch: CasePatch = { ...fields, updatedAt: Date.now(), updatedBy: ctx.user._id };
 
-    let newAssigneeId: string | null = null;
+    let newAssigneeId: Id<"users"> | null = null;
 
     // Only admins can change the assignment
     if (ctx.user.role !== "case_manager") {
@@ -172,13 +230,11 @@ export const update = authenticatedMutation({
       }
     }
 
-    await ctx.db.patch(id, patch as any);
+    await ctx.db.patch(id, patch);
 
-    // Fire the generic "case updated" notification only when something other
-    // than the assignee changed — if we also fire onCaseAssigned we skip this
-    // to avoid a duplicate notification for the same action.
-    const hasOtherChanges = Object.keys(fields).length > 0 || assignedTo === null;
-    if (!newAssigneeId || hasOtherChanges) {
+    // When a new assignee is set, skip onCaseUpdated entirely — the case_assigned
+    // notification is sufficient. Only fire onCaseUpdated for other field edits.
+    if (!newAssigneeId && (Object.keys(fields).length > 0 || assignedTo === null)) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
         caseId: id,
         updatedById: ctx.user._id,
@@ -187,7 +243,7 @@ export const update = authenticatedMutation({
     if (newAssigneeId) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseAssigned, {
         caseId: id,
-        newAssigneeId: newAssigneeId as any,
+        newAssigneeId,
         assignerId: ctx.user._id,
       });
     }
@@ -196,6 +252,9 @@ export const update = authenticatedMutation({
         caseId: id,
         changedById: ctx.user._id,
         newStatus: fields.status,
+        // Exclude the newly assigned user — they already got case_assigned,
+        // so a simultaneous status change notification would be noise.
+        excludeUserId: newAssigneeId ?? undefined,
       });
     }
   },
@@ -217,7 +276,7 @@ export const updateStatus = authenticatedMutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "You can only update cases assigned to you." });
     }
 
-    const patch: Record<string, unknown> = { status: args.status, updatedAt: Date.now(), updatedBy: ctx.user._id };
+    const patch: CasePatch = { status: args.status, updatedAt: Date.now(), updatedBy: ctx.user._id };
     if (args.status === "Completed") {
       patch.completedAt = Date.now();
       // Expire all documents linked to this case
@@ -233,7 +292,7 @@ export const updateStatus = authenticatedMutation({
       patch.completedAt = undefined;
     }
 
-    await ctx.db.patch(args.id, patch as any);
+    await ctx.db.patch(args.id, patch);
 
     await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
       caseId: args.id,

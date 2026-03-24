@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, use } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { loadStripe, type Stripe, type StripeElements, type StripeCardElement } from "@stripe/stripe-js";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ export default function PayPage({ params }: { params: Promise<{ token: string }>
     const { token } = use(params);
     const link = useQuery(api.billing.queries.getPaymentLinkByToken, { token });
     const createPaymentIntent = useAction(api.billing.actions.createPaymentIntent);
-    const confirmPayment = useMutation(api.billing.mutations.confirmStripePayment);
+    const confirmPayment = useAction(api.billing.actions.confirmStripePayment);
 
     const [status, setStatus] = useState<"idle" | "loading_stripe" | "ready" | "paying" | "success" | "error">("idle");
     const [errorMsg, setErrorMsg] = useState("");

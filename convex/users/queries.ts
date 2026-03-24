@@ -11,12 +11,15 @@ export const tryGetCurrentUser = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    return await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
         q.eq("tokenIdentifier", identity.tokenIdentifier)
       )
       .unique();
+    if (!user) return null;
+    const { googleRefreshToken: _omit, ...safeUser } = user;
+    return safeUser;
   },
 });
 
@@ -26,7 +29,8 @@ export const tryGetCurrentUser = query({
 export const me = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return ctx.user;
+    const { googleRefreshToken: _omit, ...safeUser } = ctx.user;
+    return safeUser;
   },
 });
 
@@ -36,12 +40,13 @@ export const me = authenticatedQuery({
 export const listByOrg = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const users = await ctx.db
       .query("users")
       .withIndex("by_org", (q) =>
         q.eq("organisationId", ctx.user.organisationId)
       )
       .collect();
+    return users.map(({ googleRefreshToken: _omit, ...safe }) => safe);
   },
 });
 

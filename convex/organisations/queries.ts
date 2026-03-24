@@ -62,13 +62,22 @@ export const getSettingsInternal = internalQuery({
 
 /**
  * Returns the organisation settings for the current user's org.
+ * Sensitive Stripe credentials are redacted — presence is indicated by boolean flags.
  */
 export const getSettings = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const s = await ctx.db
       .query("organisationSettings")
       .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
       .unique();
+    if (!s) return null;
+    // Never send secret key material to the frontend
+    const { stripeSecretKey, stripeWebhookSecret, stripeSecretKeyEnc, stripeWebhookSecretEnc, ...safe } = s;
+    return {
+      ...safe,
+      stripeSecretKey: !!(stripeSecretKey || stripeSecretKeyEnc) ? "REDACTED" as const : undefined,
+      stripeWebhookSecret: !!(stripeWebhookSecret || stripeWebhookSecretEnc) ? "REDACTED" as const : undefined,
+    };
   },
 });

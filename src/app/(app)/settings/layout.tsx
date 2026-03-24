@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, GitBranch, Layers, Calendar, Building2, Mail, FileText, Shield, CalendarClock, CreditCard } from "lucide-react";
+import { User, GitBranch, Layers, Building2, FileText, Shield, CalendarClock, CreditCard } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
 const settingsTabs = [
@@ -13,9 +13,7 @@ const settingsTabs = [
     { title: "Case Types",      href: "/settings/case-types",      icon: Layers,    adminOnly: true  },
     { title: "Doc Types",       href: "/settings/doc-types",       icon: FileText,  adminOnly: true  },
     { title: "Role Types",      href: "/settings/role-types",      icon: Shield,    adminOnly: true  },
-    { title: "Booking",         href: "/settings/booking",         icon: Calendar,  adminOnly: true  },
     { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
-    { title: "Email Templates", href: "/settings/email-templates", icon: Mail,      adminOnly: true  },
     { title: "Appt Types",      href: "/settings/appointment-types", icon: CalendarClock, adminOnly: true },
     { title: "Payments",        href: "/payments/settings",          icon: CreditCard,    adminOnly: true },
 ];
