@@ -80,6 +80,11 @@ export const repairOrg = mutation({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated — log in first.");
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+      .unique();
+    if (!caller || caller.role !== "admin") throw new Error("Admin privileges required.");
 
     const orgName = "My Immigration Firm";
     const slug = orgName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
@@ -143,6 +148,11 @@ export const clearAllData = mutation({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated — log in first.");
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+      .unique();
+    if (!caller || caller.role !== "admin") throw new Error("Admin privileges required.");
 
     const tables = [
       "comments",

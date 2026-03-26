@@ -9,6 +9,7 @@ export const create = authenticatedMutation({
     accountName: v.string(),
     accountNumber: v.string(),
     routingNumber: v.string(),
+    currency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
@@ -55,6 +56,14 @@ export const remove = authenticatedMutation({
     if (!account || account.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Account not found." });
     }
+
+    // Cascade-delete all transactions for this account
+    const txns = await ctx.db
+      .query("bankTransactions")
+      .withIndex("by_account", (q) => q.eq("bankAccountId", args.id))
+      .collect();
+    await Promise.all(txns.map((t) => ctx.db.delete(t._id)));
+
     await ctx.db.delete(args.id);
 
     // If we removed the default, promote the first remaining account

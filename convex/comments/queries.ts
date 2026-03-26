@@ -15,6 +15,7 @@ export const getById = internalQuery({
 
 /** Comments for a case or task. entityId is the string form of a Convex Id.
  *  Enforces: org isolation + role-based entity visibility before returning comments.
+ *  Staff see both internal and external comments.
  */
 export const listByEntity = authenticatedQuery({
   args: {
@@ -63,5 +64,48 @@ export const listByEntity = authenticatedQuery({
       )
       .order("asc")
       .collect();
+  },
+});
+
+/** Internal: external comments for a case — used by the portal to show client-visible comments. */
+export const listExternalByCase = internalQuery({
+  args: {
+    caseId: v.id("cases"),
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+  },
+  handler: async (ctx, args) => {
+    const c = await ctx.db.get(args.caseId);
+    if (!c || c.organisationId !== args.organisationId || c.clientId !== args.clientId) return [];
+
+    const allComments = await ctx.db
+      .query("comments")
+      .withIndex("by_entity", (q) => q.eq("entityType", "case").eq("entityId", args.caseId))
+      .order("asc")
+      .collect();
+
+    return await Promise.all(
+      allComments
+        .filter((cm) => cm.visibility === "external")
+        .map(async (cm) => {
+          let authorName = "Staff";
+          let isClient = false;
+          if (cm.authorClientId) {
+            const client = await ctx.db.get(cm.authorClientId);
+            authorName = client ? `${client.firstName} ${client.lastName}` : "Client";
+            isClient = cm.authorClientId === args.clientId;
+          } else if (cm.authorId) {
+            const user = await ctx.db.get(cm.authorId);
+            authorName = user?.fullName ?? "Staff";
+          }
+          return {
+            _id: cm._id,
+            body: cm.body,
+            authorName,
+            isClient,
+            createdAt: cm._creationTime,
+          };
+        })
+    );
   },
 });

@@ -11,10 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CreditCard, Building2, ExternalLink, Copy, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { CreditCard, ExternalLink, Copy, CheckCircle2, Eye, EyeOff } from "lucide-react";
 
 export default function PaymentSettingsPage() {
     const settings = useQuery(api.organisations.queries.getSettings);
@@ -207,21 +206,6 @@ export default function PaymentSettingsPage() {
                 </CardContent>
             </Card>
 
-            <Separator />
-
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                        <Building2 className="h-5 w-5" /> Linked Bank Accounts
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-sm text-muted-foreground italic">
-                        Bank accounts are managed in{" "}
-                        <span className="font-medium">Settings → Bank Accounts</span>.
-                    </p>
-                </CardContent>
-            </Card>
         </div>
     );
 }

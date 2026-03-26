@@ -521,6 +521,8 @@ export const onComment = internalAction({
     const comment = await ctx.runQuery(internal.comments.queries.getById, { id: args.commentId });
     if (!comment) return;
 
+    // Portal (client) comments have no authorId — skip staff notifications for them
+    if (!comment.authorId) return;
     const commenter = await ctx.runQuery(internal.users.queries.getById, { id: comment.authorId });
     if (!commenter) return;
 

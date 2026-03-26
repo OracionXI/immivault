@@ -15,9 +15,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentViewer } from "@/components/shared/document-viewer";
 import { DocAttachmentPreview } from "@/components/shared/attachment-preview";
 import { MentionTextarea, MentionBody } from "@/components/shared/mention-textarea";
-import type { MentionableUser, MentionableDoc } from "@/components/shared/mention-textarea";
+import type { MentionableUser, MentionableDoc, MentionableClient } from "@/components/shared/mention-textarea";
 import { InlineFileUpload } from "@/components/shared/inline-file-upload";
-import { Pencil, Trash2, UserRound, CalendarDays, FileText, File, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight } from "lucide-react";
+import { Pencil, Trash2, UserRound, CalendarDays, FileText, File, MessageSquare, Send, CheckSquare, Eye, X, ArrowRight, Lock, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -44,6 +44,7 @@ function formatTs(ts: number) {
 export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, onEdit }: CaseDetailDialogProps) {
     const router = useRouter();
     const [newComment, setNewComment] = useState("");
+    const [commentVisibility, setCommentVisibility] = useState<"internal" | "external">("internal");
     const [submitting, setSubmitting] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editBody, setEditBody] = useState("");
@@ -70,7 +71,6 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
     ) ?? [];
 
     // ── @mention data ─────────────────────────────────────────────────────────
-    // People: case assignee + anyone assigned to a task on this case
     const linkedUserIds = new Set<string>(
         [
             caseItem?.assignedTo as string | undefined,
@@ -81,6 +81,10 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         .filter((u) => linkedUserIds.has(u._id))
         .map((u) => ({ id: u._id, name: u.fullName }));
     const mentionDocs: MentionableDoc[] = caseDocs.map((d) => ({ id: d._id, name: d.name }));
+    // Only admin and case_manager can tag the client in comments
+    const canTagClient = me?.role === "admin" || me?.role === "case_manager";
+    const mentionClients: MentionableClient[] =
+        canTagClient && caseItem?.clientId ? [{ id: caseItem.clientId, name: clientName }] : [];
 
     function renderDocPreview(id: string, name: string) {
         const doc = caseDocs.find((d) => d._id === id);
@@ -88,7 +92,8 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         return <DocAttachmentPreview docId={id} name={name} mimeType={doc.mimeType} />;
     }
 
-    function getAuthorName(authorId: string) {
+    function getAuthorName(authorId: string | undefined) {
+        if (!authorId) return "Client";
         if (authorId === me?._id) return "You";
         return orgUsers.find((u) => u._id === authorId)?.fullName ?? "Unknown";
     }
@@ -102,7 +107,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
         setNewComment("");
         setPendingAttachments([]);
         try {
-            await addComment({ entityType: "case", entityId: caseItem._id, body });
+            await addComment({ entityType: "case", entityId: caseItem._id, body, visibility: commentVisibility });
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -256,18 +261,59 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                         )}
                                     </div>
 
+                                    {/* Comment input */}
                                     <div className="flex gap-3 mb-4">
                                         <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-1.5 bg-primary/10 text-primary">
                                             {getInitials(me?.fullName ?? "?")}
                                         </div>
                                         <div className="flex-1 space-y-2">
+                                            {/* Visibility toggle */}
+                                            <div className="flex gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCommentVisibility("internal")}
+                                                    className={cn(
+                                                        "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors",
+                                                        commentVisibility === "internal"
+                                                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                                                            : "text-muted-foreground border-muted hover:border-amber-500/30 hover:text-amber-700"
+                                                    )}
+                                                >
+                                                    <Lock className="h-3 w-3" />
+                                                    Internal
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCommentVisibility("external")}
+                                                    className={cn(
+                                                        "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors",
+                                                        commentVisibility === "external"
+                                                            ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                                                            : "text-muted-foreground border-muted hover:border-blue-500/30 hover:text-blue-700"
+                                                    )}
+                                                >
+                                                    <Globe className="h-3 w-3" />
+                                                    External
+                                                </button>
+                                                {commentVisibility === "external" && (
+                                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 self-center ml-1">
+                                                        Visible to client in portal
+                                                    </span>
+                                                )}
+                                            </div>
+
                                             <MentionTextarea
-                                                placeholder="Add a comment… type @ to mention people or documents"
+                                                placeholder={
+                                                    commentVisibility === "internal"
+                                                        ? "Add an internal note… only visible to assigned staff"
+                                                        : "Add an external comment… client can see this in the portal"
+                                                }
                                                 value={newComment}
                                                 onChange={setNewComment}
                                                 rows={2}
                                                 users={mentionUsers}
                                                 docs={mentionDocs}
+                                                clients={mentionClients}
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                                                         e.preventDefault();
@@ -320,16 +366,32 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                 const isAdmin = me?.role === "admin";
                                                 const canDelete = isOwn || isAdmin;
                                                 const isEditing = editingId === comment._id;
+                                                const isExternal = comment.visibility === "external";
                                                 return (
                                                     <div key={comment._id} className="flex gap-3 group">
-                                                        <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 bg-primary/10 text-primary">
+                                                        <div className={cn(
+                                                            "h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5",
+                                                            isExternal ? "bg-blue-500/10 text-blue-700 dark:text-blue-400" : "bg-primary/10 text-primary"
+                                                        )}>
                                                             {getInitials(authorName)}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="flex items-baseline gap-2 mb-1">
+                                                            <div className="flex items-baseline gap-2 mb-1 flex-wrap">
                                                                 <span className="text-xs font-semibold">{authorName}</span>
                                                                 <span className="text-[11px] text-muted-foreground">
                                                                     {new Date(comment._creationTime).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                                                </span>
+                                                                {/* Visibility badge */}
+                                                                <span className={cn(
+                                                                    "inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border",
+                                                                    isExternal
+                                                                        ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20"
+                                                                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                                                                )}>
+                                                                    {isExternal
+                                                                        ? <><Globe className="h-2.5 w-2.5" /> External</>
+                                                                        : <><Lock className="h-2.5 w-2.5" /> Internal</>
+                                                                    }
                                                                 </span>
                                                                 {(isOwn || canDelete) && !isEditing && (
                                                                     <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -361,6 +423,7 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                         autoFocus
                                                                         users={mentionUsers}
                                                                         docs={mentionDocs}
+                                                                        clients={mentionClients}
                                                                         onKeyDown={(e) => {
                                                                             if (e.key === "Escape") { setEditingId(null); setEditBody(""); }
                                                                         }}
@@ -393,7 +456,10 @@ export function CaseDetailDialog({ caseItem, clientName, assigneeName, onClose, 
                                                                     </div>
                                                                 </div>
                                                             ) : (
-                                                                <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2">
+                                                                <div className={cn(
+                                                                    "text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md px-3 py-2",
+                                                                    isExternal ? "bg-blue-500/5 border border-blue-500/10" : "bg-muted/40"
+                                                                )}>
                                                                     <MentionBody body={comment.body} renderDoc={renderDocPreview} />
                                                                 </div>
                                                             )}

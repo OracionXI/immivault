@@ -1,7 +1,9 @@
 import { authenticatedMutation } from "../lib/auth";
+import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAdmin } from "../lib/rbac";
+import { internal } from "../_generated/api";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 
@@ -26,13 +28,22 @@ function buildCaseNumber(): string {
 /** Admin-only: create a new client and auto-create an unassigned case. */
 export const create = authenticatedMutation({
   args: {
+    prefix: v.optional(v.string()),
     firstName: v.string(),
+    middleName: v.optional(v.string()),
     lastName: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
+    mobilePhone: v.optional(v.string()),
     nationality: v.optional(v.string()),
+    countryOfBirth: v.optional(v.string()),
     dateOfBirth: v.optional(v.number()),
+    maritalStatus: v.optional(v.string()),
+    passportNumber: v.optional(v.string()),
+    languagePreference: v.optional(v.string()),
     address: v.optional(v.string()),
+    referralSource: v.optional(v.string()),
+    notes: v.optional(v.string()),
     status: v.union(
       v.literal("Active"),
       v.literal("Inactive"),
@@ -40,6 +51,7 @@ export const create = authenticatedMutation({
     ),
     assignedTo: v.optional(v.id("users")),
     contractAmount: v.optional(v.number()), // in cents
+    portalEnabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
@@ -52,8 +64,18 @@ export const create = authenticatedMutation({
     if (lastName.length === 0 || lastName.length > 100) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Last name must be between 1 and 100 characters." });
     }
-    if (args.email.length === 0 || args.email.length > 254) {
+    const emailNormalized = args.email.trim().toLowerCase();
+    if (emailNormalized.length === 0 || emailNormalized.length > 254) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Email address is invalid." });
+    }
+    const emailDuplicate = await ctx.db
+      .query("clients")
+      .withIndex("by_org_and_email", (q) =>
+        q.eq("organisationId", ctx.user.organisationId).eq("email", emailNormalized)
+      )
+      .first();
+    if (emailDuplicate) {
+      throw new ConvexError({ code: "CONFLICT", message: "A client with this email address already exists in your organisation." });
     }
     if (args.phone !== undefined && args.phone.length > 50) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Phone number cannot exceed 50 characters." });
@@ -68,8 +90,12 @@ export const create = authenticatedMutation({
       throw new ConvexError({ code: "BAD_REQUEST", message: "Contract amount cannot be negative." });
     }
 
+    const { portalEnabled, ...clientFields } = args;
+
     const clientId = await ctx.db.insert("clients", {
-      ...args,
+      ...clientFields,
+      email: emailNormalized,
+      portalEnabled: portalEnabled ?? false,
       organisationId: ctx.user.organisationId,
     });
 
@@ -105,6 +131,17 @@ export const create = authenticatedMutation({
       });
     }
 
+    // If portal access is enabled at creation, send invite (if org portal is configured)
+    if (portalEnabled) {
+      const org = await ctx.db.get(ctx.user.organisationId);
+      if (org?.portalEnabled && org?.portalSlug) {
+        await ctx.scheduler.runAfter(0, internal.portal.auth.sendInvite, {
+          clientId,
+          organisationId: ctx.user.organisationId,
+        });
+      }
+    }
+
     return clientId;
   },
 });
@@ -117,13 +154,22 @@ export const create = authenticatedMutation({
 export const update = authenticatedMutation({
   args: {
     id: v.id("clients"),
+    prefix: v.optional(v.string()),
     firstName: v.optional(v.string()),
+    middleName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
+    mobilePhone: v.optional(v.string()),
     nationality: v.optional(v.string()),
+    countryOfBirth: v.optional(v.string()),
     dateOfBirth: v.optional(v.number()),
+    maritalStatus: v.optional(v.string()),
+    passportNumber: v.optional(v.string()),
+    languagePreference: v.optional(v.string()),
     address: v.optional(v.string()),
+    referralSource: v.optional(v.string()),
+    notes: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("Active"),
@@ -150,8 +196,21 @@ export const update = authenticatedMutation({
         throw new ConvexError({ code: "BAD_REQUEST", message: "Last name must be between 1 and 100 characters." });
       }
     }
-    if (fields.email !== undefined && (fields.email.length === 0 || fields.email.length > 254)) {
-      throw new ConvexError({ code: "BAD_REQUEST", message: "Email address is invalid." });
+    if (fields.email !== undefined) {
+      const emailNorm = fields.email.trim().toLowerCase();
+      if (emailNorm.length === 0 || emailNorm.length > 254) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Email address is invalid." });
+      }
+      const emailDuplicate = await ctx.db
+        .query("clients")
+        .withIndex("by_org_and_email", (q) =>
+          q.eq("organisationId", ctx.user.organisationId).eq("email", emailNorm)
+        )
+        .first();
+      if (emailDuplicate && emailDuplicate._id !== id) {
+        throw new ConvexError({ code: "CONFLICT", message: "A client with this email address already exists in your organisation." });
+      }
+      fields.email = emailNorm;
     }
     if (fields.phone !== undefined && fields.phone.length > 50) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Phone number cannot exceed 50 characters." });
@@ -311,11 +370,49 @@ export const remove = authenticatedMutation({
         .withIndex("by_case", (q) => q.eq("caseId", c._id))
         .collect();
       for (const t of caseTasks) {
+        const taskComments = await ctx.db
+          .query("comments")
+          .withIndex("by_entity", (q) => q.eq("entityType", "task").eq("entityId", t._id))
+          .collect();
+        for (const cm of taskComments) await ctx.db.delete(cm._id);
         await ctx.db.delete(t._id);
       }
+      const caseComments = await ctx.db
+        .query("comments")
+        .withIndex("by_entity", (q) => q.eq("entityType", "case").eq("entityId", c._id))
+        .collect();
+      for (const cm of caseComments) await ctx.db.delete(cm._id);
       await ctx.db.delete(c._id);
     }
 
     await ctx.db.delete(args.id);
+  },
+});
+
+/** Admin-only: resend a portal invite (magic link) to a client. */
+export const resendPortalInvite = action({
+  args: { clientId: v.id("clients") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHENTICATED", message: "Not authenticated." });
+    }
+    const caller = await ctx.runQuery(internal.users.queries.getByToken, {
+      token: identity.tokenIdentifier,
+    });
+    if (!caller || caller.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    // Verify the client belongs to the caller's org — prevents cross-org invite spam
+    const client = await ctx.runQuery(internal.clients.queries.getForAction, {
+      id: args.clientId,
+    });
+    if (!client || client.organisationId !== caller.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+    await ctx.runAction(internal.portal.auth.sendInvite, {
+      clientId: args.clientId,
+      organisationId: caller.organisationId,
+    });
   },
 });

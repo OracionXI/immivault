@@ -60,6 +60,30 @@ export const getSettingsInternal = internalQuery({
   },
 });
 
+/** Returns the portal settings (slug + enabled) for the current user's org. */
+export const getPortalSettings = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.user.organisationId);
+    if (!org) return null;
+    return {
+      portalSlug: org.portalSlug ?? null,
+      portalEnabled: org.portalEnabled ?? false,
+    };
+  },
+});
+
+/** Get appointment pricing for the current org. */
+export const getAppointmentPricing = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("appointmentPricing")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .collect();
+  },
+});
+
 /**
  * Returns the organisation settings for the current user's org.
  * Sensitive Stripe credentials are redacted — presence is indicated by boolean flags.

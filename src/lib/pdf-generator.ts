@@ -16,6 +16,17 @@ export type AuditPaymentRow = {
     notes?: string;
 };
 
+export type AuditBankRow = {
+    description: string;
+    reference?: string;
+    amount: number; // in cents
+    currency: string;
+    type: "money_in" | "money_out";
+    dateDisplay: string;
+    accountName: string;
+    notes?: string;
+};
+
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 export type ReportClient = {
@@ -84,8 +95,10 @@ export function generateClientReport(
 ) {
     const doc = new jsPDF({ format: "letter", unit: "mm" });
     const PW = doc.internal.pageSize.getWidth();  // 215.9 mm
+    const PH = doc.internal.pageSize.getHeight(); // 279.4 mm
     const M  = 12;                                 // margin
     const CW = PW - 2 * M;                        // content width
+    const BM = 16;                                 // bottom margin
 
     const fullName    = `${client.firstName} ${client.lastName}`;
     const today       = new Date().toLocaleDateString("en-US", {
@@ -102,14 +115,12 @@ export function generateClientReport(
         : uniqueManagers.length === 1 ? uniqueManagers[0]
         : `${uniqueManagers[0]} +${uniqueManagers.length - 1}`;
 
-    const totalInvoiced  = invoices.reduce((s, i) => s + i.total, 0);
-    const totalPaid      = payments
+const totalPaid      = payments
         .filter((p) => p.status === "Completed")
         .reduce((s, p) => s + p.amount, 0) / 100;
     const totalPending   = invoices
         .filter((i) => i.status === "Sent" || i.status === "Overdue")
         .reduce((s, i) => s + i.total, 0);
-    const overdueCount   = invoices.filter((i) => i.status === "Overdue").length;
 
     // ── Drawing primitives ──────────────────────────────────────────────────
 
@@ -174,6 +185,10 @@ export function generateClientReport(
     // HEADER — title block + instruction
     // ─────────────────────────────────────────────────────────────────────────
     let y = M;
+
+    function needsNewPage(h: number) {
+        if (y + h > PH - BM) { doc.addPage(); y = M; }
+    }
     const hdrH   = 20;
     const titleW = CW * 0.44;
     const instrW = CW - titleW;
@@ -235,6 +250,8 @@ export function generateClientReport(
     // ─────────────────────────────────────────────────────────────────────────
     // SECTION 6 — Cases
     // ─────────────────────────────────────────────────────────────────────────
+    y += 5;
+    needsNewPage(40);
     sectionBar("6.  CASES", M, y, CW);
     y += 7;
 
@@ -304,6 +321,8 @@ export function generateClientReport(
     // ─────────────────────────────────────────────────────────────────────────
     // SECTION 7 — Financial Summary
     // ─────────────────────────────────────────────────────────────────────────
+    y += 6;
+    needsNewPage(40);
     sectionBar("7.  FINANCIAL SUMMARY", M, y, CW);
     y += 7;
 
@@ -312,6 +331,7 @@ export function generateClientReport(
     const boxLabel = () => String.fromCharCode(97 + boxIdx++) + ".  ";
 
     if (client.contractAmount && client.contractAmount > 0) {
+        needsNewPage(boxH);
         commentBox(
             `${boxLabel()}Contract amount:`,
             formatCurrency(client.contractAmount / 100, currency),
@@ -320,13 +340,15 @@ export function generateClientReport(
         y += boxH;
     }
 
+    needsNewPage(boxH);
     commentBox(
-        `${boxLabel()}Total amount invoiced to client:`,
-        formatCurrency(totalInvoiced, currency),
+        `${boxLabel()}Total pending amount:`,
+        formatCurrency(totalPending, currency),
         M, y, CW, boxH
     );
     y += boxH;
 
+    needsNewPage(boxH);
     commentBox(
         `${boxLabel()}Total payments received:`,
         formatCurrency(totalPaid, currency),
@@ -334,17 +356,7 @@ export function generateClientReport(
     );
     y += boxH;
 
-    const pendingLabel = overdueCount > 0
-        ? `${formatCurrency(totalPending, currency)}   (${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""})`
-        : formatCurrency(totalPending, currency);
-    commentBox(
-        `${boxLabel()}Outstanding balance:`,
-        pendingLabel,
-        M, y, CW, boxH,
-        overdueCount > 0 ? [180, 0, 0] : undefined
-    );
-    y += boxH;
-
+    needsNewPage(boxH);
     commentBox(
         `${boxLabel()}If outstanding balance exists and continued case management is recommended, outline next steps:`,
         "",
@@ -356,6 +368,7 @@ export function generateClientReport(
     // SIGNATURE ROW
     // ─────────────────────────────────────────────────────────────────────────
     const sigH     = 20;
+    needsNewPage(sigH + 14);
     const sigNameW = CW * 0.65;
     const sigDateW = CW - sigNameW;
 
@@ -659,12 +672,15 @@ export function generateAuditReport(
     orgSignature?: string,
     dateFrom?: string,
     dateTo?: string,
-    currency = "USD"
+    currency = "USD",
+    bankRows: AuditBankRow[] = []
 ) {
     const doc = new jsPDF({ format: "letter", unit: "mm" });
     const PW = doc.internal.pageSize.getWidth();
+    const PH = doc.internal.pageSize.getHeight();
     const M  = 12;
     const CW = PW - 2 * M;
+    const BM = 16;
 
     const today = new Date().toLocaleDateString("en-US", {
         month: "long", day: "numeric", year: "numeric",
@@ -681,6 +697,12 @@ export function generateAuditReport(
         .reduce((s, r) => s + r.amount, 0) / 100;
     const totalPending = rows
         .filter((r) => r.status === "Pending")
+        .reduce((s, r) => s + r.amount, 0) / 100;
+    const bankTotalIn = bankRows
+        .filter((r) => r.type === "money_in")
+        .reduce((s, r) => s + r.amount, 0) / 100;
+    const bankTotalOut = bankRows
+        .filter((r) => r.type === "money_out")
         .reduce((s, r) => s + r.amount, 0) / 100;
 
     function cell(x: number, y: number, w: number, h: number) {
@@ -734,6 +756,11 @@ export function generateAuditReport(
 
     // ── Header ────────────────────────────────────────────────────────────────
     let y = M;
+
+    function needsNewPage(h: number) {
+        if (y + h > PH - BM) { doc.addPage(); y = M; }
+    }
+
     const hdrH   = 20;
     const titleW = CW * 0.44;
     const instrW = CW - titleW;
@@ -779,6 +806,8 @@ export function generateAuditReport(
     y += rowH;
 
     // ── Section 5: Transactions table ─────────────────────────────────────────
+    y += 5;
+    needsNewPage(40);
     sectionBar("5.  TRANSACTION RECORDS", M, y, CW);
     y += 7;
 
@@ -831,23 +860,93 @@ export function generateAuditReport(
         y += 14;
     }
 
-    // ── Section 6: Financial summary ──────────────────────────────────────────
-    sectionBar("6.  FINANCIAL SUMMARY", M, y, CW);
+    // ── Section 6: Bank Transactions ──────────────────────────────────────────
+    y += 6;
+    needsNewPage(40);
+    sectionBar("6.  BANK TRANSACTIONS", M, y, CW);
+    y += 7;
+
+    if (bankRows.length > 0) {
+        autoTable(doc, {
+            startY: y,
+            margin: { left: M, right: M },
+            head: [["a. Date", "b. Account", "c. Description", "d. Reference", "e. Type", "f. Amount"]],
+            body: bankRows.map((r) => [
+                r.dateDisplay,
+                r.accountName,
+                r.description,
+                r.reference ?? "—",
+                r.type === "money_in" ? "Money In" : "Money Out",
+                `${r.type === "money_out" ? "-" : "+"}${formatCurrency(r.amount / 100, r.currency)}`,
+            ]),
+            headStyles: {
+                fillColor: [200, 200, 200],
+                textColor: [0, 0, 0],
+                fontStyle: "bold",
+                fontSize: 7.5,
+                cellPadding: 2.5,
+                lineColor: [0, 0, 0],
+                lineWidth: 0.2,
+            },
+            bodyStyles: {
+                fontSize: 8,
+                cellPadding: 2.5,
+                lineColor: [0, 0, 0],
+                lineWidth: 0.2,
+                textColor: [0, 0, 0],
+            },
+            tableLineColor: [0, 0, 0],
+            tableLineWidth: 0.2,
+            columnStyles: {
+                0: { cellWidth: 26 },
+                1: { cellWidth: 32 },
+                4: { cellWidth: 22 },
+                5: { cellWidth: 26 },
+            },
+        });
+        y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    } else {
+        cell(M, y, CW, 14);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.text("No bank transactions for this period.", M + CW / 2, y + 8.5, { align: "center" });
+        y += 14;
+    }
+
+    // ── Section 7: Financial summary ──────────────────────────────────────────
+    y += 6;
+    needsNewPage(40);
+    sectionBar("7.  FINANCIAL SUMMARY", M, y, CW);
     y += 7;
 
     const boxH = 16;
-    commentBox("a.  Total collected (Completed):", formatCurrency(totalCollected, currency), M, y, CW, boxH, [0, 120, 0]);
+    needsNewPage(boxH);
+    commentBox("a.  Stripe — Total collected (Completed):", formatCurrency(totalCollected, currency), M, y, CW, boxH, [0, 120, 0]);
     y += boxH;
-    commentBox("b.  Total pending:", formatCurrency(totalPending, currency), M, y, CW, boxH, [160, 100, 0]);
+    needsNewPage(boxH);
+    commentBox("b.  Stripe — Total pending:", formatCurrency(totalPending, currency), M, y, CW, boxH, [160, 100, 0]);
     y += boxH;
-    commentBox("c.  Total refunded:", formatCurrency(totalRefunded, currency), M, y, CW, boxH, [160, 0, 0]);
+    needsNewPage(boxH);
+    commentBox("c.  Stripe — Total refunded:", formatCurrency(totalRefunded, currency), M, y, CW, boxH, [160, 0, 0]);
+    y += boxH;
+    needsNewPage(boxH);
+    commentBox("d.  Bank — Total Money In:", formatCurrency(bankTotalIn, currency), M, y, CW, boxH, [0, 100, 160]);
+    y += boxH;
+    needsNewPage(boxH);
+    commentBox("e.  Bank — Total Money Out:", formatCurrency(bankTotalOut, currency), M, y, CW, boxH, [160, 0, 0]);
+    y += boxH;
+    needsNewPage(boxH);
+    commentBox("f.  Combined Net Total:", formatCurrency(totalCollected + bankTotalIn - bankTotalOut - totalRefunded, currency), M, y, CW, boxH, [0, 80, 0]);
     y += boxH;
 
     // ── Signature ─────────────────────────────────────────────────────────────
+    y += 6;
     const sigH     = 20;
     const sigNameW = CW * 0.65;
     const sigDateW = CW - sigNameW;
 
+    needsNewPage(sigH + 14);
     cell(M, y, sigNameW, sigH);
     cell(M + sigNameW, y, sigDateW, sigH);
 

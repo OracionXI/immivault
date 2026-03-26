@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, Fragment } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { User, FileText } from "lucide-react";
+import { User, FileText, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -17,6 +17,11 @@ export interface MentionableDoc {
     name: string;
 }
 
+export interface MentionableClient {
+    id: string;
+    name: string;
+}
+
 export interface MentionTextareaProps {
     value: string;
     onChange: (value: string) => void;
@@ -25,6 +30,7 @@ export interface MentionTextareaProps {
     rows?: number;
     users: MentionableUser[];
     docs: MentionableDoc[];
+    clients?: MentionableClient[];
     className?: string;
     autoFocus?: boolean;
 }
@@ -37,17 +43,18 @@ export interface MentionTextareaProps {
 
 type MentionItem =
     | { kind: "user"; id: string; name: string }
-    | { kind: "doc"; id: string; name: string };
+    | { kind: "doc"; id: string; name: string }
+    | { kind: "client"; id: string; name: string };
 
-type MentionEntry = { type: "user" | "doc"; id: string };
+type MentionEntry = { type: "user" | "doc" | "client"; id: string };
 
 /** Convert storage-encoded string → display string, populating mentionMap as a side-effect. */
 function decodeForDisplay(
     encoded: string,
     mentionMap: Map<string, MentionEntry>
 ): string {
-    return encoded.replace(/@\[([^\]]+)\]\((user|doc):([^)]+)\)/g, (_, name, type, id) => {
-        mentionMap.set(name, { type: type as "user" | "doc", id });
+    return encoded.replace(/@\[([^\]]+)\]\((user|doc|client):([^)]+)\)/g, (_, name, type, id) => {
+        mentionMap.set(name, { type: type as "user" | "doc" | "client", id });
         return `@[${name}]`;
     });
 }
@@ -111,6 +118,7 @@ export function MentionTextarea({
     rows = 2,
     users,
     docs,
+    clients = [],
     className,
     autoFocus,
 }: MentionTextareaProps) {
@@ -140,8 +148,11 @@ export function MentionTextarea({
 
     const query = mentionState?.query.toLowerCase() ?? "";
 
-    // Flat list: users first, then docs — filtered by typed query
+    // Flat list: clients first, then users, then docs — filtered by typed query
     const items: MentionItem[] = [
+        ...clients
+            .filter((c) => c.name.toLowerCase().includes(query))
+            .map((c) => ({ kind: "client" as const, id: c.id, name: c.name })),
         ...users
             .filter((u) => u.name.toLowerCase().includes(query))
             .map((u) => ({ kind: "user" as const, id: u.id, name: u.name })),
@@ -265,7 +276,7 @@ export function MentionTextarea({
                             {/* Section header when kind changes */}
                             {(idx === 0 || items[idx - 1].kind !== item.kind) && (
                                 <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                    {item.kind === "user" ? "People" : "Documents"}
+                                    {item.kind === "client" ? "Client" : item.kind === "user" ? "People" : "Documents"}
                                 </p>
                             )}
                             <button
@@ -281,12 +292,17 @@ export function MentionTextarea({
                                         : "hover:bg-accent/50 text-foreground"
                                 )}
                             >
-                                {item.kind === "user" ? (
+                                {item.kind === "client" ? (
+                                    <UserCircle className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+                                ) : item.kind === "user" ? (
                                     <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 ) : (
                                     <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 )}
                                 <span className="truncate">{item.name}</span>
+                                {item.kind === "client" && (
+                                    <span className="ml-auto text-[10px] text-violet-500 font-medium shrink-0">client</span>
+                                )}
                             </button>
                         </Fragment>
                     ))}
@@ -314,7 +330,7 @@ export function MentionBody({
     renderDoc?: (id: string, name: string) => React.ReactNode;
 }) {
     // Capture: [1]=name, [2]=type, [3]=id
-    const MENTION_RE = /@\[([^\]]+)\]\((user|doc):([^)]+)\)/g;
+    const MENTION_RE = /@\[([^\]]+)\]\((user|doc|client):([^)]+)\)/g;
 
     const nodes: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -341,6 +357,8 @@ export function MentionBody({
                         "inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-semibold leading-none",
                         type === "user"
                             ? "bg-primary/10 text-primary"
+                            : type === "client"
+                            ? "bg-violet-500/10 text-violet-700 dark:text-violet-400"
                             : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     )}
                 >
