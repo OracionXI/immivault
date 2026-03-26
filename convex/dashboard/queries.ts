@@ -100,7 +100,7 @@ export const stats = authenticatedQuery({
       const lastMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1).getTime();
       const lastMonthEnd = monthStart.getTime() - 1;
 
-      const [overdueInvs, allOrgPayments, allOrgInvoices] = await Promise.all([
+      const [overdueInvs, allOrgPayments, allOrgInvoices, allBankTxns] = await Promise.all([
         ctx.db
           .query("invoices")
           .withIndex("by_org_and_status", (q) =>
@@ -115,15 +115,29 @@ export const stats = authenticatedQuery({
           .query("invoices")
           .withIndex("by_org", (q) => q.eq("organisationId", orgId))
           .collect(),
+        ctx.db
+          .query("bankTransactions")
+          .withIndex("by_org", (q) => q.eq("organisationId", orgId))
+          .collect(),
       ]);
       overdueInvsFull = overdueInvs;
       overdueInvoices = overdueInvs.length;
-      monthlyRevenue = allOrgPayments
+
+      const stripeThisMonth = allOrgPayments
         .filter((p) => p.status === "Completed" && p.paidAt >= monthStart.getTime())
-        .reduce((sum, p) => sum + p.amount, 0) / 100;
-      revenueLastMonth = allOrgPayments
+        .reduce((sum, p) => sum + p.amount, 0);
+      const bankInThisMonth = allBankTxns
+        .filter((t) => t.type === "money_in" && t.date >= monthStart.getTime())
+        .reduce((sum, t) => sum + t.amount, 0);
+      monthlyRevenue = (stripeThisMonth + bankInThisMonth) / 100;
+
+      const stripeLastMonth = allOrgPayments
         .filter((p) => p.status === "Completed" && p.paidAt >= lastMonthStart && p.paidAt <= lastMonthEnd)
-        .reduce((sum, p) => sum + p.amount, 0) / 100;
+        .reduce((sum, p) => sum + p.amount, 0);
+      const bankInLastMonth = allBankTxns
+        .filter((t) => t.type === "money_in" && t.date >= lastMonthStart && t.date <= lastMonthEnd)
+        .reduce((sum, t) => sum + t.amount, 0);
+      revenueLastMonth = (stripeLastMonth + bankInLastMonth) / 100;
 
       // Pending = unpaid contract drafts balance + Sent/Overdue invoice totals
       for (const inv of allOrgInvoices) {
@@ -252,7 +266,7 @@ export const chartData = authenticatedQuery({
       });
     }
 
-    const [allPayments, allOrgCases, allOrgClients, allAppointments, allOrgTasks] = await Promise.all([
+    const [allPayments, allOrgCases, allOrgClients, allAppointments, allOrgTasks, allBankTxns] = await Promise.all([
       canSeeBilling
         ? ctx.db.query("payments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
         : Promise.resolve([]),
@@ -262,6 +276,9 @@ export const chartData = authenticatedQuery({
         : Promise.resolve([]),
       ctx.db.query("appointments").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
       ctx.db.query("tasks").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect(),
+      canSeeBilling
+        ? ctx.db.query("bankTransactions").withIndex("by_org", (q) => q.eq("organisationId", orgId)).collect()
+        : Promise.resolve([]),
     ]);
 
     const allCases = isAdmin ? allOrgCases : allOrgCases.filter((c) => c.assignedTo === userId);
@@ -279,9 +296,12 @@ export const chartData = authenticatedQuery({
     return buckets.map((b) => ({
       label: b.label,
       revenue: canSeeBilling
-        ? allPayments
+        ? (allPayments
             .filter((p) => p.status === "Completed" && p.paidAt >= b.start && p.paidAt <= b.end)
-            .reduce((sum, p) => sum + p.amount, 0) / 100
+            .reduce((sum, p) => sum + p.amount, 0) +
+          allBankTxns
+            .filter((t) => t.type === "money_in" && t.date >= b.start && t.date <= b.end)
+            .reduce((sum, t) => sum + t.amount, 0)) / 100
         : 0,
       cases: allCases.filter((c) => c._creationTime >= b.start && c._creationTime <= b.end).length,
       clients: canSeeClients

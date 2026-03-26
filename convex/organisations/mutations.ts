@@ -252,6 +252,37 @@ export const updateSettings = authenticatedMutation({
   },
 });
 
+/** Admin-only: update client portal settings (slug + enabled flag). */
+export const updatePortalSettings = authenticatedMutation({
+  args: {
+    portalSlug: v.optional(v.string()),
+    portalEnabled: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+
+    if (args.portalSlug !== undefined) {
+      const slug = args.portalSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "");
+      if (slug.length < 3 || slug.length > 50) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Portal slug must be 3–50 characters." });
+      }
+      // Uniqueness check
+      const existing = await ctx.db
+        .query("organisations")
+        .withIndex("by_portal_slug", (q) => q.eq("portalSlug", slug))
+        .unique();
+      if (existing && existing._id !== ctx.user.organisationId) {
+        throw new ConvexError({ code: "CONFLICT", message: "This portal slug is already taken. Choose another." });
+      }
+      await ctx.db.patch(ctx.user.organisationId, { portalSlug: slug, portalEnabled: args.portalEnabled });
+    } else {
+      await ctx.db.patch(ctx.user.organisationId, { portalEnabled: args.portalEnabled });
+    }
+  },
+});
+
 /**
  * Internal: raw DB update for Stripe settings.
  * Called by the saveStripeSettings action (which handles auth + encryption).
@@ -368,6 +399,74 @@ export const softDeleteOrg = authenticatedMutation({
         .filter((u) => u._id !== ctx.user._id && u.status === "active")
         .map((u) => ctx.db.patch(u._id, { status: "inactive" }))
     );
+  },
+});
+
+/** Admin: upsert appointment pricing for a given type. */
+export const upsertAppointmentPricing = authenticatedMutation({
+  args: {
+    appointmentType: v.string(),
+    priceInCents: v.number(),
+    currency: v.string(),
+    description: v.optional(v.string()),
+    isActive: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    if (args.priceInCents < 0) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Price cannot be negative." });
+    }
+    const existing = await ctx.db
+      .query("appointmentPricing")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .collect()
+      .then((list) => list.find((p) => p.appointmentType === args.appointmentType));
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        priceInCents: args.priceInCents,
+        currency: args.currency,
+        description: args.description,
+        isActive: args.isActive,
+      });
+    } else {
+      await ctx.db.insert("appointmentPricing", {
+        organisationId: ctx.user.organisationId,
+        ...args,
+      });
+    }
+  },
+});
+
+/** Admin: delete appointment pricing by ID. */
+export const deleteAppointmentPricing = authenticatedMutation({
+  args: { id: v.id("appointmentPricing") },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    const record = await ctx.db.get(args.id);
+    if (!record || record.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Pricing record not found." });
+    }
+    await ctx.db.delete(args.id);
+  },
+});
+
+/** Admin: toggle portal access for a single client. */
+export const setClientPortalEnabled = authenticatedMutation({
+  args: { clientId: v.id("clients"), enabled: v.boolean() },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    }
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
+    }
+    await ctx.db.patch(args.clientId, { portalEnabled: args.enabled });
   },
 });
 

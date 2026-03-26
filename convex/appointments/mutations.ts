@@ -200,8 +200,8 @@ export const update = authenticatedMutation({
 
     await ctx.db.patch(id, fields);
 
-    // Sync Google Calendar event if time or attendees changed
-    if (appt.googleEventId && (timeChanged || fields.attendees !== undefined || fields.title !== undefined)) {
+    // Sync Google Calendar event if time or attendees changed (skip portal-created appts with no createdBy)
+    if (appt.googleEventId && appt.createdBy && (timeChanged || fields.attendees !== undefined || fields.title !== undefined)) {
       await ctx.scheduler.runAfter(0, internal.googleCalendar.actions.updateEvent, {
         appointmentId: id,
         creatorUserId: appt.createdBy,
@@ -246,8 +246,8 @@ export const cancel = authenticatedMutation({
       deletedAt: Date.now(),
     });
 
-    // Cancel Google Calendar event (sends cancellation to all invitees)
-    if (appt.googleEventId) {
+    // Cancel Google Calendar event (sends cancellation to all invitees; skip portal-created appts)
+    if (appt.googleEventId && appt.createdBy) {
       await ctx.scheduler.runAfter(0, internal.googleCalendar.actions.cancelEvent, {
         appointmentId: args.id,
         creatorUserId: appt.createdBy,

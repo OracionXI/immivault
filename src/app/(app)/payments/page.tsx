@@ -20,9 +20,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown, RotateCcw, AlertTriangle } from "lucide-react";
-import { generateAuditReport } from "@/lib/pdf-generator";
+import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown, RotateCcw, AlertTriangle, Landmark, Plus, Star, CreditCard, Building2 } from "lucide-react";
+import { generateAuditReport, type AuditBankRow } from "@/lib/pdf-generator";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { RoleGuard } from "@/components/shared/role-guard";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useCurrency } from "@/hooks/use-currency";
@@ -40,6 +41,7 @@ function formatTs(ts: number) {
 }
 
 export default function PaymentsPage() {
+    const router = useRouter();
     const currency = useCurrency();
     const rawPayments = useQuery(api.billing.queries.listPayments) ?? [];
     const rawLinks = useQuery(api.billing.queries.listPaymentLinks) ?? [];
@@ -47,12 +49,23 @@ export default function PaymentsPage() {
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const org = useQuery(api.organisations.queries.mine);
+    const bankAccounts = useQuery(api.bankAccounts.queries.list) ?? [];
+    const allBankTxns = useQuery(api.bankTransactions.queries.listAll) ?? [];
     const createPaymentLink = useMutation(api.billing.mutations.createPaymentLink);
     const updatePayment = useMutation(api.billing.mutations.updatePayment);
     const removePayment = useMutation(api.billing.mutations.removePayment);
     const updatePaymentLink = useMutation(api.billing.mutations.updatePaymentLink);
     const removePaymentLink = useMutation(api.billing.mutations.removePaymentLink);
     const refundPayment = useAction(api.billing.actions.refundPayment);
+    const createBankAccount = useMutation(api.bankAccounts.mutations.create);
+    const setDefaultBankAccount = useMutation(api.bankAccounts.mutations.setDefault);
+    const removeBankAccount = useMutation(api.bankAccounts.mutations.remove);
+
+    const [transactionMode, setTransactionMode] = useState<"stripe" | "banking">("stripe");
+    const [createAccountOpen, setCreateAccountOpen] = useState(false);
+    const [createAccountLoading, setCreateAccountLoading] = useState(false);
+    const [createAccountForm, setCreateAccountForm] = useState({ bankName: "", accountName: "", accountNumber: "", routingNumber: "", currency: "" });
+    const [deleteAccountId, setDeleteAccountId] = useState<Id<"bankAccounts"> | null>(null);
 
     const [refundingId, setRefundingId] = useState<Id<"payments"> | null>(null);
     const [refundConfirmId, setRefundConfirmId] = useState<Id<"payments"> | null>(null);
@@ -384,6 +397,92 @@ export default function PaymentsPage() {
         }
     };
 
+    const handleCreateAccount = async () => {
+        if (!createAccountForm.bankName || !createAccountForm.accountName || !createAccountForm.accountNumber || !createAccountForm.routingNumber) return;
+        setCreateAccountLoading(true);
+        try {
+            await createBankAccount({
+                bankName: createAccountForm.bankName,
+                accountName: createAccountForm.accountName,
+                accountNumber: createAccountForm.accountNumber,
+                routingNumber: createAccountForm.routingNumber,
+                currency: createAccountForm.currency || undefined,
+            });
+            setCreateAccountOpen(false);
+            setCreateAccountForm({ bankName: "", accountName: "", accountNumber: "", routingNumber: "", currency: "" });
+            toast.success("Bank account added.");
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        } finally {
+            setCreateAccountLoading(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!deleteAccountId) return;
+        try {
+            await removeBankAccount({ id: deleteAccountId });
+            toast.success("Bank account removed.");
+            setDeleteAccountId(null);
+        } catch (error) {
+            toast.error(getErrorMessage(error));
+        }
+    };
+
+    const bankAccountColumns: Column<(typeof bankAccounts)[number]>[] = [
+        {
+            key: "bankName",
+            label: "Bank",
+            render: (a) => (
+                <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">{a.bankName}</span>
+                    {a.isDefault && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">Default</span>}
+                </div>
+            ),
+        },
+        { key: "accountName", label: "Account Name" },
+        {
+            key: "accountNumber",
+            label: "Account Number",
+            render: (a) => <span className="font-mono text-sm">••••{a.accountNumber.slice(-4)}</span>,
+        },
+        {
+            key: "routingNumber",
+            label: "Routing Number",
+            render: (a) => <span className="font-mono text-sm">{a.routingNumber}</span>,
+        },
+        {
+            key: "currency",
+            label: "Currency",
+            render: (a) => <span>{a.currency ?? currency}</span>,
+        },
+        {
+            key: "actions",
+            label: "",
+            render: (a) => (
+                <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                    {!a.isDefault && (
+                        <Button
+                            variant="ghost" size="icon" className="h-8 w-8 text-amber-600 hover:text-amber-700"
+                            onClick={() => setDefaultBankAccount({ id: a._id })}
+                            title="Set as default"
+                        >
+                            <Star className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+                    <Button
+                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => setDeleteAccountId(a._id)}
+                        title="Remove account"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            ),
+        },
+    ];
+
     return (
         <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
@@ -408,34 +507,72 @@ export default function PaymentsPage() {
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="transactions">
-                    <DataTable<PaymentRow>
-                        data={payments}
-                        columns={paymentColumns}
-                        searchKey="clientName"
-                        searchPlaceholder="Search transactions..."
-                        filterDropdown={{
-                            key: "status",
-                            placeholder: "All Statuses",
-                            options: [
-                                { label: "Completed", value: "Completed" },
-                                { label: "Pending", value: "Pending" },
-                                { label: "Failed", value: "Failed" },
-                                { label: "Refunded", value: "Refunded" },
-                            ],
-                        }}
-                        headerAction={
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => setAuditModalOpen(true)}
-                            >
-                                <FileDown className="h-4 w-4" />
-                                Audit PDF
-                            </Button>
-                        }
-                    />
+                <TabsContent value="transactions" className="space-y-4">
+                    {/* Mode toggle */}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            size="sm"
+                            variant={transactionMode === "stripe" ? "default" : "outline"}
+                            className="gap-2"
+                            onClick={() => setTransactionMode("stripe")}
+                        >
+                            <CreditCard className="h-4 w-4" />
+                            Stripe Mode
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant={transactionMode === "banking" ? "default" : "outline"}
+                            className="gap-2"
+                            onClick={() => setTransactionMode("banking")}
+                        >
+                            <Landmark className="h-4 w-4" />
+                            Banking Mode
+                        </Button>
+                    </div>
+
+                    {transactionMode === "stripe" ? (
+                        <DataTable<PaymentRow>
+                            data={payments}
+                            columns={paymentColumns}
+                            searchKey="clientName"
+                            searchPlaceholder="Search transactions..."
+                            filterDropdown={{
+                                key: "status",
+                                placeholder: "All Statuses",
+                                options: [
+                                    { label: "Completed", value: "Completed" },
+                                    { label: "Pending", value: "Pending" },
+                                    { label: "Failed", value: "Failed" },
+                                    { label: "Refunded", value: "Refunded" },
+                                ],
+                            }}
+                            headerAction={
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-2"
+                                    onClick={() => setAuditModalOpen(true)}
+                                >
+                                    <FileDown className="h-4 w-4" />
+                                    Audit PDF
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <DataTable<(typeof bankAccounts)[number]>
+                            data={bankAccounts}
+                            columns={bankAccountColumns}
+                            searchKey="bankName"
+                            searchPlaceholder="Search accounts..."
+                            onRowClick={(a) => router.push(`/payments/bank/${a._id}`)}
+                            headerAction={
+                                <Button size="sm" className="gap-2" onClick={() => setCreateAccountOpen(true)}>
+                                    <Plus className="h-4 w-4" />
+                                    Add Bank Account
+                                </Button>
+                            }
+                        />
+                    )}
                 </TabsContent>
 
                 <TabsContent value="payment-links">
@@ -799,6 +936,80 @@ export default function PaymentsPage() {
             />
         </div>
 
+            {/* Create Bank Account Modal */}
+            <Dialog open={createAccountOpen} onOpenChange={setCreateAccountOpen}>
+                <DialogContent style={{ maxWidth: "560px" }}>
+                    <DialogHeader><DialogTitle>Add Bank Account</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Bank Name</Label>
+                                <Input
+                                    value={createAccountForm.bankName}
+                                    onChange={(e) => setCreateAccountForm({ ...createAccountForm, bankName: e.target.value })}
+                                    placeholder="e.g. Chase, Bank of America"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Account Name</Label>
+                                <Input
+                                    value={createAccountForm.accountName}
+                                    onChange={(e) => setCreateAccountForm({ ...createAccountForm, accountName: e.target.value })}
+                                    placeholder="e.g. Business Checking"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Account Number</Label>
+                                <Input
+                                    value={createAccountForm.accountNumber}
+                                    onChange={(e) => setCreateAccountForm({ ...createAccountForm, accountNumber: e.target.value })}
+                                    placeholder="Account number"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Routing Number</Label>
+                                <Input
+                                    value={createAccountForm.routingNumber}
+                                    onChange={(e) => setCreateAccountForm({ ...createAccountForm, routingNumber: e.target.value })}
+                                    placeholder="Routing number"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Currency (optional)</Label>
+                            <Input
+                                value={createAccountForm.currency}
+                                onChange={(e) => setCreateAccountForm({ ...createAccountForm, currency: e.target.value.toUpperCase() })}
+                                placeholder={`Defaults to org currency (${currency})`}
+                                maxLength={3}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCreateAccountOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleCreateAccount}
+                            disabled={createAccountLoading || !createAccountForm.bankName || !createAccountForm.accountName || !createAccountForm.accountNumber || !createAccountForm.routingNumber}
+                        >
+                            {createAccountLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                            Add Account
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <ConfirmDialog
+                open={!!deleteAccountId}
+                onOpenChange={(open) => { if (!open) setDeleteAccountId(null); }}
+                title="Remove Bank Account"
+                description="Are you sure you want to remove this bank account? All associated transactions will also be deleted."
+                confirmText="Remove"
+                variant="destructive"
+                onConfirm={handleDeleteAccount}
+            />
+
             {/* Refund Confirm Dialog */}
             <ConfirmDialog
                 open={!!refundConfirmId}
@@ -855,6 +1066,23 @@ export default function PaymentsPage() {
                                 const fmtMonth = (ym: string) =>
                                     new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "numeric" });
 
+                                const accountMap = new Map(bankAccounts.map((a) => [a._id, `${a.bankName} – ${a.accountName}`]));
+                                const filteredBankTxns = allBankTxns.filter((t) => {
+                                    if (fromTs && t.date < fromTs) return false;
+                                    if (toTs && t.date > toTs) return false;
+                                    return true;
+                                });
+                                const bankAuditRows: AuditBankRow[] = filteredBankTxns.map((t) => ({
+                                    description: t.description,
+                                    reference: t.reference,
+                                    amount: t.amount,
+                                    currency: t.currency,
+                                    type: t.type as "money_in" | "money_out",
+                                    dateDisplay: formatTs(t.date),
+                                    accountName: accountMap.get(t.bankAccountId) ?? "Unknown Account",
+                                    notes: t.notes,
+                                }));
+
                                 generateAuditReport(
                                     filtered.map((p) => ({
                                         reference: p.reference,
@@ -870,6 +1098,7 @@ export default function PaymentsPage() {
                                     auditFrom ? fmtMonth(auditFrom) : undefined,
                                     auditTo ? fmtMonth(auditTo) : undefined,
                                     currency,
+                                    bankAuditRows,
                                 );
                                 setAuditModalOpen(false);
                             }}

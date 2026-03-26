@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, GitBranch, Layers, Building2, FileText, Shield, CalendarClock, CreditCard } from "lucide-react";
+import { User, GitBranch, Layers, Building2, FileText, Shield, CalendarClock, CreditCard, Globe, DollarSign } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
 const settingsTabs = [
@@ -15,7 +15,9 @@ const settingsTabs = [
     { title: "Role Types",      href: "/settings/role-types",      icon: Shield,    adminOnly: true  },
     { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
     { title: "Appt Types",      href: "/settings/appointment-types", icon: CalendarClock, adminOnly: true },
-    { title: "Payments",        href: "/payments/settings",          icon: CreditCard,    adminOnly: true },
+    { title: "Payments",        href: "/payments/settings",            icon: CreditCard,    adminOnly: true },
+    { title: "Client Portal",  href: "/settings/portal",              icon: Globe,         adminOnly: true },
+    { title: "Appt Pricing",   href: "/settings/appointment-pricing", icon: DollarSign,    adminOnly: true },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

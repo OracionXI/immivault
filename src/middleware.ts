@@ -13,6 +13,9 @@ const isPublicRoute = createRouteMatcher([
   "/waiting(.*)",
   "/privacy",
   "/terms",
+  // Client portal — has its own session-cookie auth, not Clerk
+  "/portal(.*)",
+  "/api/portal(.*)",
 ]);
 
 const isAuthRoute = createRouteMatcher([

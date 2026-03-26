@@ -472,6 +472,68 @@ export const processStripeWebhookPayment = internalMutation({
       paidAt: now,
       invoiceId: link.invoiceId,
     });
+
+    // Auto-create appointment for portal-initiated appointment booking payments
+    if (link.appointmentPricingId && link.pendingAppointmentAt) {
+      const pricing = await ctx.db.get(link.appointmentPricingId);
+      if (pricing) {
+        const durationMs = (link.pendingAppointmentDuration ?? 60) * 60_000;
+        const endAt = link.pendingAppointmentAt + durationMs;
+
+        // Find the client's active case manager for auto-assignment
+        const activeCase = await ctx.db
+          .query("cases")
+          .withIndex("by_client", (q) => q.eq("clientId", link.clientId))
+          .filter((q) => q.neq(q.field("status"), "Archive"))
+          .first();
+
+        await ctx.db.insert("appointments", {
+          organisationId: link.organisationId,
+          clientId: link.clientId,
+          title: `${pricing.appointmentType} (Portal Booking)`,
+          meetingType: "case_appointment",
+          type: pricing.appointmentType,
+          status: "Upcoming",
+          startAt: link.pendingAppointmentAt,
+          endAt,
+          ...(activeCase?.assignedTo ? { assignedTo: activeCase.assignedTo } : {}),
+        });
+      }
+    }
+  },
+});
+
+/**
+ * Internal mutation — creates a payment link for a portal-initiated appointment booking.
+ * No Clerk auth required (portal session is validated in the HTTP action).
+ */
+export const createPortalPaymentLink = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    amount: v.number(),
+    description: v.string(),
+    appointmentPricingId: v.id("appointmentPricing"),
+    pendingAppointmentAt: v.number(),
+    pendingAppointmentDuration: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const randomBytes = new Uint8Array(16);
+    crypto.getRandomValues(randomBytes);
+    const urlToken = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    return await ctx.db.insert("paymentLinks", {
+      organisationId: args.organisationId,
+      clientId: args.clientId,
+      amount: args.amount,
+      description: args.description,
+      status: "Active",
+      paymentType: "Full Amount",
+      urlToken,
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+      appointmentPricingId: args.appointmentPricingId,
+      pendingAppointmentAt: args.pendingAppointmentAt,
+      pendingAppointmentDuration: args.pendingAppointmentDuration,
+    });
   },
 });
 

@@ -169,6 +169,8 @@ function SignupForm() {
                 {error && <ErrorBox message={error} />}
             </div>
 
+            <div id="clerk-captcha" />
+
             <Button type="submit" className="h-11 w-full rounded-xl" disabled={loading || !isLoaded}>
                 {loading ? <span className="flex items-center gap-2"><Spinner />Creating account…</span> : "Create account"}
             </Button>

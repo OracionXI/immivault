@@ -83,6 +83,11 @@ export const getPaymentLinkForAction = internalQuery({
   },
 });
 
+export const getPaymentLinkById = internalQuery({
+  args: { id: v.id("paymentLinks") },
+  handler: async (ctx, args) => ctx.db.get(args.id),
+});
+
 /** All payment links in the org. */
 export const listPaymentLinks = authenticatedQuery({
   args: {},
@@ -115,6 +120,24 @@ export const getPaymentInternal = internalQuery({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal: count recent portal appointment booking links for a client.
+ * Used to rate-limit the portal booking endpoint (max 5 per hour).
+ */
+export const countRecentPortalBookings = internalQuery({
+  args: { organisationId: v.id("organisations"), clientId: v.id("clients"), since: v.number() },
+  handler: async (ctx, args) => {
+    const links = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .filter((q) => q.eq(q.field("clientId"), args.clientId))
+      .collect();
+    return links.filter(
+      (l) => l.appointmentPricingId !== undefined && l._creationTime >= args.since
+    ).length;
   },
 });
 

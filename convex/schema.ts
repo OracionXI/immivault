@@ -10,9 +10,12 @@ export default defineSchema({
     agreementSignature: v.optional(v.string()),  // typed name or PNG data URL
     agreementSignedAt: v.optional(v.number()),   // epoch ms
     deletedAt: v.optional(v.number()),           // epoch ms; set on soft-delete
+    portalSlug: v.optional(v.string()),          // unique portal URL slug e.g. "smith-law"
+    portalEnabled: v.optional(v.boolean()),      // whether the client portal is active
   })
     .index("by_slug", ["slug"])
-    .index("by_deleted_at", ["deletedAt"]),
+    .index("by_deleted_at", ["deletedAt"])
+    .index("by_portal_slug", ["portalSlug"]),
 
   // ─── Staff Invitations ────────────────────────────────────────────────────
   invitations: defineTable({
@@ -61,13 +64,22 @@ export default defineSchema({
   // ─── Clients ──────────────────────────────────────────────────────────────────
   clients: defineTable({
     organisationId: v.id("organisations"),
+    prefix: v.optional(v.string()),          // Mr. / Mrs. / Ms. / Dr. / Esq.
     firstName: v.string(),
+    middleName: v.optional(v.string()),
     lastName: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
-    nationality: v.optional(v.string()),
-    dateOfBirth: v.optional(v.number()),
+    mobilePhone: v.optional(v.string()),
+    nationality: v.optional(v.string()),     // country of citizenship
+    countryOfBirth: v.optional(v.string()),
+    dateOfBirth: v.optional(v.number()),     // epoch ms
+    maritalStatus: v.optional(v.string()),   // Single / Married / Divorced / Widowed / Separated
+    passportNumber: v.optional(v.string()),
+    languagePreference: v.optional(v.string()),
     address: v.optional(v.string()),
+    referralSource: v.optional(v.string()),
+    notes: v.optional(v.string()),
     status: v.union(
       v.literal("Active"),
       v.literal("Inactive"),
@@ -75,9 +87,13 @@ export default defineSchema({
     ),
     assignedTo: v.optional(v.id("users")),
     contractAmount: v.optional(v.number()),  // in cents; the signed contract total
+    portalEnabled: v.optional(v.boolean()),    // whether this client can access the portal
+    lastPortalLogin: v.optional(v.number()),   // epoch ms of last portal login
+    profileCompleted: v.optional(v.boolean()), // true after client completes portal onboarding wizard
   })
     .index("by_org", ["organisationId"])
     .index("by_org_and_status", ["organisationId", "status"])
+    .index("by_org_and_email", ["organisationId", "email"])
     .index("by_assigned", ["assignedTo"]),
 
   // ─── Cases ────────────────────────────────────────────────────────────────────
@@ -169,8 +185,8 @@ export default defineSchema({
     caseId: v.optional(v.id("cases")),
     // assignedTo = the host (case manager or admin who owns the meeting)
     assignedTo: v.optional(v.id("users")),
-    // createdBy = who created it (used for edit/cancel permission checks)
-    createdBy: v.id("users"),
+    // createdBy = who created it (used for edit/cancel permission checks); optional for portal-created appointments
+    createdBy: v.optional(v.id("users")),
     title: v.string(),
     meetingType: v.union(
       v.literal("case_appointment"),
@@ -297,10 +313,14 @@ export default defineSchema({
     )),
     urlToken: v.string(),
     expiresAt: v.number(),
-    createdBy: v.id("users"),
+    createdBy: v.optional(v.id("users")),              // undefined for portal-initiated links
     caseId: v.optional(v.id("cases")),
     nextPaymentDate: v.optional(v.number()),           // epoch ms; when next installment is due
     nextPaymentOverdueCreated: v.optional(v.boolean()), // true once overdue invoice generated for this link
+    // Portal appointment booking fields
+    appointmentPricingId: v.optional(v.id("appointmentPricing")),
+    pendingAppointmentAt: v.optional(v.number()),      // epoch ms; requested start time
+    pendingAppointmentDuration: v.optional(v.number()), // minutes
   })
     .index("by_token", ["urlToken"])
     .index("by_org", ["organisationId"]),
@@ -310,8 +330,10 @@ export default defineSchema({
     organisationId: v.id("organisations"),
     entityType: v.union(v.literal("case"), v.literal("task")),
     entityId: v.string(),
-    authorId: v.id("users"),
+    authorId: v.optional(v.id("users")),         // staff author (undefined for portal comments)
+    authorClientId: v.optional(v.id("clients")), // portal client author
     body: v.string(),
+    visibility: v.optional(v.union(v.literal("internal"), v.literal("external"))),
   })
     .index("by_entity", ["entityType", "entityId"])
     .index("by_org", ["organisationId"]),
@@ -323,14 +345,89 @@ export default defineSchema({
     accountName: v.string(),
     accountNumber: v.string(),
     routingNumber: v.string(),
+    currency: v.optional(v.string()), // e.g. "USD", defaults to org default
     isDefault: v.boolean(),
   }).index("by_org", ["organisationId"]),
+
+  // ─── Bank Transactions ────────────────────────────────────────────────────────
+  bankTransactions: defineTable({
+    organisationId: v.id("organisations"),
+    bankAccountId: v.id("bankAccounts"),
+    type: v.union(v.literal("money_in"), v.literal("money_out")),
+    amount: v.number(), // in cents
+    currency: v.string(),
+    description: v.string(),
+    reference: v.optional(v.string()),
+    date: v.number(), // unix timestamp ms
+    notes: v.optional(v.string()),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_account", ["bankAccountId"]),
 
   // ─── Invoice Counters (atomic per-org counter to prevent duplicate invoice numbers) ─
   invoiceCounters: defineTable({
     organisationId: v.id("organisations"),
     nextNumber: v.number(), // starts at 1, incremented atomically on each use
   }).index("by_org", ["organisationId"]),
+
+  // ─── Client Portal — Magic Links ─────────────────────────────────────────────
+  portalMagicLinks: defineTable({
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    tokenHash: v.string(),            // SHA-256(rawToken) hex — never store raw
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),   // set when consumed (single-use)
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_client", ["clientId"]),
+
+  // ─── Client Portal — OTP Codes ────────────────────────────────────────────────
+  portalOtpCodes: defineTable({
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    codeHash: v.string(),             // SHA-256(6-digit code) hex
+    expiresAt: v.number(),
+    attempts: v.number(),             // failed-attempt counter (lockout at 5)
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_client", ["clientId"]),
+
+  // ─── Client Portal — Sessions ─────────────────────────────────────────────────
+  portalSessions: defineTable({
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    sessionHash: v.string(),          // SHA-256(rawSessionToken) hex
+    expiresAt: v.number(),
+    lastSeenAt: v.number(),
+    userAgent: v.optional(v.string()),
+  })
+    .index("by_session_hash", ["sessionHash"])
+    .index("by_client", ["clientId"]),
+
+  // ─── Appointment Pricing ──────────────────────────────────────────────────────
+  appointmentPricing: defineTable({
+    organisationId: v.id("organisations"),
+    appointmentType: v.string(),      // matches appointmentTypes in settings
+    priceInCents: v.number(),
+    currency: v.string(),
+    description: v.optional(v.string()),
+    isActive: v.boolean(),
+  })
+    .index("by_org", ["organisationId"]),
+
+  // ─── Client Portal — Notifications ───────────────────────────────────────────
+  portalNotifications: defineTable({
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    type: v.string(),                 // "case_update" | "invoice_created" | "payment_received" | "appointment_confirmed"
+    title: v.string(),
+    message: v.string(),
+    entityType: v.optional(v.string()),
+    entityId: v.optional(v.string()),
+    read: v.boolean(),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_client_unread", ["clientId", "read"]),
 
   // ─── Rate Limits (fixed-window counter, server-side only) ────────────────────
   rateLimits: defineTable({

@@ -1,7 +1,8 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, MutationCtx } from "../_generated/server";
 import { authenticatedMutation } from "../lib/auth";
 import { v, ConvexError } from "convex/values";
 import { checkRateLimit } from "../lib/rateLimit";
+import { Id } from "../_generated/dataModel";
 
 /**
  * Called by the Clerk webhook (http.ts) when a new user joins an org.
@@ -216,6 +217,20 @@ export const disconnectGoogle = authenticatedMutation({
   },
 });
 
+/** Clears assignedTo on all cases, tasks, and appointments belonging to a user. */
+async function unassignAllWork(ctx: MutationCtx, userId: Id<"users">) {
+  const [cases, tasks, appointments] = await Promise.all([
+    ctx.db.query("cases").withIndex("by_assigned", (q) => q.eq("assignedTo", userId)).collect(),
+    ctx.db.query("tasks").withIndex("by_assigned", (q) => q.eq("assignedTo", userId)).collect(),
+    ctx.db.query("appointments").withIndex("by_assigned", (q) => q.eq("assignedTo", userId)).collect(),
+  ]);
+  await Promise.all([
+    ...cases.map((c) => ctx.db.patch(c._id, { assignedTo: undefined })),
+    ...tasks.map((t) => ctx.db.patch(t._id, { assignedTo: undefined })),
+    ...appointments.map((a) => ctx.db.patch(a._id, { assignedTo: undefined })),
+  ]);
+}
+
 /** Admin-only: update a staff member's role and activation status.
  *  `roleId` is the custom/display role ID. The permission tier (users.role)
  *  is resolved from the org's customRoles settings. */
@@ -236,12 +251,32 @@ export const updateMember = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "User not found." });
     }
 
-    // Admin cannot have their role changed via this path
+    // Prevent self-role-change (accidental admin lockout)
+    if (args.id === ctx.user._id) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "You cannot change your own role." });
+    }
+
+    // Promoting to admin
+    if (args.roleId === "admin") {
+      const roleChanged = member.role !== "admin";
+      await ctx.db.patch(args.id, { role: "admin", roleId: undefined, status: args.status });
+      if (roleChanged) await unassignAllWork(ctx, args.id);
+      return;
+    }
+
+    // Demoting an existing admin — ensure at least one admin remains
     if (member.role === "admin") {
-      throw new ConvexError({
-        code: "CONFLICT",
-        message: "Cannot change the admin's role. Each organisation must have exactly one admin.",
-      });
+      const admins = await ctx.db
+        .query("users")
+        .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+        .filter((q) => q.eq(q.field("role"), "admin"))
+        .collect();
+      if (admins.length <= 1) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Cannot demote the only admin. Promote another member to admin first.",
+        });
+      }
     }
 
     // Resolve permission tier from the org's customRoles
@@ -259,10 +294,12 @@ export const updateMember = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Role not found in organisation settings." });
     }
 
+    const roleChanged = member.role !== customRole.permissionLevel || member.roleId !== args.roleId;
     await ctx.db.patch(args.id, {
       role: customRole.permissionLevel,
       roleId: args.roleId,
       status: args.status,
     });
+    if (roleChanged) await unassignAllWork(ctx, args.id);
   },
 });

@@ -100,7 +100,8 @@ export function TaskDetailDialog({ task, assigneeName, caseName, onClose, onEdit
         return <DocAttachmentPreview docId={id} name={name} mimeType={doc.mimeType} />;
     }
 
-    function getAuthorName(authorId: string) {
+    function getAuthorName(authorId: string | undefined) {
+        if (!authorId) return "Client";
         if (authorId === me?._id) return "You";
         return orgUsers.find((u) => u._id === authorId)?.fullName ?? "Unknown";
     }

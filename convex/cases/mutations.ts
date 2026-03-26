@@ -232,9 +232,12 @@ export const update = authenticatedMutation({
 
     await ctx.db.patch(id, patch);
 
-    // When a new assignee is set, skip onCaseUpdated entirely — the case_assigned
-    // notification is sufficient. Only fire onCaseUpdated for other field edits.
-    if (!newAssigneeId && (Object.keys(fields).length > 0 || assignedTo === null)) {
+    // When a new assignee is set, skip onCaseUpdated — case_assigned is sufficient.
+    // Also skip onCaseUpdated when status is the ONLY field changing — onCaseStatusChanged
+    // covers that path. Only fire onCaseUpdated for genuine non-status field edits.
+    const nonStatusKeys = Object.keys(fields).filter((k) => k !== "status");
+    const hasNonStatusEdits = nonStatusKeys.length > 0 || assignedTo === null;
+    if (!newAssigneeId && hasNonStatusEdits) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
         caseId: id,
         updatedById: ctx.user._id,
@@ -294,11 +297,8 @@ export const updateStatus = authenticatedMutation({
 
     await ctx.db.patch(args.id, patch);
 
-    await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseUpdated, {
-      caseId: args.id,
-      updatedById: ctx.user._id,
-    });
-    // Notify assignee of status change
+    // updateStatus is status-only — onCaseStatusChanged is the correct notification.
+    // Never fire onCaseUpdated here to avoid duplicate notifications.
     if (args.status !== c.status) {
       await ctx.scheduler.runAfter(0, internal.notifications.actions.onCaseStatusChanged, {
         caseId: args.id,
