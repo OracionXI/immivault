@@ -108,8 +108,9 @@ export const createPaymentIntent = action({
     if (link.status !== "Active") throw new ConvexError("This payment link is no longer active.");
     if (link.expiresAt < Date.now()) throw new ConvexError("This payment link has expired.");
 
-    // Full Amount validation: link amount must match client contract amount
-    if (link.paymentType === "Full Amount") {
+    // Full Amount validation: link amount must match client contract amount.
+    // Appointment payment links are exempt — their amount is the appointment fee, not a contract payment.
+    if (link.paymentType === "Full Amount" && !link.appointmentPricingId) {
       const client = await ctx.runQuery(internal.clients.queries.getForAction, { id: link.clientId });
       if (client?.contractAmount && link.amount !== client.contractAmount) {
         throw new ConvexError(
@@ -141,18 +142,24 @@ export const createPaymentIntent = action({
 
     const stripe = new Stripe(secretKey, { apiVersion: "2026-02-25.clover" });
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: link.amount,           // already in cents
-      currency: rawCurrency,
-      metadata: {
-        token: args.token,
-        organisationId: link.organisationId,
-        clientId: link.clientId,
-        ...(link.invoiceId ? { invoiceId: link.invoiceId } : {}),
-        // Tax info for Stripe records (informational — tax is already included in amount)
-        ...(settings.taxRate ? { taxRate: String(settings.taxRate) } : {}),
-      },
-    });
+    let paymentIntent: Stripe.PaymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: link.amount,           // already in cents
+        currency: rawCurrency,
+        metadata: {
+          token: args.token,
+          organisationId: link.organisationId,
+          clientId: link.clientId,
+          ...(link.invoiceId ? { invoiceId: link.invoiceId } : {}),
+          // Tax info for Stripe records (informational — tax is already included in amount)
+          ...(settings.taxRate ? { taxRate: String(settings.taxRate) } : {}),
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not connect to payment provider.";
+      throw new ConvexError(`Payment initialisation failed: ${msg} Please try again in a moment.`);
+    }
 
     return {
       clientSecret: paymentIntent.client_secret!,

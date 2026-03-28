@@ -151,14 +151,14 @@ export const sendOtp = internalAction({
     // 6. Send email
     await sendEmail(
       args.email,
-      `Your ${org.name} portal login code`,
+      `${code} is your ${org.name} portal access code`,
       renderPortalEmail(
-        "Your One-Time Login Code",
+        `Access code for ${org.name}`,
         `<p>Hi ${client.firstName},</p>
-         <p>Your login code for the <strong>${org.name}</strong> client portal is:</p>
-         <p style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1d4ed8;margin:24px 0">${code}</p>
-         <p>This code expires in <strong>10 minutes</strong> and can only be used once.</p>
-         <p>If you did not request this code, you can safely ignore this email.</p>`,
+         <p>Here is your one-time access code for the <strong>${org.name}</strong> client portal:</p>
+         <p style="font-size:32px;font-weight:700;letter-spacing:6px;color:#1d4ed8;margin:24px 0;font-family:monospace">${code}</p>
+         <p>This code is valid for <strong>10 minutes</strong>.</p>
+         <p style="color:#6b7280;font-size:13px">If you did not request this, you can safely ignore this email.</p>`,
         org.name
       )
     );
@@ -310,6 +310,11 @@ export const verifySession = internalQuery({
     const org = await ctx.db.get(session.organisationId);
     if (!org || !org.portalEnabled) return null;
 
+    const orgSettings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", session.organisationId))
+      .unique();
+
     return {
       sessionId: session._id,
       clientId: client._id,
@@ -323,6 +328,7 @@ export const verifySession = internalQuery({
       org: {
         name: org.name,
         portalSlug: org.portalSlug,
+        currency: (orgSettings?.defaultCurrency ?? "USD").toUpperCase(),
       },
     };
   },

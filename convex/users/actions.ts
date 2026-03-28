@@ -33,6 +33,14 @@ export const deleteStaff = action({
       throw new ConvexError({ code: "NOT_FOUND", message: "User not found." });
     }
 
+    // ── Founder protection ───────────────────────────────────────────────────
+    if (target.isFounder && !caller.isFounder) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "The organisation founder can only be removed by themselves.",
+      });
+    }
+
     // ── Unassign all cases and tasks belonging to this user ──────────────────
     await ctx.runMutation(internal.users.mutations.cascadeUnassign, { userId: args.id });
 
@@ -111,13 +119,32 @@ export const inviteStaff = action({
       organisationId: user.organisationId,
     });
 
+    // ── Global email uniqueness — internal users must be unique across all orgs ──
+    const normalizedEmail = args.email.toLowerCase();
+    const [existingUser, existingInviteGlobal] = await Promise.all([
+      ctx.runQuery(internal.users.queries.getByEmailGlobal, { email: normalizedEmail }),
+      ctx.runQuery(internal.users.queries.getInviteByEmailGlobal, { email: normalizedEmail }),
+    ]);
+    if (existingUser && existingUser.organisationId !== user.organisationId) {
+      throw new ConvexError({
+        code: "EMAIL_TAKEN",
+        message: `${args.email} is already a member of another organisation and cannot be invited.`,
+      });
+    }
+    if (existingInviteGlobal && existingInviteGlobal.organisationId !== user.organisationId) {
+      throw new ConvexError({
+        code: "EMAIL_TAKEN",
+        message: `${args.email} already has a pending invitation to another organisation.`,
+      });
+    }
+
     const secretKey = requireEnv("CLERK_SECRET_KEY");
     const ONE_DAY = 24 * 60 * 60 * 1000;
 
-    // ── Check for an existing pending invite ─────────────────────────────────
+    // ── Check for an existing pending invite (same org) ──────────────────────
     const existing = await ctx.runQuery(internal.users.queries.getInviteByEmail, {
       organisationId: user.organisationId,
-      email: args.email,
+      email: normalizedEmail,
     });
 
     if (existing) {
@@ -146,7 +173,7 @@ export const inviteStaff = action({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        email_address: args.email,
+        email_address: normalizedEmail,
         // redirect_url tells Clerk where to send the user in the invite email.
         // Clerk appends ?__clerk_ticket=<token> to this URL.
         ...(args.redirectUrl ? { redirect_url: args.redirectUrl } : {}),
@@ -177,7 +204,7 @@ export const inviteStaff = action({
     const clerkData = await res.json().catch(() => ({})) as { id?: string; url?: string };
     await ctx.runMutation(internal.users.mutations.createInvite, {
       organisationId: user.organisationId,
-      email: args.email,
+      email: normalizedEmail,
       role: permissionLevel,
       roleId: args.roleId,
       invitedBy: user._id,

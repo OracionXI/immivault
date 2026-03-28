@@ -298,27 +298,92 @@ export default function OnboardingPage() {
                         </p>
                     </div>
 
-                    {/* ── Step 2: Agreement ── */}
-                    <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                    {/* ── Step 2: Review & Agreement ── */}
+                    <div className="space-y-3">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Administrator Agreement
+                            Review & Agreement
                         </p>
-                        <p className="text-sm text-foreground leading-relaxed">
-                            By creating this organisation, I confirm that I am authorised to act as
-                            its Administrator. I accept full responsibility for managing staff access,
-                            client data, and compliance with applicable laws and Ordena&apos;s
-                            Terms of Service.
-                        </p>
-                        <label className="flex items-start gap-3 cursor-pointer">
+
+                        {/* Terms of Service */}
+                        <div className="rounded-lg border border-border bg-muted/20 overflow-hidden">
+                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-border bg-muted/30">
+                                <span className="text-xs font-semibold text-foreground">Terms of Service</span>
+                                <a
+                                    href="/terms"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline"
+                                >
+                                    Open full document ↗
+                                </a>
+                            </div>
+                            <div className="h-44 overflow-y-auto px-3.5 py-3 text-xs text-muted-foreground leading-relaxed space-y-2">
+                                <p><span className="font-semibold text-foreground">1. Acceptance.</span> By using Ordena, you agree to be bound by these Terms of Service.</p>
+                                <p><span className="font-semibold text-foreground">2. Service.</span> Ordena is a cloud-based case management platform for law firms, including client management, case tracking, task management, document storage, appointment scheduling, billing, and a Client Portal.</p>
+                                <p><span className="font-semibold text-foreground">3. Eligibility.</span> You must be at least 18 years old and authorised to act on behalf of your organisation.</p>
+                                <p><span className="font-semibold text-foreground">4. Account Responsibilities.</span> You are responsible for all activity under your account. Organisation administrators are responsible for managing staff access.</p>
+                                <p><span className="font-semibold text-foreground">5. Acceptable Use.</span> You agree not to use the Service for unlawful purposes, upload malicious code, attempt unauthorised access, reverse engineer the Service, or resell access without consent.</p>
+                                <p><span className="font-semibold text-foreground">6. Client Portal.</span> Portal access is invitation-only and org-scoped. Administrators are responsible for ensuring portal access is granted only to legitimate clients.</p>
+                                <p><span className="font-semibold text-foreground">7. Google Calendar.</span> Optional integration with Google Calendar is governed by the Google API Services User Data Policy. You may revoke access at any time.</p>
+                                <p><span className="font-semibold text-foreground">8. Data Ownership.</span> You retain ownership of all data you input. We process it solely to provide the Service.</p>
+                                <p><span className="font-semibold text-foreground">9. Billing.</span> Subscription fees are non-refundable except as required by law. Ordena does not hold client funds directly.</p>
+                                <p><span className="font-semibold text-foreground">10. Organisation Deletion.</span> A 30-day grace period applies before all organisation data is permanently deleted.</p>
+                                <p><span className="font-semibold text-foreground">11. Intellectual Property.</span> The Service and its design are owned by Ordena. You may not copy or reproduce any part without written permission.</p>
+                                <p><span className="font-semibold text-foreground">12. Disclaimer.</span> The Service is provided &quot;as is&quot; without warranties of any kind.</p>
+                                <p><span className="font-semibold text-foreground">13. Limitation of Liability.</span> Ordena is not liable for indirect, incidental, or consequential damages.</p>
+                                <p><span className="font-semibold text-foreground">14. Termination.</span> We may suspend or terminate access if these Terms are violated. You may terminate via Settings at any time.</p>
+                                <p><span className="font-semibold text-foreground">15. Changes.</span> Material changes will be communicated via email. Continued use constitutes acceptance.</p>
+                                <p><span className="font-semibold text-foreground">16. Governing Law.</span> Disputes are resolved through binding arbitration or courts of competent jurisdiction.</p>
+                                <p><span className="font-semibold text-foreground">17. Contact.</span> Questions? Email aws200workspace@gmail.com</p>
+                            </div>
+                        </div>
+
+                        {/* Privacy Policy */}
+                        <div className="rounded-lg border border-border bg-muted/20 overflow-hidden">
+                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-border bg-muted/30">
+                                <span className="text-xs font-semibold text-foreground">Privacy Policy</span>
+                                <a
+                                    href="/privacy"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline"
+                                >
+                                    Open full document ↗
+                                </a>
+                            </div>
+                            <div className="h-44 overflow-y-auto px-3.5 py-3 text-xs text-muted-foreground leading-relaxed space-y-2">
+                                <p><span className="font-semibold text-foreground">1. Introduction.</span> Ordena collects and uses information to provide the Service at ordenacrm.com. By using Ordena, you agree to this policy.</p>
+                                <p><span className="font-semibold text-foreground">2. Information We Collect.</span> We collect account information (name, email, organisation), Google Calendar data when authorised, client and case data you enter, client portal data (profile, hashed session tokens, OTP codes), payment information (handled by Stripe — we do not store card numbers), and anonymised usage data.</p>
+                                <p><span className="font-semibold text-foreground">3. How We Use It.</span> To operate the platform, sync calendar events, send transactional emails, authenticate users, process client payments, and send profile completion reminders to portal clients.</p>
+                                <p><span className="font-semibold text-foreground">4. Google API Services.</span> We adhere to the Google API Services User Data Policy, including Limited Use requirements. Google Calendar data is used solely to manage appointments and is never shared with third parties or used for advertising.</p>
+                                <p><span className="font-semibold text-foreground">5. Data Sharing.</span> We do not sell your data. We share it only with: Convex (infrastructure), Clerk (authentication), Vercel (hosting), Resend (email), Stripe (payments), and Google (calendar — when authorised).</p>
+                                <p><span className="font-semibold text-foreground">6. Data Retention.</span> Data is retained while your account is active. Upon deletion, all data is permanently removed after a 30-day grace period. Portal tokens expire automatically.</p>
+                                <p><span className="font-semibold text-foreground">7. Security.</span> We use TLS, AES-256-GCM encryption, SHA-256 hashing for tokens, httpOnly secure cookies for portal sessions, role-based access control, and rate limiting.</p>
+                                <p><span className="font-semibold text-foreground">8. Your Rights.</span> You have the right to access, correct, or delete your data, revoke Google Calendar access, export data, and delete portal profile data.</p>
+                                <p><span className="font-semibold text-foreground">9. Children.</span> Ordena is not directed at children under 16.</p>
+                                <p><span className="font-semibold text-foreground">10. Changes.</span> We will notify users of material changes via email.</p>
+                                <p><span className="font-semibold text-foreground">11. Contact.</span> Questions? Email aws200workspace@gmail.com</p>
+                            </div>
+                        </div>
+
+                        {/* Agreement checkbox */}
+                        <label className="flex items-start gap-3 cursor-pointer pt-1">
                             <input
                                 type="checkbox"
                                 checked={agreed}
                                 onChange={(e) => setAgreed(e.target.checked)}
-                                className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                                className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer shrink-0"
                             />
                             <span className="text-sm text-foreground">
-                                I agree to the Terms of Service and accept responsibility as Administrator
-                                of this organisation.
+                                I have read and agree to Ordena&apos;s{" "}
+                                <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                                    Terms of Service
+                                </a>{" "}
+                                and{" "}
+                                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                                    Privacy Policy
+                                </a>
+                                , and I accept responsibility as Administrator of this organisation.
                             </span>
                         </label>
                     </div>

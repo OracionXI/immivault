@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { checkRateLimit } from "../lib/rateLimit";
 import { requireAdmin, requireAdminOrAccountant } from "../lib/rbac";
+import { internal } from "../_generated/api";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 
@@ -411,6 +412,71 @@ export const createPaymentLink = authenticatedMutation({
 });
 
 /**
+ * Record a portal case fee payment directly — no paymentLinks record needed.
+ * Called by confirmCaseFeePayment after verifying the PaymentIntent with Stripe.
+ * Idempotent via by_stripe_intent index.
+ */
+export const recordCaseFeePayment = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    amountCents: v.number(),
+    nextPaymentDate: v.optional(v.number()),
+    stripePaymentIntentId: v.string(),
+    currency: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Idempotency — skip if already recorded
+    const existing = await ctx.db
+      .query("payments")
+      .withIndex("by_stripe_intent", (q) =>
+        q.eq("organisationId", args.organisationId).eq("stripePaymentIntentId", args.stripePaymentIntentId)
+      )
+      .unique();
+    if (existing) return;
+
+    const now = Date.now();
+
+    await ctx.db.insert("payments", {
+      organisationId: args.organisationId,
+      clientId: args.clientId,
+      amount: args.amountCents,
+      currency: args.currency,
+      method: "Card",
+      status: "Completed",
+      paidAt: now,
+      stripePaymentIntentId: args.stripePaymentIntentId,
+      reference: args.stripePaymentIntentId,
+      type: "case_fee",
+    });
+
+    await recordPaidInvoiceAndUpdateDraft(ctx, {
+      organisationId: args.organisationId,
+      clientId: args.clientId,
+      amount: args.amountCents,
+      description: "Case fee payment",
+      paidAt: now,
+    });
+
+    if (args.nextPaymentDate) {
+      await ctx.db.patch(args.clientId, { nextPaymentDate: args.nextPaymentDate });
+    }
+
+    const client = await ctx.db.get(args.clientId);
+    if (client) {
+      await ctx.db.insert("portalNotifications", {
+        organisationId: args.organisationId,
+        clientId: args.clientId,
+        type: "payment_received",
+        title: "Payment Received",
+        message: `Your payment of ${(args.amountCents / 100).toFixed(2)} ${args.currency.toUpperCase()} has been received and recorded against your case fee.`,
+        read: false,
+      });
+    }
+  },
+});
+
+/**
  * Internal mutation — called by the Stripe webhook action after verifying signature.
  * Idempotent: skips if the PaymentIntent was already recorded.
  * organisationId is passed from the webhook handler and verified against the payment link
@@ -442,7 +508,13 @@ export const processStripeWebhookPayment = internalMutation({
       .unique();
     const currency = orgSettings?.defaultCurrency ?? "USD";
 
-    await ctx.db.insert("payments", {
+    const paymentType = link.isPortalCaseFee
+      ? ("case_fee" as const)
+      : link.appointmentPricingId
+      ? ("appointment" as const)
+      : undefined;
+
+    const paymentId = await ctx.db.insert("payments", {
       organisationId: link.organisationId,
       invoiceId: link.invoiceId,
       clientId: link.clientId,
@@ -454,6 +526,7 @@ export const processStripeWebhookPayment = internalMutation({
       paidAt: now,
       stripePaymentIntentId: args.stripePaymentIntentId,
       reference: args.stripePaymentIntentId,
+      ...(paymentType ? { type: paymentType } : {}),
     });
 
     await ctx.db.patch(link._id, { status: "Used" });
@@ -473,6 +546,27 @@ export const processStripeWebhookPayment = internalMutation({
       invoiceId: link.invoiceId,
     });
 
+    // ── Always apply nextPaymentDate if set on the link (any payment type) ────────
+    if (link.nextPaymentDate) {
+      await ctx.db.patch(link.clientId, { nextPaymentDate: link.nextPaymentDate });
+    }
+
+    // ── Case fee payment: send portal notification ──────────────────────────────
+    if (link.isPortalCaseFee) {
+      const client = await ctx.db.get(link.clientId);
+      if (client) {
+        await ctx.db.insert("portalNotifications", {
+          organisationId: link.organisationId,
+          clientId: link.clientId,
+          type: "payment_received",
+          title: "Payment Received",
+          message: `Your payment of ${(args.amount / 100).toFixed(2)} ${currency.toUpperCase()} has been received and recorded against your case fee.`,
+          read: false,
+        });
+      }
+      return; // No appointment to create for case fee payments
+    }
+
     // Auto-create appointment for portal-initiated appointment booking payments
     if (link.appointmentPricingId && link.pendingAppointmentAt) {
       const pricing = await ctx.db.get(link.appointmentPricingId);
@@ -480,24 +574,93 @@ export const processStripeWebhookPayment = internalMutation({
         const durationMs = (link.pendingAppointmentDuration ?? 60) * 60_000;
         const endAt = link.pendingAppointmentAt + durationMs;
 
-        // Find the client's active case manager for auto-assignment
-        const activeCase = await ctx.db
-          .query("cases")
-          .withIndex("by_client", (q) => q.eq("clientId", link.clientId))
-          .filter((q) => q.neq(q.field("status"), "Archive"))
-          .first();
+        // Determine host (case manager) — prefer explicitly linked case, then fallback
+        let hostUserId: Id<"users"> | undefined;
+        let caseId: Id<"cases"> | undefined = link.caseId;
 
-        await ctx.db.insert("appointments", {
+        if (caseId) {
+          const linkedCase = await ctx.db.get(caseId);
+          if (linkedCase?.assignedTo) hostUserId = linkedCase.assignedTo;
+        } else {
+          const activeCase = await ctx.db
+            .query("cases")
+            .withIndex("by_client", (q) => q.eq("clientId", link.clientId))
+            .filter((q) => q.neq(q.field("status"), "Archive"))
+            .first();
+          if (activeCase) {
+            caseId = activeCase._id;
+            if (activeCase.assignedTo) hostUserId = activeCase.assignedTo;
+          }
+        }
+
+        // Build attendees: host + all unique task assignees on the case + the client
+        const attendees: Array<{ type: "internal" | "external"; userId?: Id<"users">; email: string; name: string }> = [];
+        const seenUserIds = new Set<string>();
+
+        const addUser = async (userId: Id<"users">) => {
+          if (seenUserIds.has(userId)) return;
+          seenUserIds.add(userId);
+          const u = await ctx.db.get(userId);
+          if (u) attendees.push({ type: "internal", userId, email: u.email, name: u.fullName });
+        };
+
+        if (hostUserId) await addUser(hostUserId);
+
+        if (caseId) {
+          const tasks = await ctx.db
+            .query("tasks")
+            .withIndex("by_case", (q) => q.eq("caseId", caseId!))
+            .collect();
+          for (const task of tasks) {
+            if (task.assignedTo) await addUser(task.assignedTo);
+          }
+        }
+
+        const client = await ctx.db.get(link.clientId);
+        if (client) {
+          attendees.push({ type: "external", email: client.email, name: `${client.firstName} ${client.lastName}`.trim() });
+        }
+
+        const apptModality = link.modality ?? "online";
+        const modalityLabel = apptModality === "offline" ? "In-Person" : "Online";
+
+        const appointmentId = await ctx.db.insert("appointments", {
           organisationId: link.organisationId,
           clientId: link.clientId,
-          title: `${pricing.appointmentType} (Portal Booking)`,
-          meetingType: "case_appointment",
+          caseId,
+          title: `${pricing.appointmentType} · ${modalityLabel} (Portal Booking)`,
+          meetingType: caseId ? "case_appointment" : "general_meeting",
           type: pricing.appointmentType,
-          status: "Upcoming",
+          modality: apptModality,
+          status: "PendingApproval",
+          portalBooking: true,
           startAt: link.pendingAppointmentAt,
           endAt,
-          ...(activeCase?.assignedTo ? { assignedTo: activeCase.assignedTo } : {}),
+          assignedTo: hostUserId,
+          attendees,
         });
+
+        // Link payment → appointment for future refund lookups
+        await ctx.db.patch(paymentId, { appointmentId });
+
+        // Notify case manager / admin for approval
+        await ctx.scheduler.runAfter(0, internal.appointments.jobs.notifyPendingApproval, {
+          appointmentId,
+        });
+
+        // Portal notification to the client — pending approval
+        if (client) {
+          await ctx.db.insert("portalNotifications", {
+            organisationId: link.organisationId,
+            clientId: link.clientId,
+            type: "appointment_pending",
+            title: "Appointment request received",
+            message: `Your ${pricing.appointmentType} appointment request is awaiting confirmation from your case manager.`,
+            entityType: "appointment",
+            entityId: appointmentId,
+            read: false,
+          });
+        }
       }
     }
   },
@@ -516,6 +679,8 @@ export const createPortalPaymentLink = internalMutation({
     appointmentPricingId: v.id("appointmentPricing"),
     pendingAppointmentAt: v.number(),
     pendingAppointmentDuration: v.number(),
+    caseId: v.optional(v.id("cases")),
+    modality: v.optional(v.union(v.literal("online"), v.literal("offline"))),
   },
   handler: async (ctx, args) => {
     const randomBytes = new Uint8Array(16);
@@ -524,6 +689,7 @@ export const createPortalPaymentLink = internalMutation({
     return await ctx.db.insert("paymentLinks", {
       organisationId: args.organisationId,
       clientId: args.clientId,
+      caseId: args.caseId,
       amount: args.amount,
       description: args.description,
       status: "Active",
@@ -533,6 +699,7 @@ export const createPortalPaymentLink = internalMutation({
       appointmentPricingId: args.appointmentPricingId,
       pendingAppointmentAt: args.pendingAppointmentAt,
       pendingAppointmentDuration: args.pendingAppointmentDuration,
+      modality: args.modality ?? "online",
     });
   },
 });
@@ -551,7 +718,7 @@ export const updatePayment = authenticatedMutation({
     ),
     status: v.union(
       v.literal("Completed"), v.literal("Pending"),
-      v.literal("Failed"), v.literal("Refunded")
+      v.literal("Failed"), v.literal("Refunded"), v.literal("On Hold")
     ),
     reference: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -565,6 +732,15 @@ export const updatePayment = authenticatedMutation({
     }
     const { id, ...fields } = args;
     await ctx.db.patch(id, fields);
+
+    // When manually marking a payment as Refunded, reopen the linked invoice
+    // so the client portal reflects the correct status.
+    if (args.status === "Refunded" && payment.status !== "Refunded" && payment.invoiceId) {
+      const invoice = await ctx.db.get(payment.invoiceId);
+      if (invoice?.status === "Paid") {
+        await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
+      }
+    }
   },
 });
 
@@ -641,6 +817,33 @@ export const checkRateLimitPublic = internalMutation({
   },
 });
 
+/**
+ * Helper: subtract a refunded amount (in cents) from the client's contract draft paidAmount.
+ * Safe to call multiple times — clamps to 0.
+ */
+async function subtractFromContractDraft(
+  ctx: MutationCtx,
+  clientId: Id<"clients">,
+  organisationId: Id<"organisations">,
+  refundedCents: number
+) {
+  const contractDraft = await ctx.db
+    .query("invoices")
+    .withIndex("by_client", (q) => q.eq("clientId", clientId))
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("isContractDraft"), true),
+        q.eq(q.field("organisationId"), organisationId)
+      )
+    )
+    .first();
+
+  if (contractDraft && (contractDraft.paidAmount ?? 0) > 0) {
+    const newPaidAmount = Math.max(0, (contractDraft.paidAmount ?? 0) - refundedCents / 100);
+    await ctx.db.patch(contractDraft._id, { paidAmount: newPaidAmount });
+  }
+}
+
 /** Marks a payment as Refunded by its Convex ID. Called by refundPayment action. */
 export const markPaymentRefunded = internalMutation({
   args: {
@@ -663,6 +866,8 @@ export const markPaymentRefunded = internalMutation({
         await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
       }
     }
+    // Deduct the refunded amount from the client's contract draft paidAmount
+    await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
   },
 });
 
@@ -693,6 +898,8 @@ export const markPaymentRefundedByIntentId = internalMutation({
         await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
       }
     }
+    // Deduct the refunded amount from the client's contract draft paidAmount
+    await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
   },
 });
 
@@ -815,6 +1022,19 @@ export const updateDisputeStatus = internalMutation({
 });
 
 /** Appends a webhook event to the audit log. */
+/** Internal: patch payment status + optional stripeRefundId (used by portal refund action). */
+export const patchPaymentStatus = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    status: v.union(v.literal("Completed"), v.literal("Pending"), v.literal("Failed"), v.literal("Refunded"), v.literal("On Hold"), v.literal("Voided")),
+    stripeRefundId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { paymentId, ...fields } = args;
+    await ctx.db.patch(paymentId, fields);
+  },
+});
+
 export const insertWebhookLog = internalMutation({
   args: {
     organisationId: v.id("organisations"),

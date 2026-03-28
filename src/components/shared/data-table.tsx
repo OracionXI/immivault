@@ -38,6 +38,10 @@ interface DataTableProps<T> {
     pageSize?: number;
     onRowClick?: (item: T) => void;
     filterDropdown?: FilterDropdown;
+    /** Controlled filter value. When provided, overrides internal filter state. */
+    filterValue?: string;
+    /** Called when the user changes the filter. Required when filterValue is provided. */
+    onFilterChange?: (value: string) => void;
     loading?: boolean;
     headerAction?: React.ReactNode;
 }
@@ -50,6 +54,8 @@ export function DataTable<T extends Record<string, unknown>>({
     pageSize = 10,
     onRowClick,
     filterDropdown,
+    filterValue,
+    onFilterChange,
     loading = false,
     headerAction,
 }: DataTableProps<T>) {
@@ -57,7 +63,15 @@ export function DataTable<T extends Record<string, unknown>>({
     const [page, setPage] = useState(0);
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-    const [activeFilter, setActiveFilter] = useState("all");
+    const [internalFilter, setInternalFilter] = useState("all");
+
+    // Use controlled filter if provided, otherwise internal state
+    const activeFilter = filterValue !== undefined ? filterValue : internalFilter;
+    const setActiveFilter = (v: string) => {
+        if (onFilterChange) onFilterChange(v);
+        else setInternalFilter(v);
+        setPage(0);
+    };
 
     const filtered = useMemo(() => {
         let result = [...data];
@@ -133,7 +147,7 @@ export function DataTable<T extends Record<string, unknown>>({
                     {filterDropdown && (
                         <Select
                             value={activeFilter}
-                            onValueChange={(v) => { setActiveFilter(v); setPage(0); }}
+                            onValueChange={(v) => setActiveFilter(v)}
                         >
                             <SelectTrigger className="w-[140px] sm:w-44">
                                 <SelectValue placeholder={filterDropdown.placeholder} />

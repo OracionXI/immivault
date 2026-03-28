@@ -44,7 +44,7 @@ export const syncFromClerk = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        email: args.email,
+        email: args.email.toLowerCase(),
         fullName: args.fullName,
         avatarUrl: args.avatarUrl,
       });
@@ -58,7 +58,7 @@ export const syncFromClerk = internalMutation({
     return await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       tokenIdentifier: args.tokenIdentifier,
-      email: args.email,
+      email: args.email.toLowerCase(),
       fullName: args.fullName,
       avatarUrl: args.avatarUrl,
       organisationId: args.organisationId,
@@ -88,7 +88,7 @@ export const updateFromClerk = internalMutation({
     if (!user) return;
 
     await ctx.db.patch(user._id, {
-      ...(args.email && { email: args.email }),
+      ...(args.email && { email: args.email.toLowerCase() }),
       ...(args.fullName && { fullName: args.fullName }),
       ...(args.avatarUrl !== undefined && { avatarUrl: args.avatarUrl }),
     });
@@ -113,7 +113,7 @@ export const createInvite = internalMutation({
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
     await ctx.db.insert("invitations", {
       organisationId: args.organisationId,
-      email: args.email,
+      email: args.email.toLowerCase(),
       role: args.role,
       roleId: args.roleId,
       invitedBy: args.invitedBy,
@@ -254,6 +254,14 @@ export const updateMember = authenticatedMutation({
     // Prevent self-role-change (accidental admin lockout)
     if (args.id === ctx.user._id) {
       throw new ConvexError({ code: "FORBIDDEN", message: "You cannot change your own role." });
+    }
+
+    // Founder protection — only the founder can edit their own record
+    if (member.isFounder && !ctx.user.isFounder) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "The organisation founder's role can only be changed by themselves.",
+      });
     }
 
     // Promoting to admin

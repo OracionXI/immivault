@@ -49,7 +49,7 @@ export default function BillingPage() {
     const invoices = useMemo<DisplayInvoice[]>(
         () => rawInvoices.map((inv) => ({
             ...inv,
-            clientName: clientMap.get(inv.clientId) ?? "—",
+            clientName: clientMap.get(inv.clientId) ?? inv.clientName ?? "Deleted Client",
             caseName: inv.caseId ? (caseMap.get(inv.caseId) ?? "—") : "—",
             dueDateDisplay: inv.isContractDraft ? "Contract" : formatTs(inv.dueDate),
         })),

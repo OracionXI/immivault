@@ -4,7 +4,7 @@ export const metadata = {
 };
 
 export default function PrivacyPage() {
-    const lastUpdated = "March 25, 2026";
+    const lastUpdated = "March 27, 2026";
 
     return (
         <div className="min-h-screen bg-white">
@@ -20,7 +20,7 @@ export default function PrivacyPage() {
                             Ordena (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) provides a case management platform for law firms
                             and legal professionals. This Privacy Policy explains how we collect, use, disclose,
                             and safeguard your information when you use our service at{" "}
-                            <span className="font-medium">immivault.vercel.app</span>.
+                            <span className="font-medium">ordenacrm.com</span>.
                         </p>
                         <p className="mt-3">
                             By using Ordena, you agree to the collection and use of information in accordance
@@ -58,6 +58,33 @@ export default function PrivacyPage() {
                             on Convex cloud infrastructure and is accessible only to members of your
                             organisation.
                         </p>
+                        <h3 className="text-base font-medium text-gray-800 mt-4 mb-2">Client Portal Data</h3>
+                        <p>
+                            When clients access the Ordena Client Portal, we collect and store the following
+                            data to provide the portal service:
+                        </p>
+                        <ul className="list-disc pl-5 mt-2 space-y-2">
+                            <li>
+                                <span className="font-medium">Profile information</span> — name, date of birth,
+                                contact details, nationality, passport number, and address, as voluntarily
+                                provided by the client.
+                            </li>
+                            <li>
+                                <span className="font-medium">Authentication tokens</span> — one-time password
+                                (OTP) codes and magic-link tokens are stored as SHA-256 hashes only; the raw
+                                values are never persisted.
+                            </li>
+                            <li>
+                                <span className="font-medium">Session data</span> — session tokens are stored
+                                as SHA-256 hashes in our database. The raw session token is held only in an
+                                httpOnly, Secure, SameSite=Strict cookie on the client device and is never
+                                accessible to browser JavaScript.
+                            </li>
+                            <li>
+                                <span className="font-medium">Portal activity</span> — last login timestamp and
+                                notification history.
+                            </li>
+                        </ul>
                         <h3 className="text-base font-medium text-gray-800 mt-4 mb-2">Payment Information</h3>
                         <p>
                             Payment processing is handled directly by Stripe, Inc. via your organisation&apos;s
@@ -76,9 +103,10 @@ export default function PrivacyPage() {
                         <ul className="list-disc pl-5 space-y-2">
                             <li>To provide and operate the Ordena platform</li>
                             <li>To sync appointments with Google Calendar when you authorise this</li>
-                            <li>To send transactional emails (case assignments, invoice notifications, appointment reminders) via Resend</li>
-                            <li>To authenticate users securely via Clerk</li>
+                            <li>To send transactional emails (case assignments, invoice notifications, appointment reminders, portal login codes) via Resend</li>
+                            <li>To authenticate users and portal clients securely via Clerk and our own session system</li>
                             <li>To process client payments via your organisation&apos;s Stripe account</li>
+                            <li>To send portal clients daily reminders to complete their profile, where applicable</li>
                             <li>To improve platform reliability and performance</li>
                         </ul>
                     </section>
@@ -126,19 +154,32 @@ export default function PrivacyPage() {
                         <h2 className="text-xl font-semibold text-gray-900 mb-3">6. Data Retention</h2>
                         <p>
                             Your data is retained for as long as your organisation account is active.
-                            When an organisation is deleted, all associated data is permanently removed
-                            after a 30-day grace period. You may request deletion at any time by
-                            contacting us.
+                            When an organisation is deleted, all associated data — including client portal
+                            sessions, profile data, and notifications — is permanently removed after a
+                            30-day grace period. You may request deletion at any time by contacting us.
+                        </p>
+                        <p className="mt-3">
+                            Portal authentication tokens (OTP codes and magic links) expire automatically
+                            within 10 minutes and 72 hours respectively, and are invalidated upon first use.
+                            Portal sessions expire after 30 days of inactivity.
                         </p>
                     </section>
 
                     <section>
                         <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Security</h2>
                         <p>
-                            We implement industry-standard security measures including encryption in transit
-                            (TLS), encryption at rest for sensitive credentials (AES-256-GCM), role-based
-                            access control, and rate limiting. However, no method of transmission over the
-                            internet is 100% secure.
+                            We implement industry-standard security measures including:
+                        </p>
+                        <ul className="list-disc pl-5 mt-2 space-y-2">
+                            <li>Encryption in transit (TLS) for all communications</li>
+                            <li>AES-256-GCM encryption at rest for sensitive credentials</li>
+                            <li>SHA-256 hashing for all authentication tokens — raw values are never stored</li>
+                            <li>httpOnly, Secure, SameSite=Strict cookies for portal sessions</li>
+                            <li>Role-based access control and rate limiting</li>
+                            <li>Org-scoped data isolation — clients can only access their own organisation&apos;s portal</li>
+                        </ul>
+                        <p className="mt-3">
+                            However, no method of transmission over the internet is 100% secure.
                         </p>
                     </section>
 
@@ -150,6 +191,7 @@ export default function PrivacyPage() {
                             <li>Request correction or deletion of your data</li>
                             <li>Revoke Google Calendar access at any time</li>
                             <li>Export your organisation&apos;s data upon request</li>
+                            <li>Request deletion of your portal profile and session data</li>
                         </ul>
                     </section>
 

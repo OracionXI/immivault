@@ -71,9 +71,11 @@ export const stats = authenticatedQuery({
         .query("clients")
         .withIndex("by_org", (q) => q.eq("organisationId", orgId))
         .collect();
-      allClientsFull = allClients;
-      totalClients = allClients.length;
-      recentClients = [...allClients]
+      // Exclude Archived clients from headline count and trends — they are closed matters
+      const nonArchivedClients = allClients.filter((c) => c.status !== "Archived");
+      allClientsFull = nonArchivedClients;
+      totalClients = nonArchivedClients.length;
+      recentClients = [...nonArchivedClients]
         .sort((a, b) => b._creationTime - a._creationTime)
         .slice(0, 5);
     } else {

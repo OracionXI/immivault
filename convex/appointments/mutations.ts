@@ -31,7 +31,7 @@ const statusValidator = v.union(
 const typeValidator = v.string(); // validated at handler level (max 200)
 
 const attendeeValidator = v.object({
-  type: v.union(v.literal("internal"), v.literal("external")),
+  type: v.union(v.literal("internal"), v.literal("external"), v.literal("client")),
   userId: v.optional(v.id("users")),
   email: v.string(), // validated at handler level (max 254)
   name: v.string(),  // validated at handler level (max 200)
@@ -113,6 +113,23 @@ export const create = authenticatedMutation({
       status: "Upcoming",
       attendees: args.attendees ?? [],
     });
+
+    // Notify client via portal notification when a case appointment is created for them
+    if (args.clientId && args.meetingType === "case_appointment") {
+      const dateStr = new Date(args.startAt).toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+      await ctx.db.insert("portalNotifications", {
+        organisationId: ctx.user.organisationId,
+        clientId: args.clientId,
+        type: "appointment_scheduled",
+        title: "New appointment scheduled",
+        message: `A ${args.type} appointment has been scheduled for you on ${dateStr}.`,
+        entityType: "appointment",
+        entityId: appointmentId,
+        read: false,
+      });
+    }
 
     // Fire-and-forget: create Google Calendar event + send notifications
     await ctx.scheduler.runAfter(0, internal.googleCalendar.actions.createEvent, {
@@ -271,6 +288,152 @@ export const remove = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
     }
     await ctx.db.delete(args.id);
+  },
+});
+
+/** Admin or case manager: approve a pending portal appointment. */
+export const approvePortalAppointment = authenticatedMutation({
+  args: { id: v.id("appointments") },
+  handler: async (ctx, args) => {
+    if (ctx.user.role === "staff" || ctx.user.role === "accountant") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Case manager or admin privileges required." });
+    }
+
+    const appt = await ctx.db.get(args.id);
+    if (!appt || appt.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
+    }
+    if (appt.status !== "PendingApproval") {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment is not pending approval." });
+    }
+    if (ctx.user.role === "case_manager" && appt.assignedTo !== ctx.user._id) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "You can only approve appointments assigned to you." });
+    }
+
+    await ctx.db.patch(args.id, {
+      status: "Upcoming",
+      approvedBy: ctx.user._id,
+      approvedAt: Date.now(),
+    });
+
+    // Create Google Calendar event now that it's approved
+    const hostUserId = appt.assignedTo ?? ctx.user._id;
+    await ctx.scheduler.runAfter(0, internal.googleCalendar.actions.createEvent, {
+      appointmentId: args.id,
+      creatorUserId: hostUserId,
+    });
+
+    // Notify the client (portal notification + email)
+    if (appt.clientId) {
+      await ctx.db.insert("portalNotifications", {
+        organisationId: appt.organisationId,
+        clientId: appt.clientId,
+        type: "appointment_approved",
+        title: "Appointment confirmed",
+        message: `Your ${appt.type} appointment on ${new Date(appt.startAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} has been confirmed.`,
+        entityType: "appointment",
+        entityId: args.id,
+        read: false,
+      });
+    }
+    await ctx.scheduler.runAfter(0, internal.appointments.jobs.notifyApproved, {
+      appointmentId: args.id,
+    });
+
+    // If there is an On Hold payment, capture it now that the appointment is confirmed
+    if (appt.clientId) {
+      const payment = await ctx.db
+        .query("payments")
+        .withIndex("by_appointment", (q) => q.eq("appointmentId", args.id))
+        .unique();
+      if (payment && payment.status === "On Hold") {
+        await ctx.scheduler.runAfter(0, internal.portal.actions.captureAppointmentPayment, {
+          paymentId: payment._id,
+          organisationId: appt.organisationId,
+          clientId: appt.clientId,
+          appointmentId: args.id,
+          appointmentType: appt.type,
+          startAt: appt.startAt,
+        });
+      }
+    }
+  },
+});
+
+/** Admin or case manager: reject a pending portal appointment. */
+export const rejectPortalAppointment = authenticatedMutation({
+  args: { id: v.id("appointments"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    if (ctx.user.role === "staff" || ctx.user.role === "accountant") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Case manager or admin privileges required." });
+    }
+
+    const appt = await ctx.db.get(args.id);
+    if (!appt || appt.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Appointment not found." });
+    }
+    if (appt.status !== "PendingApproval") {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Appointment is not pending approval." });
+    }
+    if (ctx.user.role === "case_manager" && appt.assignedTo !== ctx.user._id) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "You can only reject appointments assigned to you." });
+    }
+
+    await ctx.db.patch(args.id, {
+      status: "Cancelled",
+      deletedAt: Date.now(),
+      rejectedBy: ctx.user._id,
+      rejectedAt: Date.now(),
+      rejectionReason: args.reason,
+    });
+
+    // Notify client
+    if (appt.clientId) {
+      const msg = args.reason
+        ? `Your ${appt.type} appointment request was not approved. Reason: ${args.reason}`
+        : `Your ${appt.type} appointment request was not approved. Please contact us to find another time.`;
+      await ctx.db.insert("portalNotifications", {
+        organisationId: appt.organisationId,
+        clientId: appt.clientId,
+        type: "appointment_rejected",
+        title: "Appointment not approved",
+        message: msg,
+        entityType: "appointment",
+        entityId: args.id,
+        read: false,
+      });
+    }
+    await ctx.scheduler.runAfter(0, internal.appointments.jobs.notifyRejected, {
+      appointmentId: args.id,
+      reason: args.reason,
+    });
+
+    // Handle payment based on status:
+    // — On Hold (auth not yet captured) → void the PI, no charge made
+    // — Completed (already captured, legacy path) → issue a refund
+    const payment = await ctx.db
+      .query("payments")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.id))
+      .unique();
+    if (payment && appt.clientId) {
+      if (payment.status === "On Hold") {
+        await ctx.scheduler.runAfter(0, internal.portal.actions.voidAppointmentPayment, {
+          paymentId: payment._id,
+          organisationId: appt.organisationId,
+          clientId: appt.clientId,
+          appointmentId: args.id,
+          appointmentType: appt.type,
+        });
+      } else if (payment.status === "Completed") {
+        await ctx.scheduler.runAfter(0, internal.portal.actions.refundForPortalCancellation, {
+          paymentId: payment._id,
+          organisationId: appt.organisationId,
+          clientId: appt.clientId,
+          appointmentId: args.id,
+          appointmentTitle: appt.title,
+        });
+      }
+    }
   },
 });
 

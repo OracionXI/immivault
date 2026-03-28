@@ -20,7 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Copy, ExternalLink, Loader2, Settings, Pencil, Trash2, FileDown, RotateCcw, AlertTriangle, Landmark, Plus, Star, CreditCard, Building2 } from "lucide-react";
+import { Copy, QrCode, Check, Loader2, Settings, Pencil, Trash2, FileDown, RotateCcw, AlertTriangle, Landmark, Plus, Star, CreditCard, Building2 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { generateAuditReport, type AuditBankRow } from "@/lib/pdf-generator";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -67,6 +68,7 @@ export default function PaymentsPage() {
     const [createAccountForm, setCreateAccountForm] = useState({ bankName: "", accountName: "", accountNumber: "", routingNumber: "", currency: "" });
     const [deleteAccountId, setDeleteAccountId] = useState<Id<"bankAccounts"> | null>(null);
 
+    const [txFilter, setTxFilter] = useState("all");
     const [refundingId, setRefundingId] = useState<Id<"payments"> | null>(null);
     const [refundConfirmId, setRefundConfirmId] = useState<Id<"payments"> | null>(null);
 
@@ -79,6 +81,8 @@ export default function PaymentsPage() {
     const [editLinkForm, setEditLinkForm] = useState({ amount: "", description: "", expiryDate: "", status: "", paymentType: "", caseId: "" as Id<"cases"> | "", nextPaymentDate: "" });
     const [editLinkLoading, setEditLinkLoading] = useState(false);
     const [deleteLinkId, setDeleteLinkId] = useState<Id<"paymentLinks"> | null>(null);
+    const [qrCodeLink, setQrCodeLink] = useState<LinkRow | null>(null);
+    const [qrCodeCopied, setQrCodeCopied] = useState(false);
 
     const clientMap = useMemo(
         () => new Map(clients.map((c) => [c._id, `${c.firstName} ${c.lastName}`])),
@@ -96,6 +100,7 @@ export default function PaymentsPage() {
         try {
             await refundPayment({ paymentId: refundConfirmId });
             toast.success("Refund issued successfully.");
+            setTxFilter("all"); // show the refunded payment regardless of active filter
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
@@ -155,7 +160,7 @@ export default function PaymentsPage() {
                 id: editPayment._id,
                 amount: Math.round(Number(editForm.amount) * 100),
                 method: editForm.method as "Card" | "Bank Transfer" | "Cash" | "Check" | "Online",
-                status: editForm.status as "Completed" | "Pending" | "Failed" | "Refunded",
+                status: editForm.status as "Completed" | "Pending" | "Failed" | "Refunded" | "On Hold",
                 reference: editForm.reference || undefined,
                 notes: editForm.notes || undefined,
                 caseId: (editForm.caseId || undefined) as Id<"cases"> | undefined,
@@ -273,10 +278,10 @@ export default function PaymentsPage() {
                     </Button>
                     <Button
                         variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => window.open(l.linkUrl, "_blank")}
-                        title="Open link"
+                        onClick={() => setQrCodeLink(l)}
+                        title="Show QR code"
                     >
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        <QrCode className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                         variant="ghost" size="icon" className="h-8 w-8"
@@ -541,11 +546,13 @@ export default function PaymentsPage() {
                                 placeholder: "All Statuses",
                                 options: [
                                     { label: "Completed", value: "Completed" },
-                                    { label: "Pending", value: "Pending" },
+                                    { label: "On Hold", value: "On Hold" },
                                     { label: "Failed", value: "Failed" },
                                     { label: "Refunded", value: "Refunded" },
                                 ],
                             }}
+                            filterValue={txFilter}
+                            onFilterChange={setTxFilter}
                             headerAction={
                                 <Button
                                     size="sm"
@@ -770,7 +777,7 @@ export default function PaymentsPage() {
                                 <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="Completed">Completed</SelectItem>
-                                    <SelectItem value="Pending">Pending</SelectItem>
+                                    <SelectItem value="On Hold">On Hold</SelectItem>
                                     <SelectItem value="Failed">Failed</SelectItem>
                                     <SelectItem value="Refunded">Refunded</SelectItem>
                                 </SelectContent>
@@ -1009,6 +1016,47 @@ export default function PaymentsPage() {
                 variant="destructive"
                 onConfirm={handleDeleteAccount}
             />
+
+            {/* QR Code Modal */}
+            <Dialog open={!!qrCodeLink} onOpenChange={(open) => { if (!open) { setQrCodeLink(null); setQrCodeCopied(false); } }}>
+                <DialogContent style={{ maxWidth: "520px" }}>
+                    <DialogHeader>
+                        <DialogTitle>Payment QR Code</DialogTitle>
+                    </DialogHeader>
+                    {qrCodeLink && (
+                        <div className="flex flex-col items-center gap-4 py-2">
+                            <p className="text-sm text-muted-foreground text-center">
+                                Share this code with <span className="font-medium text-foreground">{qrCodeLink.clientName}</span>. They can scan it to open the payment page directly.
+                            </p>
+                            <div className="rounded-xl border border-border p-5 bg-white">
+                                <QRCodeSVG
+                                    value={qrCodeLink.linkUrl}
+                                    size={300}
+                                    level="M"
+                                    includeMargin={false}
+                                />
+                            </div>
+                            <p className="text-xs text-muted-foreground font-medium">{qrCodeLink.description}</p>
+                            <div className="w-full flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                                <p className="flex-1 text-xs font-mono text-foreground truncate">{qrCodeLink.linkUrl}</p>
+                                <button
+                                    onClick={async () => {
+                                        await navigator.clipboard.writeText(qrCodeLink.linkUrl);
+                                        setQrCodeCopied(true);
+                                        setTimeout(() => setQrCodeCopied(false), 2000);
+                                    }}
+                                    className="shrink-0 rounded-md p-1 hover:bg-accent transition-colors"
+                                    title="Copy link"
+                                >
+                                    {qrCodeCopied
+                                        ? <Check className="h-3.5 w-3.5 text-green-500" />
+                                        : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* Refund Confirm Dialog */}
             <ConfirmDialog

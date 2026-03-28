@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { FolderOpen, Clock, AlertTriangle, ChevronDown, ChevronUp, FileText, File, MessageSquare, Send, Loader2, Eye, Download, X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { MentionBody } from "@/components/shared/mention-textarea";
 
@@ -460,19 +461,19 @@ function CaseDetailPanel({ caseId }: { caseId: string }) {
 export default function PortalCasesPage() {
   const [cases, setCases] = useState<PortalCase[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     fetch("/api/portal/cases")
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setError(data.error);
-        else setCases(data.cases ?? []);
+        if (data.cases) setCases(data.cases);
       })
-      .catch(() => setError("Failed to load cases."))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  usePolling(loadData, 15_000);
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -491,11 +492,7 @@ export default function PortalCasesPage() {
         </div>
       )}
 
-      {error && (
-        <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-red-700 dark:text-red-400 text-sm">{error}</div>
-      )}
-
-      {!loading && !error && cases.length === 0 && (
+      {!loading && cases.length === 0 && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-16 text-center">
           <FolderOpen className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="font-medium text-foreground">No active cases</p>

@@ -272,13 +272,25 @@ http.route({
 });
 
 // ─── Portal: Validate Magic Link ──────────────────────────────────────────────
+// GET is intentionally NOT used for validation — email security crawlers follow
+// GET links and would burn the single-use token before the user clicks.
+// Kept as a stub that returns 405 to avoid surprises.
 http.route({
   path: "/portal/auth/magic-link",
   method: "GET",
+  handler: httpAction(async (_ctx, _request) => {
+    return jsonRes({ error: "Use POST to validate a magic link." }, 405);
+  }),
+});
+
+// POST-only: validates token from request body (crawlers don't POST)
+http.route({
+  path: "/portal/auth/magic-link",
+  method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const url = new URL(request.url);
-    const rawToken = url.searchParams.get("token");
-    const orgSlug = url.searchParams.get("org");
+    let body: { token?: string; org?: string };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+    const { token: rawToken, org: orgSlug } = body;
     if (!rawToken || !orgSlug) return jsonRes({ error: "Missing token or org" }, 400);
     try {
       const result = await ctx.runAction(internal.portal.auth.validateMagicLink, { rawToken, orgSlug });
@@ -323,7 +335,7 @@ http.route({
         organisationId: session.organisationId,
       }),
     ]);
-    return jsonRes({ client: session.client, org: session.org, stats, unreadCount, profileCompleted: session.profileCompleted });
+    return jsonRes({ client: session.client, org: session.org, stats, unreadCount, profileCompleted: session.profileCompleted, sessionId: session.sessionId, clientId: session.clientId, organisationId: session.organisationId });
   }),
 });
 
@@ -489,11 +501,86 @@ http.route({
     if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
     const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
-    const payments = await ctx.runQuery(internal.portal.queries.getPayments, {
-      clientId: session.clientId,
-      organisationId: session.organisationId,
-    });
-    return jsonRes({ payments });
+    const [payments, contractSummary] = await Promise.all([
+      ctx.runQuery(internal.portal.queries.getPayments, {
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      }),
+      ctx.runQuery(internal.portal.queries.getContractSummary, {
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      }),
+    ]);
+    return jsonRes({ payments, contractSummary });
+  }),
+});
+
+// ─── Portal: Case fee checkout ────────────────────────────────────────────────
+http.route({
+  path: "/portal/payments/case-fee-checkout",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    let body: { amountCents?: number; nextPaymentDate?: number };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+
+    const { amountCents, nextPaymentDate } = body;
+
+    if (typeof amountCents !== "number" || amountCents < 100) {
+      return jsonRes({ error: "amountCents must be at least 100 (£1.00)." }, 400);
+    }
+
+    // nextPaymentDate must be within 60 days if provided
+    if (nextPaymentDate !== undefined) {
+      const now = Date.now();
+      if (typeof nextPaymentDate !== "number" || nextPaymentDate <= now) {
+        return jsonRes({ error: "nextPaymentDate must be a future timestamp." }, 400);
+      }
+      if (nextPaymentDate > now + 60 * 24 * 60 * 60_000) {
+        return jsonRes({ error: "nextPaymentDate cannot be more than 60 days from now." }, 400);
+      }
+    }
+
+    try {
+      const { clientSecret, publishableKey, currency } = await ctx.runAction(
+        internal.portal.actions.createCaseFeePaymentIntent,
+        { organisationId: session.organisationId, clientId: session.clientId, amountCents, nextPaymentDate }
+      );
+
+      return jsonRes({ clientSecret, publishableKey, currency });
+    } catch (err) {
+      return jsonRes({ error: err instanceof Error ? err.message : "Checkout failed." }, 400);
+    }
+  }),
+});
+
+// ─── Portal: Confirm case fee payment ────────────────────────────────────────
+http.route({
+  path: "/portal/payments/confirm-case-fee",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    let body: { paymentIntentId?: string };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+    if (!body.paymentIntentId) return jsonRes({ error: "paymentIntentId is required." }, 400);
+
+    try {
+      await ctx.runAction(internal.portal.actions.confirmCaseFeePayment, {
+        stripePaymentIntentId: body.paymentIntentId,
+        organisationId: session.organisationId,
+      });
+      return jsonRes({ ok: true });
+    } catch (err) {
+      return jsonRes({ error: err instanceof Error ? err.message : "Confirmation failed." }, 400);
+    }
   }),
 });
 
@@ -553,6 +640,89 @@ http.route({
   }),
 });
 
+// ─── Portal: Get available slots for a date ───────────────────────────────────
+http.route({
+  path: "/portal/appointments/slots",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    const url = new URL(request.url);
+    const pricingId = url.searchParams.get("pricingId");
+    const dateStartUTC = parseInt(url.searchParams.get("dateStartUTC") ?? "0", 10);
+    const dayOfWeek = parseInt(url.searchParams.get("dayOfWeek") ?? "-1", 10);
+
+    if (!pricingId || isNaN(dateStartUTC) || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+      return jsonRes({ error: "pricingId, dateStartUTC, and dayOfWeek are required." }, 400);
+    }
+
+    const slots = await ctx.runQuery(internal.appointmentAvailability.queries.getAvailableSlots, {
+      organisationId: session.organisationId,
+      appointmentPricingId: pricingId as Id<"appointmentPricing">,
+      dateStartUTC,
+      dayOfWeek,
+    });
+
+    return jsonRes({ slots });
+  }),
+});
+
+// ─── Portal: Get available offline slots (org office hours) ──────────────────
+http.route({
+  path: "/portal/appointments/offline-slots",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    const url = new URL(request.url);
+    const dateStartUTC = parseInt(url.searchParams.get("dateStartUTC") ?? "0", 10);
+    const dayOfWeek = parseInt(url.searchParams.get("dayOfWeek") ?? "-1", 10);
+
+    if (isNaN(dateStartUTC) || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+      return jsonRes({ error: "dateStartUTC and dayOfWeek are required." }, 400);
+    }
+
+    const slots = await ctx.runQuery(internal.appointmentAvailability.queries.getOfflineSlots, {
+      organisationId: session.organisationId,
+      dateStartUTC,
+      dayOfWeek,
+    });
+
+    return jsonRes({ slots });
+  }),
+});
+
+// ─── Portal: Get client's cases for booking ───────────────────────────────────
+http.route({
+  path: "/portal/appointments/cases",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    const [cases, orgSettings] = await Promise.all([
+      ctx.runQuery(internal.portal.queries.getCasesForBooking, {
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      }),
+      ctx.runQuery(internal.portal.queries.getOrgSettings, {
+        organisationId: session.organisationId,
+      }),
+    ]);
+
+    return jsonRes({ cases, orgTimezone: orgSettings.timezone });
+  }),
+});
+
+// ─── Portal: Book appointment ─────────────────────────────────────────────────
 http.route({
   path: "/portal/appointments/book",
   method: "POST",
@@ -562,14 +732,16 @@ http.route({
     const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
 
-    let body: { appointmentPricingId: string; startAt: number; durationMinutes: number };
+    let body: { appointmentPricingId: string; startAt: number; durationMinutes: number; caseId?: string; modality?: "online" | "offline" };
     try {
       body = await request.json();
     } catch {
       return jsonRes({ error: "Invalid JSON body." }, 400);
     }
 
-    const { appointmentPricingId, startAt, durationMinutes } = body;
+    const { appointmentPricingId, startAt, durationMinutes, caseId } = body;
+    const modality: "online" | "offline" = body.modality === "offline" ? "offline" : "online";
+
     if (!appointmentPricingId || !startAt || !durationMinutes) {
       return jsonRes({ error: "appointmentPricingId, startAt, and durationMinutes are required." }, 400);
     }
@@ -577,46 +749,196 @@ http.route({
     if (typeof startAt !== "number" || startAt < now) {
       return jsonRes({ error: "Appointment start time must be in the future." }, 400);
     }
-    // Upper bound: no more than 1 year in the future
-    if (startAt > now + 365 * 24 * 60 * 60 * 1000) {
-      return jsonRes({ error: "Appointment start time cannot be more than 1 year in the future." }, 400);
+    // Upper bound: 30 days
+    if (startAt > now + 30 * 24 * 60 * 60 * 1000) {
+      return jsonRes({ error: "Appointment cannot be booked more than 30 days in advance." }, 400);
     }
     if (typeof durationMinutes !== "number" || durationMinutes < 5 || durationMinutes > 480) {
       return jsonRes({ error: "Duration must be between 5 and 480 minutes." }, 400);
     }
 
-    // Rate limit: max 5 booking attempts per client per hour
-    const recentBookings = await ctx.runQuery(internal.billing.queries.countRecentPortalBookings, {
-      organisationId: session.organisationId,
-      clientId: session.clientId,
-      since: Date.now() - 3_600_000,
-    });
-    if (recentBookings >= 5) {
-      return jsonRes({ error: "Too many booking requests. Please try again later." }, 429);
-    }
-
-    // Fetch active pricing scoped to this org (query filters by org + isActive)
+    // Fetch active pricing
     const pricing = await ctx.runQuery(internal.portal.queries.getAppointmentPricing, {
       organisationId: session.organisationId,
     });
-    // selected only matches if the ID belongs to this org (org-scoped query)
     const selected = pricing.find((p: { _id: string }) => p._id === appointmentPricingId);
-    if (!selected) {
-      return jsonRes({ error: "Appointment type not found or inactive." }, 404);
+    if (!selected) return jsonRes({ error: "Appointment type not found or inactive." }, 404);
+
+    // Validate caseId — for online also require Google Calendar connection
+    let theCase: { _id: string; assigneeId: string | null; assigneeGoogleConnected: boolean } | undefined;
+    if (caseId) {
+      const cases = await ctx.runQuery(internal.portal.queries.getCasesForBooking, {
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      });
+      theCase = cases.find((c: { _id: string }) => c._id === caseId);
+      if (!theCase) return jsonRes({ error: "Case not found." }, 404);
+      if (!theCase.assigneeId) {
+        return jsonRes({ error: "No case manager assigned. Please contact the office." }, 422);
+      }
+      if (modality === "online" && !theCase.assigneeGoogleConnected) {
+        return jsonRes({ error: "Online meetings unavailable. Please contact the office." }, 422);
+      }
     }
 
-    const linkId = await ctx.runMutation(internal.billing.mutations.createPortalPaymentLink, {
-      organisationId: session.organisationId,
-      clientId: session.clientId,
-      amount: selected.priceInCents,
-      description: `${selected.appointmentType} booking`,
-      appointmentPricingId: selected._id,
-      pendingAppointmentAt: startAt,
-      pendingAppointmentDuration: durationMinutes,
-    });
+    // Rate limit: max 5 booking attempts per client per hour
+    try {
+      await ctx.runMutation(internal.billing.mutations.checkRateLimitPublic, {
+        key: `apptBook:${session.clientId}`,
+        maxRequests: 5,
+        windowMs: 3_600_000,
+      });
+    } catch {
+      return jsonRes({ error: "Too many booking requests. Please try again later." }, 429);
+    }
 
-    const link = await ctx.runQuery(internal.billing.queries.getPaymentLinkById, { id: linkId });
-    return jsonRes({ urlToken: link?.urlToken });
+    // Offline appointments: always book immediately (payment handled later by office)
+    // Zero-price online: also book immediately, no payment
+    if (modality === "offline" || selected.priceInCents === 0) {
+      await ctx.runMutation(internal.portal.mutations.bookFreeAppointment, {
+        organisationId: session.organisationId,
+        clientId: session.clientId,
+        caseId: caseId as Id<"cases"> | undefined,
+        appointmentType: selected.appointmentType,
+        startAt,
+        endAt: startAt + durationMinutes * 60_000,
+        hostUserId: (theCase?.assigneeId ?? undefined) as Id<"users"> | undefined,
+        modality,
+      });
+      return jsonRes({ booked: true });
+    }
+
+    // Online paid: create Stripe PaymentIntent directly — no payment link created
+    try {
+      const result = await ctx.runAction(internal.portal.actions.createAppointmentPaymentIntent, {
+        organisationId: session.organisationId,
+        clientId: session.clientId,
+        amountCents: selected.priceInCents,
+        appointmentType: selected.appointmentType,
+        startAt,
+        durationMinutes,
+        caseId: caseId as Id<"cases"> | undefined,
+        modality,
+        hostUserId: (theCase?.assigneeId ?? undefined) as Id<"users"> | undefined,
+      });
+      return jsonRes(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Payment initialisation failed.";
+      return jsonRes({ error: msg }, 422);
+    }
+  }),
+});
+
+// ─── Portal: Confirm appointment payment (direct PI — no payment link) ────────
+http.route({
+  path: "/portal/appointments/confirm-payment",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    let body: { paymentIntentId?: string };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON body." }, 400); }
+    if (!body.paymentIntentId) return jsonRes({ error: "paymentIntentId is required." }, 400);
+
+    try {
+      await ctx.runAction(internal.portal.actions.confirmAppointmentPayment, {
+        stripePaymentIntentId: body.paymentIntentId,
+        organisationId: session.organisationId,
+        clientId: session.clientId,
+      });
+      return jsonRes({ confirmed: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Payment confirmation failed.";
+      return jsonRes({ error: msg }, 500);
+    }
+  }),
+});
+
+// ─── Portal: Cancel appointment ───────────────────────────────────────────────
+http.route({
+  path: "/portal/appointments/cancel",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    let body: { appointmentId?: string };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+    if (!body.appointmentId) return jsonRes({ error: "appointmentId is required." }, 400);
+
+    try {
+      const result = await ctx.runMutation(internal.portal.mutations.cancelPortalAppointment, {
+        appointmentId: body.appointmentId as Id<"appointments">,
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      });
+      return jsonRes({ ok: true, refundInitiated: result?.refundInitiated ?? false });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to cancel appointment.";
+      return jsonRes({ error: msg }, 400);
+    }
+  }),
+});
+
+// ─── Portal: Reschedule appointment ───────────────────────────────────────────
+http.route({
+  path: "/portal/appointments/reschedule",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+
+    let body: { appointmentId?: string; newStartAt?: number; durationMinutes?: number };
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+    if (!body.appointmentId || !body.newStartAt || !body.durationMinutes) {
+      return jsonRes({ error: "appointmentId, newStartAt, and durationMinutes are required." }, 400);
+    }
+
+    const now = Date.now();
+    if (body.newStartAt < now + 60 * 60_000) {
+      return jsonRes({ error: "New time must be at least 1 hour from now." }, 400);
+    }
+    if (body.newStartAt > now + 30 * 24 * 60 * 60_000) {
+      return jsonRes({ error: "Cannot reschedule more than 30 days in advance." }, 400);
+    }
+
+    try {
+      await ctx.runMutation(internal.portal.mutations.reschedulePortalAppointment, {
+        appointmentId: body.appointmentId as Id<"appointments">,
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+        newStartAt: body.newStartAt,
+        newEndAt: body.newStartAt + body.durationMinutes * 60_000,
+      });
+      return jsonRes({ ok: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to reschedule appointment.";
+      return jsonRes({ error: msg }, 400);
+    }
+  }),
+});
+
+// ─── Portal: Dashboard Detail ──────────────────────────────────────────────────
+http.route({
+  path: "/portal/dashboard",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
+    const detail = await ctx.runQuery(internal.portal.queries.getDashboardDetail, {
+      clientId: session.clientId,
+      organisationId: session.organisationId,
+    });
+    return jsonRes(detail);
   }),
 });
 

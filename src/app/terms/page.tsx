@@ -4,7 +4,7 @@ export const metadata = {
 };
 
 export default function TermsPage() {
-    const lastUpdated = "March 25, 2026";
+    const lastUpdated = "March 27, 2026";
 
     return (
         <div className="min-h-screen bg-white">
@@ -28,7 +28,9 @@ export default function TermsPage() {
                         <p>
                             Ordena is a cloud-based case management platform designed for law firms and
                             legal professionals. Features include client management, case tracking, task
-                            management, document storage, appointment scheduling, and billing.
+                            management, document storage, appointment scheduling, billing, and a
+                            Client Portal through which law firm clients can securely access their case
+                            information, invoices, and appointments.
                         </p>
                     </section>
 
@@ -65,7 +67,39 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">6. Google Calendar Integration</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">6. Client Portal</h2>
+                        <p>
+                            Ordena provides a Client Portal feature that allows law firm clients to securely
+                            access their case information, invoices, payments, and appointments. The following
+                            conditions apply:
+                        </p>
+                        <ul className="list-disc pl-5 mt-3 space-y-2">
+                            <li>
+                                <span className="font-medium">Access is invitation-only.</span> Clients may only
+                                access the portal of the specific organisation they have been invited to. Access
+                                to one organisation&apos;s portal does not grant access to any other.
+                            </li>
+                            <li>
+                                <span className="font-medium">Authentication.</span> Portal access is secured via
+                                magic-link invitations and email one-time passwords (OTP). Session tokens are
+                                stored as cryptographic hashes; raw tokens are never stored server-side.
+                            </li>
+                            <li>
+                                <span className="font-medium">Organisation responsibility.</span> Law firm
+                                administrators are responsible for ensuring that portal access is enabled only
+                                for legitimate clients, and that client data displayed in the portal is accurate.
+                            </li>
+                            <li>
+                                <span className="font-medium">Client profile data.</span> Profile information
+                                submitted by clients through the portal is stored and used solely to support
+                                their legal case. Clients may update or request deletion of their profile data
+                                at any time.
+                            </li>
+                        </ul>
+                    </section>
+
+                    <section>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Google Calendar Integration</h2>
                         <p>
                             Ordena offers optional integration with Google Calendar. By connecting your
                             Google account, you authorise Ordena to access, create, modify, and delete
@@ -84,7 +118,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Data Ownership</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Data Ownership</h2>
                         <p>
                             You retain ownership of all data you input into Ordena (&quot;Your Data&quot;). You grant
                             us a limited licence to store, process, and display Your Data solely to provide
@@ -94,7 +128,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Payment and Billing</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">9. Payment and Billing</h2>
                         <p>
                             Subscription fees (if applicable) are billed in advance. All fees are
                             non-refundable except as required by law. Payment processing for client
@@ -104,16 +138,17 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">9. Organisation Deletion</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">10. Organisation Deletion</h2>
                         <p>
                             Administrators may initiate organisation deletion at any time. Upon initiation,
                             a 30-day grace period applies during which the deletion can be cancelled. After
-                            30 days, all organisation data is permanently and irreversibly deleted.
+                            30 days, all organisation data — including client records, portal sessions,
+                            and associated files — is permanently and irreversibly deleted.
                         </p>
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">10. Intellectual Property</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">11. Intellectual Property</h2>
                         <p>
                             The Service, including its design, code, and branding, is owned by Ordena and
                             protected by intellectual property laws. You may not copy, reproduce, or create
@@ -122,7 +157,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">11. Disclaimer of Warranties</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">12. Disclaimer of Warranties</h2>
                         <p>
                             The Service is provided &quot;as is&quot; and &quot;as available&quot; without warranties of any kind,
                             either express or implied. We do not warrant that the Service will be
@@ -131,7 +166,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">12. Limitation of Liability</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">13. Limitation of Liability</h2>
                         <p>
                             To the maximum extent permitted by law, Ordena shall not be liable for any
                             indirect, incidental, special, consequential, or punitive damages arising from
@@ -141,7 +176,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">13. Termination</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">14. Termination</h2>
                         <p>
                             We reserve the right to suspend or terminate your access to the Service at
                             our discretion, with or without notice, if we reasonably believe you have
@@ -151,7 +186,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">14. Changes to Terms</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">15. Changes to Terms</h2>
                         <p>
                             We may update these Terms from time to time. We will notify you of material
                             changes via email or a notice within the Service. Continued use of Ordena
@@ -160,7 +195,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">15. Governing Law</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">16. Governing Law</h2>
                         <p>
                             These Terms are governed by applicable law. Any disputes shall be resolved
                             through binding arbitration or in the courts of competent jurisdiction.
@@ -168,7 +203,7 @@ export default function TermsPage() {
                     </section>
 
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-3">16. Contact</h2>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-3">17. Contact</h2>
                         <p>
                             For questions about these Terms, contact us at:{" "}
                             <a href="mailto:aws200workspace@gmail.com" className="text-blue-600 underline">

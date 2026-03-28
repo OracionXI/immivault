@@ -52,6 +52,9 @@ export default defineSchema({
       v.literal("inactive"),
       v.literal("pending_onboarding")
     ),
+    // Org founder — set to true for the admin who created the organisation.
+    // Founders cannot be deleted or have their role changed by other admins.
+    isFounder: v.optional(v.boolean()),
     // Google Calendar OAuth — set when user connects their Google account
     googleRefreshToken: v.optional(v.string()),
     googleEmail: v.optional(v.string()),
@@ -59,7 +62,8 @@ export default defineSchema({
   })
     .index("by_token", ["tokenIdentifier"])
     .index("by_org", ["organisationId"])
-    .index("by_clerk_user", ["clerkUserId"]),
+    .index("by_clerk_user", ["clerkUserId"])
+    .index("by_email", ["email"]),
 
   // ─── Clients ──────────────────────────────────────────────────────────────────
   clients: defineTable({
@@ -90,6 +94,7 @@ export default defineSchema({
     portalEnabled: v.optional(v.boolean()),    // whether this client can access the portal
     lastPortalLogin: v.optional(v.number()),   // epoch ms of last portal login
     profileCompleted: v.optional(v.boolean()), // true after client completes portal onboarding wizard
+    nextPaymentDate: v.optional(v.number()),   // epoch ms; next case fee installment due date (client-set)
   })
     .index("by_org", ["organisationId"])
     .index("by_org_and_status", ["organisationId", "status"])
@@ -196,17 +201,27 @@ export default defineSchema({
     type: v.string(),
     // Upcoming → Ongoing (auto when startAt passes) → Expired (auto when endAt passes)
     // Cancelled is set manually; deletedAt is set on cancel/expire for soft-delete
+    // PendingApproval: portal bookings waiting for case manager / admin to approve
     status: v.union(
+      v.literal("PendingApproval"),
       v.literal("Upcoming"),
       v.literal("Ongoing"),
       v.literal("Expired"),
       v.literal("Cancelled")
     ),
+    // Portal booking metadata
+    portalBooking: v.optional(v.boolean()),   // true = created via client portal
+    modality: v.optional(v.union(v.literal("online"), v.literal("offline"))), // online = video/phone; offline = in-person
+    approvedBy: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+    rejectedBy: v.optional(v.id("users")),
+    rejectedAt: v.optional(v.number()),
+    rejectionReason: v.optional(v.string()),
     startAt: v.number(),
     endAt: v.number(),
     // attendees: mix of internal staff and external people (clients, external contacts)
     attendees: v.optional(v.array(v.object({
-      type: v.union(v.literal("internal"), v.literal("external")),
+      type: v.union(v.literal("internal"), v.literal("external"), v.literal("client")),
       userId: v.optional(v.id("users")),   // set for internal attendees
       email: v.string(),
       name: v.string(),
@@ -249,6 +264,7 @@ export default defineSchema({
     createdBy: v.optional(v.id("users")),      // optional for system-generated invoices (cron/webhook)
     paidAmount: v.optional(v.number()),        // dollars; running total paid toward this invoice
     isContractDraft: v.optional(v.boolean()),  // true = auto-created from client contractAmount
+    clientName: v.optional(v.string()),        // snapshot of client name at time of deletion
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
@@ -281,17 +297,23 @@ export default defineSchema({
       v.literal("Completed"),
       v.literal("Pending"),
       v.literal("Failed"),
-      v.literal("Refunded")
+      v.literal("Refunded"),
+      v.literal("On Hold"),  // card authorised, not yet captured (manual capture flow)
+      v.literal("Voided")    // authorisation cancelled — client never charged
     ),
     reference: v.optional(v.string()),
     notes: v.optional(v.string()),
     paidAt: v.number(),
     stripePaymentIntentId: v.optional(v.string()),
     caseId: v.optional(v.id("cases")),
+    appointmentId: v.optional(v.id("appointments")), // set for portal appointment payments
+    type: v.optional(v.union(v.literal("appointment"), v.literal("case_fee"))), // payment category
   })
     .index("by_org", ["organisationId"])
+    .index("by_client", ["clientId", "organisationId"])
     .index("by_invoice", ["invoiceId"])
-    .index("by_stripe_intent", ["organisationId", "stripePaymentIntentId"]),
+    .index("by_stripe_intent", ["organisationId", "stripePaymentIntentId"])
+    .index("by_appointment", ["appointmentId"]),
 
   // ─── Payment Links ────────────────────────────────────────────────────────────
   paymentLinks: defineTable({
@@ -321,6 +343,9 @@ export default defineSchema({
     appointmentPricingId: v.optional(v.id("appointmentPricing")),
     pendingAppointmentAt: v.optional(v.number()),      // epoch ms; requested start time
     pendingAppointmentDuration: v.optional(v.number()), // minutes
+    // Portal case fee payment fields
+    isPortalCaseFee: v.optional(v.boolean()),          // true = client-initiated case fee payment
+    modality: v.optional(v.union(v.literal("online"), v.literal("offline"))), // appointment modality for portal bookings
   })
     .index("by_token", ["urlToken"])
     .index("by_org", ["organisationId"]),
@@ -429,6 +454,18 @@ export default defineSchema({
     .index("by_client", ["clientId"])
     .index("by_client_unread", ["clientId", "read"]),
 
+  // ─── Appointment Availability ─────────────────────────────────────────────────
+  appointmentAvailability: defineTable({
+    organisationId: v.id("organisations"),
+    appointmentPricingId: v.id("appointmentPricing"),
+    dayOfWeek: v.number(),    // 0=Sun, 1=Mon, …, 6=Sat
+    startHour: v.number(),    // 0–23 (inclusive, in org's timezone)
+    endHour: v.number(),      // 1–24 (exclusive; e.g. endHour=17 means last slot starts 16:00)
+    isActive: v.boolean(),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_pricing", ["appointmentPricingId"]),
+
   // ─── Rate Limits (fixed-window counter, server-side only) ────────────────────
   rateLimits: defineTable({
     key: v.string(),       // e.g. "inviteStaff:<orgId>"
@@ -456,6 +493,9 @@ export default defineSchema({
       v.literal("appointment_created"),
       v.literal("appointment_updated"),
       v.literal("appointment_cancelled"),
+      v.literal("appointment_pending_approval"),
+      v.literal("appointment_approved"),
+      v.literal("appointment_rejected"),
       v.literal("payment_dispute")
     ),
     title: v.string(),
@@ -489,6 +529,15 @@ export default defineSchema({
       name: v.string(),
       permissionLevel: v.union(v.literal("case_manager"), v.literal("staff"), v.literal("accountant")),
       isDefault: v.boolean(),
+    }))),
+    // Org timezone for appointment slot generation (IANA tz string, e.g. "America/New_York")
+    timezone: v.optional(v.string()),
+    // Office hours: recurring weekly windows for in-person (offline) appointments
+    officeHours: v.optional(v.array(v.object({
+      dayOfWeek: v.number(),  // 0=Sun … 6=Sat
+      startHour: v.number(),  // 0–23
+      endHour: v.number(),    // 1–24
+      isActive: v.boolean(),
     }))),
     // Appointment booking toggle (per-org)
     bookingEnabled: v.optional(v.boolean()),

@@ -16,8 +16,6 @@ import {
     Sparkles,
     LayoutTemplate,
     Check,
-    DownloadCloud,
-    UploadCloud,
     ChevronDown,
     Clock,
     Hourglass
@@ -158,16 +156,6 @@ export default function DashboardPage() {
                             </span>
                         </div>
                     )}
-                    <Button variant="outline" className="bg-background shadow-sm rounded-lg h-9 px-3">
-                        <DownloadCloud className="h-4 w-4 mr-2 text-muted-foreground" />
-                        Imports
-                        <ChevronDown className="h-3 w-3 ml-2 text-muted-foreground" />
-                    </Button>
-                    <Button className="bg-foreground text-background shadow-sm rounded-lg h-9 px-3 hover:bg-foreground/90">
-                        <UploadCloud className="h-4 w-4 mr-2 text-background/80" />
-                        Exports
-                        <ChevronDown className="h-3 w-3 ml-2 text-background/80" />
-                    </Button>
                 </div>
             </div>
 

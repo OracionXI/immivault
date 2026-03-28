@@ -141,3 +141,52 @@ export const listByClient = authenticatedQuery({
     return orgCases.filter((c) => visibleCaseIds.has(c._id));
   },
 });
+
+/**
+ * Returns the suggested attendees for a case appointment:
+ * - The case manager assigned to the case (internal)
+ * - All unique staff assigned to any task in the case (internal)
+ * - The case's client (external, with email)
+ * Used by the appointment modal to auto-populate attendees when a case is selected.
+ */
+export const getAttendeesForCase = authenticatedQuery({
+  args: { caseId: v.id("cases") },
+  handler: async (ctx, args) => {
+    const { organisationId } = ctx.user;
+
+    const c = await ctx.db.get(args.caseId);
+    if (!c || c.organisationId !== organisationId) return null;
+
+    // Case manager
+    const caseManager = c.assignedTo ? await ctx.db.get(c.assignedTo) : null;
+
+    // Unique staff assigned to tasks in this case
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
+      .collect();
+    const seenUserIds = new Set<string>(caseManager ? [caseManager._id] : []);
+    const taskStaff: { _id: Id<"users">; fullName: string; email: string }[] = [];
+    for (const task of tasks) {
+      if (!task.assignedTo || seenUserIds.has(task.assignedTo)) continue;
+      seenUserIds.add(task.assignedTo);
+      const u = await ctx.db.get(task.assignedTo);
+      if (u && u.organisationId === organisationId) {
+        taskStaff.push({ _id: u._id, fullName: u.fullName, email: u.email });
+      }
+    }
+
+    // Client
+    const client = c.clientId ? await ctx.db.get(c.clientId) : null;
+
+    return {
+      caseManager: caseManager
+        ? { _id: caseManager._id, fullName: caseManager.fullName, email: caseManager.email }
+        : null,
+      taskStaff,
+      client: client
+        ? { _id: client._id, firstName: client.firstName, lastName: client.lastName, email: client.email }
+        : null,
+    };
+  },
+});

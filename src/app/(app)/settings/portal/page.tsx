@@ -5,7 +5,6 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -19,29 +18,31 @@ export default function PortalSettingsPage() {
   const portalSettings = useQuery(api.organisations.queries.getPortalSettings);
   const updatePortal = useMutation(api.organisations.mutations.updatePortalSettings);
 
-  const [slug, setSlug] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Auto-derived from org name: lowercase, strip all non-alphanumeric chars
+  const derivedSlug = portalSettings?.orgName
+    ? portalSettings.orgName.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9]/g, "")
+    : "";
+
+  // The actual slug shown — saved value wins; fall back to derived preview
+  const displaySlug = portalSettings?.portalSlug ?? derivedSlug;
+
   useEffect(() => {
     if (portalSettings) {
-      setSlug(portalSettings.portalSlug ?? "");
-      setEnabled(portalSettings.portalEnabled ?? false);
+      setEnabled(portalSettings.portalEnabled ?? true);
     }
   }, [portalSettings]);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
-  const portalUrl = slug ? `${appUrl}/portal/${slug}` : null;
+  const portalUrl = displaySlug ? `${appUrl}/portal/${displaySlug}` : null;
 
   const handleSave = async () => {
-    if (!slug.trim()) {
-      toast.error("Portal slug is required.");
-      return;
-    }
     setSaving(true);
     try {
-      await updatePortal({ portalSlug: slug.trim(), portalEnabled: enabled });
+      await updatePortal({ portalSlug: derivedSlug, portalEnabled: enabled });
       toast.success("Portal settings saved.");
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -87,29 +88,23 @@ export default function PortalSettingsPage() {
               />
             </div>
 
-            {/* Slug */}
+            {/* Portal URL — read-only */}
             <div className="space-y-2">
-              <Label htmlFor="slug">Portal Slug</Label>
+              <Label>Portal URL</Label>
               <p className="text-sm text-muted-foreground">
-                The unique URL path for your firm's portal. Use letters, numbers, and hyphens only.
+                Your firm's unique client portal address. This is automatically generated and cannot be changed.
               </p>
-              <div className="flex gap-2">
-                <div className="flex-1 flex items-center border rounded-md overflow-hidden">
-                  <span className="px-3 py-2 text-sm text-muted-foreground bg-muted border-r shrink-0">
-                    {appUrl}/portal/
-                  </span>
-                  <Input
-                    id="slug"
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-                    placeholder="smith-law-firm"
-                    className="border-0 rounded-none focus-visible:ring-0"
-                  />
-                </div>
+              <div className="flex items-center border rounded-md overflow-hidden bg-muted">
+                <span className="px-3 py-2 text-sm text-muted-foreground border-r shrink-0">
+                  {appUrl}/portal/
+                </span>
+                <span className="px-3 py-2 text-sm font-mono text-foreground flex-1 select-all">
+                  {displaySlug || <span className="text-muted-foreground italic">generating…</span>}
+                </span>
               </div>
             </div>
 
-            {/* Portal URL preview */}
+            {/* Portal URL preview with live/disabled badge */}
             {portalUrl && (
               <div className="rounded-lg bg-muted p-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
@@ -135,7 +130,7 @@ export default function PortalSettingsPage() {
               </div>
             )}
 
-            <Button onClick={handleSave} disabled={saving || !slug.trim()}>
+            <Button onClick={handleSave} disabled={saving || !derivedSlug}>
               {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Save Portal Settings
             </Button>
@@ -147,7 +142,7 @@ export default function PortalSettingsPage() {
             <CardTitle>How It Works</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>• When a client is added, you can enable portal access on their profile.</p>
+            <p>• When a client is added, a portal invite email is automatically sent if the portal is enabled.</p>
             <p>• Clients receive an invite email with a one-time magic link to set up their access.</p>
             <p>• Clients can then log in any time using their email and a 6-digit code.</p>
             <p>• The portal shows their cases, invoices (with pay buttons), appointments, and payment history.</p>

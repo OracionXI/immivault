@@ -47,19 +47,24 @@ function buildEventBody(args: {
   endAt: number;
   notes?: string;
   attendeeEmails: string[];
+  includeConference?: boolean; // false for offline/in-person appointments
 }) {
+  const includeConference = args.includeConference !== false;
   return {
     summary: args.title,
     description: args.notes ?? "",
     start: { dateTime: new Date(args.startAt).toISOString() },
     end: { dateTime: new Date(args.endAt).toISOString() },
-    // conferenceData: requestId triggers Google Meet link generation
-    conferenceData: {
-      createRequest: {
-        requestId: `immivault-${Date.now()}`,
-        conferenceSolutionKey: { type: "hangoutsMeet" },
-      },
-    },
+    ...(includeConference
+      ? {
+          conferenceData: {
+            createRequest: {
+              requestId: `ordena-${Date.now()}`,
+              conferenceSolutionKey: { type: "hangoutsMeet" },
+            },
+          },
+        }
+      : {}),
     attendees: args.attendeeEmails.map((email) => ({ email })),
     reminders: {
       useDefault: false,
@@ -97,16 +102,22 @@ export const createEvent = internalAction({
         ...(appt.attendees ?? []).map((a) => a.email).filter((e) => e !== creator.email),
       ];
 
+      const isOffline = appt.modality === "offline";
       const body = buildEventBody({
         title: appt.title,
         startAt: appt.startAt,
         endAt: appt.endAt,
         notes: appt.notes,
         attendeeEmails,
+        includeConference: !isOffline,
       });
 
+      const calUrl = isOffline
+        ? `${GOOGLE_CALENDAR_BASE}/calendars/primary/events?sendUpdates=all`
+        : `${GOOGLE_CALENDAR_BASE}/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all`;
+
       const res = await fetch(
-        `${GOOGLE_CALENDAR_BASE}/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all`,
+        calUrl,
         {
           method: "POST",
           headers: {

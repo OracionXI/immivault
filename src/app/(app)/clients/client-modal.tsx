@@ -54,7 +54,7 @@ function F({ label, id, error, hint, children }: {
 function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
     onOpenChange: (open: boolean) => void;
     orgPortalReady: boolean;
-    staff: Array<{ _id: string; fullName: string }> | undefined;
+    staff: Array<{ _id: string; fullName: string; role: string }> | undefined;
     currency: string;
 }) {
     const createClient = useMutation(api.clients.mutations.create);
@@ -63,12 +63,13 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
         status: "Active" as "Active" | "Inactive" | "Archived",
         assignedTo: "",
         contractAmount: "",
-        portalEnabled: orgPortalReady,
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
 
     const set = (k: keyof typeof form, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+    const assignableStaff = staff?.filter((u) => u.role === "admin" || u.role === "case_manager");
 
     const validate = () => {
         const e: Record<string, string> = {};
@@ -99,10 +100,10 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                 status: form.status,
                 assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
                 contractAmount: contractAmountCents,
-                portalEnabled: form.portalEnabled,
+                portalEnabled: orgPortalReady,
             });
             toast.success(
-                form.portalEnabled && orgPortalReady
+                orgPortalReady
                     ? "Client created — portal invite email sent."
                     : "Client created."
             );
@@ -169,7 +170,7 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                             <SelectTrigger id="assignedTo"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {staff?.map((u) => (
+                                {assignableStaff?.map((u) => (
                                     <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -186,32 +187,11 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                         placeholder="e.g., 5000.00" />
                 </F>
 
-                {/* Portal invite */}
-                <div className={`rounded-lg border p-4 ${orgPortalReady ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40" : "border-slate-200 bg-muted/30 dark:border-slate-700"}`}>
-                    <div className="flex items-center justify-between gap-4">
-                        <div>
-                            <p className="text-sm font-medium flex items-center gap-1.5">
-                                <Globe className="h-4 w-4 text-blue-600" />
-                                Send Portal Invite Email
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                                {orgPortalReady
-                                    ? "Client receives a magic link to access their portal and complete their profile."
-                                    : "Configure the portal in Settings → Client Portal first."}
-                            </p>
-                        </div>
-                        <Switch
-                            checked={form.portalEnabled}
-                            onCheckedChange={(v) => set("portalEnabled", v)}
-                            disabled={!orgPortalReady}
-                        />
-                    </div>
-                </div>
             </div>
 
             <DialogFooter className="px-6 py-4 border-t">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleSubmit} disabled={loading}>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button type="button" onClick={handleSubmit} disabled={loading}>
                     {loading ? "Creating…" : "Create Client"}
                 </Button>
             </DialogFooter>
@@ -225,7 +205,7 @@ function EditClientModal({ client, onOpenChange, orgPortalReady, portalSlug, sta
     onOpenChange: (open: boolean) => void;
     orgPortalReady: boolean;
     portalSlug: string | undefined;
-    staff: Array<{ _id: string; fullName: string }> | undefined;
+    staff: Array<{ _id: string; fullName: string; role: string }> | undefined;
     currency: string;
 }) {
     const updateClient = useMutation(api.clients.mutations.update);
@@ -491,7 +471,7 @@ function EditClientModal({ client, onOpenChange, orgPortalReady, portalSlug, sta
                                 <SelectTrigger id="assignedTo"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                                    {staff?.map((u) => (
+                                    {staff?.filter((u) => u.role === "admin" || u.role === "case_manager").map((u) => (
                                         <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
                                     ))}
                                 </SelectContent>

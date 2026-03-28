@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as appointmentAvailability_mutations from "../appointmentAvailability/mutations.js";
+import type * as appointmentAvailability_queries from "../appointmentAvailability/queries.js";
 import type * as appointments_jobs from "../appointments/jobs.js";
 import type * as appointments_mutations from "../appointments/mutations.js";
 import type * as appointments_queries from "../appointments/queries.js";
@@ -49,7 +51,10 @@ import type * as organisations_actions from "../organisations/actions.js";
 import type * as organisations_jobs from "../organisations/jobs.js";
 import type * as organisations_mutations from "../organisations/mutations.js";
 import type * as organisations_queries from "../organisations/queries.js";
+import type * as portal_actions from "../portal/actions.js";
 import type * as portal_auth from "../portal/auth.js";
+import type * as portal_jobs from "../portal/jobs.js";
+import type * as portal_liveQueries from "../portal/liveQueries.js";
 import type * as portal_mutations from "../portal/mutations.js";
 import type * as portal_queries from "../portal/queries.js";
 import type * as seed from "../seed.js";
@@ -66,6 +71,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "appointmentAvailability/mutations": typeof appointmentAvailability_mutations;
+  "appointmentAvailability/queries": typeof appointmentAvailability_queries;
   "appointments/jobs": typeof appointments_jobs;
   "appointments/mutations": typeof appointments_mutations;
   "appointments/queries": typeof appointments_queries;
@@ -107,7 +114,10 @@ declare const fullApi: ApiFromModules<{
   "organisations/jobs": typeof organisations_jobs;
   "organisations/mutations": typeof organisations_mutations;
   "organisations/queries": typeof organisations_queries;
+  "portal/actions": typeof portal_actions;
   "portal/auth": typeof portal_auth;
+  "portal/jobs": typeof portal_jobs;
+  "portal/liveQueries": typeof portal_liveQueries;
   "portal/mutations": typeof portal_mutations;
   "portal/queries": typeof portal_queries;
   seed: typeof seed;

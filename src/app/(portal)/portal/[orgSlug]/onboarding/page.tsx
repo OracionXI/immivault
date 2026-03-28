@@ -137,6 +137,28 @@ export default function PortalOnboardingPage() {
     setStep((s) => Math.max(s - 1, 1));
   };
 
+  const handleSkip = async () => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/portal/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markComplete: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+      router.push(`/portal/${orgSlug}/dashboard`);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setError(null);
     setSubmitting(true);
@@ -366,9 +388,19 @@ export default function PortalOnboardingPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-4">
-          All fields are optional. You can skip and complete them later.
-        </p>
+        <div className="flex flex-col items-center gap-2 mt-4">
+          <p className="text-center text-xs text-slate-400">
+            All fields are optional.
+          </p>
+          <button
+            type="button"
+            onClick={handleSkip}
+            disabled={submitting}
+            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline underline-offset-2 transition-colors disabled:opacity-50"
+          >
+            Skip for now — I&apos;ll complete this later
+          </button>
+        </div>
       </div>
     </div>
   );

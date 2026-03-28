@@ -137,6 +137,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Ensure all native inputs/textareas show the correct text color in dark mode */
+  input,
+  textarea,
+  select {
+    @apply text-foreground;
+  }
 }
 
 /* ── Recharts: axis ticks always respect the theme's muted-foreground color ── */
