@@ -7,7 +7,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, FolderOpen, FileText, CreditCard, Calendar, Bell,
-  LogOut, Menu, Sun, Moon, ChevronUp, X,
+  LogOut, Menu, Sun, Moon, ChevronUp, X, User,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -35,7 +35,9 @@ type PortalSession = {
   unreadCount: number;
 };
 
-const PortalContext = createContext<PortalSession | null>(null);
+type PortalContextValue = PortalSession & { clearUnreadCount: () => void };
+
+const PortalContext = createContext<PortalContextValue | null>(null);
 export function usePortalSession() { return useContext(PortalContext); }
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
@@ -200,6 +202,11 @@ function PortalSidebar({
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push(`/portal/${orgSlug}/profile`)}>
+                <User className="mr-2 h-4 w-4" />
+                Edit Profile
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={toggleDark}>
                 {isDark
                   ? <><Sun className="mr-2 h-4 w-4" />Light Mode</>
@@ -227,6 +234,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const orgSlug = params.orgSlug as string;
 
   const [session, setSession] = useState<PortalSession | null>(null);
+  const clearUnreadCount = () => setSession((s) => s ? { ...s, unreadCount: 0 } : s);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -260,7 +268,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   if (!session) return null;
 
   return (
-    <PortalContext.Provider value={session}>
+    <PortalContext.Provider value={{ ...session, clearUnreadCount }}>
       <div className="min-h-screen flex bg-background">
 
         {/* Mobile overlay */}

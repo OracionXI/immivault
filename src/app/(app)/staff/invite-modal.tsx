@@ -25,6 +25,7 @@ const DEFAULT_ROLES = [
 export function InviteModal({ open, onOpenChange }: InviteModalProps) {
     const inviteStaff = useAction(api.users.actions.inviteStaff);
     const settings = useQuery(api.organisations.queries.getSettings);
+    const portalSettings = useQuery(api.organisations.queries.getPortalSettings);
     const builtInIds = new Set(DEFAULT_ROLES.map((r) => r.id));
     const orgCustom = (settings?.customRoles ?? []).filter((r) => !builtInIds.has(r.id));
     const customRoles = [...DEFAULT_ROLES, ...orgCustom];
@@ -64,10 +65,15 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
         setError("");
         setLoading(true);
         try {
+            const orgName = portalSettings?.orgName ?? "";
+            const inviteBase = typeof window !== "undefined" ? `${window.location.origin}/invite` : undefined;
+            const redirectUrl = inviteBase
+                ? orgName ? `${inviteBase}?orgName=${encodeURIComponent(orgName)}` : inviteBase
+                : undefined;
             const result = await inviteStaff({
                 email: form.email,
                 roleId: form.roleId,
-                redirectUrl: typeof window !== "undefined" ? `${window.location.origin}/invite` : undefined,
+                redirectUrl,
             });
             setInviteUrl(result?.inviteUrl ?? null);
             setSuccess(true);

@@ -13,7 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, X, Plus, Loader2, Link2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { AlertTriangle, X, Plus, Loader2, Link2, CalendarIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/use-role";
 import Link from "next/link";
 
@@ -33,14 +36,7 @@ interface AppointmentModalProps {
 }
 
 const DEFAULT_APPOINTMENT_TYPES = ["Consultation", "Document Review", "Interview Prep", "Follow-up"];
-const DURATION_OPTIONS = [
-    { label: "15 min", value: 15 },
-    { label: "30 min", value: 30 },
-    { label: "45 min", value: 45 },
-    { label: "1 hour", value: 60 },
-    { label: "1.5 hours", value: 90 },
-    { label: "2 hours", value: 120 },
-];
+const DURATION_MINS = 60; // All appointments are fixed at 60 minutes
 
 function tsToDateStr(ts: number) {
     const d = new Date(ts);
@@ -83,13 +79,33 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
     const [caseId, setCaseId] = useState("");
     const [date, setDate] = useState("");
     const [time, setTime] = useState("");
-    const [durationMins, setDurationMins] = useState(60);
+    const durationMins = DURATION_MINS;
     const [notes, setNotes] = useState("");
     const [attendees, setAttendees] = useState<Attendee[]>([]);
+    const [datePickerOpen, setDatePickerOpen] = useState(false);
     const [externalEmail, setExternalEmail] = useState("");
     const [externalName, setExternalName] = useState("");
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
+
+    // ── Blackout dates for internal attendees ─────────────────────────────────
+    const internalAttendeeIds = useMemo(() => {
+        const ids = attendees.filter((a) => a.type === "internal" && a.userId).map((a) => a.userId as Id<"users">);
+        if (user?._id && !ids.includes(user._id)) ids.push(user._id);
+        return ids;
+    }, [attendees, user?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const blackoutDates = useQuery(
+        api.staffAvailability.queries.getBlackoutDatesForUsers,
+        { userIds: internalAttendeeIds }
+    ) ?? [];
+    const blackoutSet = useMemo(() => new Set(blackoutDates), [blackoutDates]);
+
+    const isDateDisabled = (d: Date) => {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        if (d < today) return true;
+        const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return blackoutSet.has(iso);
+    };
 
     // Suggested attendees for the selected case (populated reactively)
     const caseAttendees = useQuery(
@@ -184,7 +200,6 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
             setCaseId(appointment.caseId ?? "");
             setDate(tsToDateStr(appointment.startAt));
             setTime(tsToTimeStr(appointment.startAt));
-            setDurationMins(Math.round((appointment.endAt - appointment.startAt) / 60_000));
             setNotes(appointment.notes ?? "");
             setAttendees((appointment.attendees ?? []) as Attendee[]);
         } else {
@@ -194,13 +209,13 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
             setCaseId("");
             setDate("");
             setTime("");
-            setDurationMins(60);
             setNotes("");
             setAttendees([]);
         }
         setExternalEmail("");
         setExternalName("");
         setErrors({});
+        setDatePickerOpen(false);
     }, [open, appointment]);
 
     // ── Attendee helpers ──────────────────────────────────────────────────────
@@ -379,12 +394,34 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                     <div className="grid grid-cols-3 gap-3">
                         <div className="grid gap-2">
                             <Label>Date *</Label>
-                            <Input
-                                type="date"
-                                value={date}
-                                onChange={(e) => setDate(e.target.value)}
-                                min={new Date().toISOString().split("T")[0]}
-                            />
+                            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        className={cn(
+                                            "h-10 w-full justify-start text-left font-normal",
+                                            !date && "text-muted-foreground"
+                                        )}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                                        {date ? date : <span>Pick a date</span>}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={date ? new Date(date + "T12:00:00") : undefined}
+                                        onSelect={(d) => {
+                                            if (!d) return;
+                                            const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                                            setDate(iso);
+                                            setDatePickerOpen(false);
+                                        }}
+                                        disabled={isDateDisabled}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                             {errors.date && <p className="text-xs text-destructive">{errors.date}</p>}
                         </div>
                         <div className="grid gap-2">
@@ -398,14 +435,9 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                         </div>
                         <div className="grid gap-2">
                             <Label>Duration</Label>
-                            <Select value={String(durationMins)} onValueChange={(v) => setDurationMins(Number(v))}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {DURATION_OPTIONS.map((d) => (
-                                        <SelectItem key={d.value} value={String(d.value)}>{d.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <div className="h-10 flex items-center px-3 rounded-md border bg-muted text-sm text-muted-foreground">
+                                1 hour
+                            </div>
                         </div>
                     </div>
 

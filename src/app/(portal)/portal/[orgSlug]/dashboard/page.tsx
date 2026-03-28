@@ -59,7 +59,7 @@ type RecentNotification = {
 type DashboardDetail = {
   overdueInvoices: OverdueInvoice[];
   nextPayment: NextPayment | null;
-  nextAppointment: NextAppointment | null;
+  upcomingAppointments: NextAppointment[];
   recentCases: RecentCase[];
   recentNotifications: RecentNotification[];
 };
@@ -118,6 +118,7 @@ export default function PortalDashboardPage() {
 
   const [detail, setDetail] = useState<DashboardDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
   const loadData = useCallback(() => {
     fetch("/api/portal/dashboard")
@@ -253,43 +254,79 @@ export default function PortalDashboardPage() {
         </div>
       </div>
 
-      {/* Next Appointment (full width, above the 3-col row) */}
-      {!detailLoading && detail?.nextAppointment && (
-        <div className="rounded-xl border border-border bg-card shadow-sm p-5 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="h-9 w-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-            <Calendar className="h-4 w-4 text-emerald-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-sm text-foreground">{detail.nextAppointment.title}</p>
-              {detail.nextAppointment.status === "PendingApproval" && (
-                <span className="text-[10px] font-semibold bg-amber-500/10 text-amber-600 rounded-full px-2 py-0.5">
-                  Pending Approval
-                </span>
+      {/* Upcoming Appointments */}
+      {!detailLoading && (
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div>
+              <h2 className="font-semibold text-foreground">Upcoming Appointments</h2>
+              {(detail?.upcomingAppointments?.length ?? 0) > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {detail!.upcomingAppointments.length}{" "}
+                  {detail!.upcomingAppointments.length === 1 ? "appointment" : "appointments"} scheduled
+                </p>
               )}
             </div>
-            {detail.nextAppointment.caseTitle && (
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">{detail.nextAppointment.caseTitle}</p>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              {formatDate(detail.nextAppointment.startAt)}
-              {" · "}
-              {formatTime(detail.nextAppointment.startAt)}–{formatTime(detail.nextAppointment.endAt)}
-              {detail.nextAppointment.modality && (
-                <span className="ml-2 inline-flex items-center gap-1">
-                  {detail.nextAppointment.modality === "online"
-                    ? <><Video className="h-3 w-3" /> Online</>
-                    : <><MapPin className="h-3 w-3" /> In-person</>}
-                </span>
-              )}
-            </p>
+            <Link
+              href={`/portal/${orgSlug}/appointments`}
+              className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+            >
+              View all <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
-          <Link
-            href={`/portal/${orgSlug}/appointments`}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline shrink-0"
-          >
-            View appointments <ArrowRight className="h-3 w-3" />
-          </Link>
+          <div className="divide-y divide-border">
+            {!detail?.upcomingAppointments?.length ? (
+              <div className="flex items-center justify-center p-8">
+                <p className="text-sm text-muted-foreground">No upcoming appointments.</p>
+              </div>
+            ) : (
+              <>
+                {(showAllUpcoming
+                  ? detail.upcomingAppointments
+                  : detail.upcomingAppointments.slice(0, 3)
+                ).map((appt) => (
+                  <div key={String(appt._id)} className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                      <Calendar className="h-3.5 w-3.5 text-emerald-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-foreground truncate">{appt.title}</p>
+                        {appt.status === "PendingApproval" && (
+                          <span className="text-[10px] font-semibold bg-amber-500/10 text-amber-600 rounded-full px-1.5 py-0.5 shrink-0">
+                            Pending
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDate(appt.startAt)} · {formatTime(appt.startAt)}–{formatTime(appt.endAt)}
+                        {appt.modality && (
+                          <span className="ml-1.5 inline-flex items-center gap-0.5">
+                            {appt.modality === "online"
+                              ? <><Video className="h-2.5 w-2.5" /> Online</>
+                              : <><MapPin className="h-2.5 w-2.5" /> In-person</>}
+                          </span>
+                        )}
+                      </p>
+                      {appt.caseTitle && (
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate">{appt.caseTitle}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {detail.upcomingAppointments.length > 3 && (
+                  <button
+                    onClick={() => setShowAllUpcoming((v) => !v)}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground py-2.5 transition-colors"
+                  >
+                    {showAllUpcoming
+                      ? "Show less"
+                      : `Show ${detail.upcomingAppointments.length - 3} more`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 

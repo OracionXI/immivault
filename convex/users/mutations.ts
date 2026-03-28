@@ -205,6 +205,20 @@ export const saveGoogleTokens = authenticatedMutation({
   },
 });
 
+/** Save the current user's IANA timezone (detected from their browser). */
+export const setMyTimezone = authenticatedMutation({
+  args: { timezone: v.string() },
+  handler: async (ctx, args) => {
+    // Basic validation — Intl will throw if the timezone is invalid
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: args.timezone });
+    } catch {
+      throw new ConvexError({ code: "VALIDATION", message: "Invalid timezone string." });
+    }
+    await ctx.db.patch(ctx.user._id, { timezone: args.timezone });
+  },
+});
+
 /** Disconnect Google Calendar from the current user's account. */
 export const disconnectGoogle = authenticatedMutation({
   args: {},

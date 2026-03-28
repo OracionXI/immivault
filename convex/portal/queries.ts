@@ -184,6 +184,7 @@ export const getAppointments = internalQuery({
           modality: a.modality ?? null,
           startAt: a.startAt,
           endAt: a.endAt,
+          caseId: a.caseId ?? null,
           assigneeName,
           googleMeetLink: a.googleMeetLink ?? null,
           notes: a.notes ?? null,
@@ -346,7 +347,7 @@ export const getOrgStripeSettings = internalQuery({
   },
 });
 
-/** Org timezone + booking settings — minimal, safe to return to portal. */
+/** Booking settings — minimal, safe to return to portal. */
 export const getOrgSettings = internalQuery({
   args: { organisationId: v.id("organisations") },
   handler: async (ctx, args) => {
@@ -355,7 +356,6 @@ export const getOrgSettings = internalQuery({
       .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
       .unique();
     return {
-      timezone: s?.timezone ?? "UTC",
       bookingEnabled: s?.bookingEnabled ?? true,
     };
   },
@@ -382,11 +382,13 @@ export const getCasesForBooking = internalQuery({
         let assigneeName: string | null = null;
         let assigneeId: string | null = null;
         let assigneeGoogleConnected = false;
+        let staffTimezone: string | null = null;
         if (c.assignedTo) {
           const user = await ctx.db.get(c.assignedTo);
           assigneeName = user?.fullName ?? null;
           assigneeId = c.assignedTo as string;
           assigneeGoogleConnected = !!user?.googleRefreshToken;
+          staffTimezone = user?.timezone ?? null;
         }
         return {
           _id: c._id as string,
@@ -397,6 +399,7 @@ export const getCasesForBooking = internalQuery({
           assigneeName,
           assigneeId,
           assigneeGoogleConnected,
+          staffTimezone,
         };
       })
     );
@@ -549,8 +552,8 @@ export const getDashboardDetail = internalQuery({
       ? { date: nextPaymentDate, currency: orgCurrency }
       : null;
 
-    // ── Next upcoming appointment ────────────────────────────────────────────
-    const upcomingAppts = appointments
+    // ── Upcoming appointments (soonest first, all future pending/confirmed) ───
+    const upcomingApptsSorted = appointments
       .filter(
         (a) =>
           a.organisationId === args.organisationId &&
@@ -560,25 +563,25 @@ export const getDashboardDetail = internalQuery({
       )
       .sort((a, b) => a.startAt - b.startAt);
 
-    let nextAppointment = null;
-    if (upcomingAppts.length > 0) {
-      const appt = upcomingAppts[0];
-      let caseTitle: string | null = null;
-      if (appt.caseId) {
-        const relatedCase = await ctx.db.get(appt.caseId);
-        caseTitle = relatedCase?.title ?? null;
-      }
-      nextAppointment = {
-        _id: appt._id,
-        title: appt.title,
-        startAt: appt.startAt,
-        endAt: appt.endAt,
-        type: appt.type,
-        modality: appt.modality ?? null,
-        status: appt.status,
-        caseTitle,
-      };
-    }
+    const upcomingAppointments = await Promise.all(
+      upcomingApptsSorted.map(async (appt) => {
+        let caseTitle: string | null = null;
+        if (appt.caseId) {
+          const relatedCase = await ctx.db.get(appt.caseId);
+          caseTitle = relatedCase?.title ?? null;
+        }
+        return {
+          _id: appt._id,
+          title: appt.title,
+          startAt: appt.startAt,
+          endAt: appt.endAt,
+          type: appt.type,
+          modality: appt.modality ?? null,
+          status: appt.status,
+          caseTitle,
+        };
+      })
+    );
 
     // ── Recent active cases (last 3 by updatedAt or _creationTime) ───────────
     const recentCases = cases
@@ -620,7 +623,7 @@ export const getDashboardDetail = internalQuery({
     return {
       overdueInvoices,
       nextPayment,
-      nextAppointment,
+      upcomingAppointments,
       recentCases,
       recentNotifications,
     };

@@ -165,6 +165,12 @@ export const inviteStaff = action({
       await ctx.runMutation(internal.users.mutations.deleteInvite, { id: existing._id });
     }
 
+    // ── Fetch org name for the invitation email ──────────────────────────────
+    const org = await ctx.runQuery(internal.organisations.queries.getById, {
+      id: user.organisationId,
+    });
+    const orgName = org?.name ?? "";
+
     // ── Call Clerk REST API (/v1/invitations — no Clerk Orgs needed) ─────────
     const res = await fetch("https://api.clerk.com/v1/invitations", {
       method: "POST",
@@ -180,10 +186,12 @@ export const inviteStaff = action({
         // Webhook reads these to assign org + role when the user signs up.
         // convexRole carries the permission tier (backwards compat).
         // convexRoleId carries the display role ID for custom roles.
+        // orgName is included so Clerk email templates can reference it.
         public_metadata: {
           convexRole: permissionLevel,
           convexRoleId: args.roleId,
           convexOrgId: user.organisationId,
+          orgName,
         },
       }),
     });
