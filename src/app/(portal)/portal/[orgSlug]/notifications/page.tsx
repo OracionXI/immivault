@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { usePolling } from "@/hooks/use-polling";
 import { Bell } from "lucide-react";
+import { usePortalSession } from "../layout";
 
 function formatDate(ts: number) {
   const diffMs = Date.now() - ts;
@@ -16,14 +17,19 @@ type Notification = { _id: string; title: string; message: string; read: boolean
 
 export default function PortalNotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
+  const portalSession = usePortalSession();
 
   const loadData = useCallback(() => {
     fetch("/api/portal/notifications")
       .then((r) => r.json())
       .then((data) => {
-        if (data.notifications) setNotifications(data.notifications);
+        if (data.notifications) {
+          setNotifications(data.notifications);
+          portalSession?.clearUnreadCount();
+        }
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   usePolling(loadData, 15_000);

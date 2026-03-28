@@ -53,6 +53,7 @@ function InviteForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const ticket = searchParams.get("__clerk_ticket") ?? "";
+    const orgName = searchParams.get("orgName") ?? "";
 
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
@@ -116,7 +117,12 @@ function InviteForm() {
                     </svg>
                 </div>
                 <h1 className="text-[1.75rem] font-bold tracking-tight text-gray-900">Accept your invitation</h1>
-                <p className="text-sm text-gray-500">Set up your account to join your team.</p>
+                <p className="text-sm text-gray-500">
+                    {orgName
+                        ? <>You&apos;ve been invited to join <span className="font-semibold text-gray-700">{orgName}</span>. Set up your account below.</>
+                        : "Set up your account to join your team."
+                    }
+                </p>
             </div>
 
             <div className="space-y-4">

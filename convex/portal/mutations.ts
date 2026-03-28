@@ -179,8 +179,8 @@ export const reschedulePortalAppointment = internalMutation({
     if (args.newStartAt < now + 60 * 60_000) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "New time must be at least 1 hour from now." });
     }
-    if (args.newStartAt > now + 30 * 24 * 60 * 60_000) {
-      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot reschedule more than 30 days in advance." });
+    if (args.newStartAt > now + 60 * 24 * 60 * 60_000) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Cannot reschedule more than 60 days in advance." });
     }
 
     // Cancel existing Google Calendar event (new one created after re-approval)
@@ -374,7 +374,7 @@ export const recordDirectAppointmentPayment = internalMutation({
       status: "PendingApproval",
       portalBooking: true,
       startAt: args.startAt,
-      endAt: args.startAt + args.durationMinutes * 60_000,
+      endAt: args.startAt + 3_600_000, // fixed 60-minute slots
       assignedTo: args.hostUserId,
       attendees,
     });

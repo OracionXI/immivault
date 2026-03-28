@@ -56,6 +56,8 @@ export default function DashboardPage() {
     const stats = useQuery(api.dashboard.queries.stats);
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const users = useQuery(api.users.queries.listByOrg) ?? [];
+    const orgSettings = useQuery(api.organisations.queries.getSettings);
+    const customRoles = orgSettings?.customRoles ?? [];
 
     // "Last updated" tag animation — fires once when stats first loads
     type TagPhase = "hidden" | "entering" | "showing" | "collapsing" | "fading" | "gone";
@@ -371,7 +373,14 @@ export default function DashboardPage() {
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-medium leading-none mb-1">{user.fullName}</p>
-                                                    <p className="text-[11px] text-muted-foreground">{user.role}</p>
+                                                    <p className="text-[11px] text-muted-foreground">
+                                                        {user.roleId && customRoles.find((r) => r.id === user.roleId)?.name
+                                                            ? customRoles.find((r) => r.id === user.roleId)!.name
+                                                            : user.role === "admin" ? "Admin"
+                                                            : user.role === "case_manager" ? "Case Manager"
+                                                            : user.role === "accountant" ? "Accountant"
+                                                            : "Staff"}
+                                                    </p>
                                                 </div>
                                             </div>
                                             <div className="flex -space-x-1">

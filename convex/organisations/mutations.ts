@@ -379,6 +379,8 @@ export const permanentDeleteOrg = internalMutation({
     await deleteAll("disputes", "by_org");
     await deleteAll("webhookLogs", "by_org");
     await deleteAll("appointmentAvailability", "by_org");
+    await deleteAll("staffAvailability", "by_org");
+    await deleteAll("staffBlackoutDates", "by_org");
 
     await ctx.db.delete(organisationId);
   },

@@ -59,6 +59,8 @@ export default defineSchema({
     googleRefreshToken: v.optional(v.string()),
     googleEmail: v.optional(v.string()),
     googleConnectedAt: v.optional(v.number()),
+    // IANA timezone string (e.g. "America/New_York") — set from the user's browser, used for availability slot generation
+    timezone: v.optional(v.string()),
   })
     .index("by_token", ["tokenIdentifier"])
     .index("by_org", ["organisationId"])
@@ -465,6 +467,28 @@ export default defineSchema({
   })
     .index("by_org", ["organisationId"])
     .index("by_pricing", ["appointmentPricingId"]),
+
+  // ─── Staff Availability (per-staff recurring weekly schedule) ────────────────
+  staffAvailability: defineTable({
+    organisationId: v.id("organisations"),
+    userId: v.id("users"),
+    dayOfWeek: v.number(),   // 0=Sun … 6=Sat
+    startHour: v.number(),   // 0–23 (in the staff member's own timezone)
+    endHour: v.number(),     // 1–24 (exclusive)
+    isActive: v.boolean(),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_user", ["userId"]),
+
+  // ─── Staff Blackout Dates (one-off date overrides — vacation, sick leave, etc.) ──
+  staffBlackoutDates: defineTable({
+    organisationId: v.id("organisations"),
+    userId: v.id("users"),
+    date: v.string(),              // "YYYY-MM-DD" in the staff member's own timezone
+    reason: v.optional(v.string()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_org", ["organisationId"]),
 
   // ─── Rate Limits (fixed-window counter, server-side only) ────────────────────
   rateLimits: defineTable({

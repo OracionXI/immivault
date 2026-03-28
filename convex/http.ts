@@ -640,7 +640,7 @@ http.route({
   }),
 });
 
-// ─── Portal: Get available slots for a date ───────────────────────────────────
+// ─── Portal: Get available slots for a date (per staff member's availability) ─
 http.route({
   path: "/portal/appointments/slots",
   method: "GET",
@@ -651,26 +651,84 @@ http.route({
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
 
     const url = new URL(request.url);
-    const pricingId = url.searchParams.get("pricingId");
+    const caseId = url.searchParams.get("caseId");
     const dateStartUTC = parseInt(url.searchParams.get("dateStartUTC") ?? "0", 10);
-    const dayOfWeek = parseInt(url.searchParams.get("dayOfWeek") ?? "-1", 10);
 
-    if (!pricingId || isNaN(dateStartUTC) || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
-      return jsonRes({ error: "pricingId, dateStartUTC, and dayOfWeek are required." }, 400);
+    if (!caseId || isNaN(dateStartUTC) || dateStartUTC <= 0) {
+      return jsonRes({ error: "caseId and dateStartUTC are required." }, 400);
     }
 
-    const slots = await ctx.runQuery(internal.appointmentAvailability.queries.getAvailableSlots, {
+    // Look up the case's assigned staff member
+    const cases = await ctx.runQuery(internal.portal.queries.getCasesForBooking, {
+      clientId: session.clientId,
       organisationId: session.organisationId,
-      appointmentPricingId: pricingId as Id<"appointmentPricing">,
-      dateStartUTC,
+    });
+    const theCase = cases.find((c: { _id: string }) => c._id === caseId);
+    if (!theCase) return jsonRes({ error: "Case not found." }, 404);
+    if (!theCase.assigneeId) return jsonRes({ slots: [], noAssignee: true });
+
+    // Resolve staff timezone to compute date string and day-of-week
+    const staffTz = await ctx.runQuery(internal.staffAvailability.queries.getStaffTimezone, {
+      userId: theCase.assigneeId as Id<"users">,
+    });
+
+    const tzFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: staffTz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+    });
+    const dateStr = tzFormatter.format(new Date(dateStartUTC)); // "YYYY-MM-DD"
+
+    const dowFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: staffTz,
+      weekday: "short",
+    });
+    const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dayOfWeek = dowMap[dowFormatter.format(new Date(dateStartUTC))] ?? 0;
+
+    // Midnight in the staff's timezone for the requested date (for slot offset calculation)
+    const midnightUTC = new Date(`${dateStr}T00:00:00`).getTime() -
+      (new Date(`${dateStr}T00:00:00`).getTime() -
+        new Date(new Intl.DateTimeFormat("en-US", {
+          timeZone: staffTz,
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+          hour12: false,
+        }).format(new Date(`${dateStr}T00:00:00`)).replace(/(\d+)\/(\d+)\/(\d+),\s*(\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6")).getTime());
+
+    // Simpler approach: compute staff-timezone midnight as UTC offset
+    const staffMidnightUTC = (() => {
+      // Find the UTC timestamp for midnight of dateStr in the staff's timezone
+      // by incrementally testing
+      const [year, month, day] = dateStr.split("-").map(Number);
+      const guess = Date.UTC(year, month - 1, day); // rough UTC midnight
+      // Adjust for timezone offset at that date
+      const localParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: staffTz,
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", second: "numeric",
+        hour12: false,
+      }).formatToParts(new Date(guess));
+      const h = parseInt(localParts.find((p) => p.type === "hour")?.value ?? "0");
+      const m = parseInt(localParts.find((p) => p.type === "minute")?.value ?? "0");
+      const s = parseInt(localParts.find((p) => p.type === "second")?.value ?? "0");
+      // Offset from midnight: subtract that many ms from guess to get midnight UTC
+      return guess - (h * 3_600_000 + m * 60_000 + s * 1_000);
+    })();
+
+    const slots = await ctx.runQuery(internal.staffAvailability.queries.getAvailableSlotsForStaff, {
+      organisationId: session.organisationId,
+      userId: theCase.assigneeId as Id<"users">,
+      dateStartUTC: staffMidnightUTC,
       dayOfWeek,
+      dateStr,
     });
 
     return jsonRes({ slots });
   }),
 });
 
-// ─── Portal: Get available offline slots (org office hours) ──────────────────
+// ─── Portal: Offline slots — unified with the main slots endpoint ─────────────
+// Kept for backward compatibility; returns empty slots (offline uses same schedule as online)
 http.route({
   path: "/portal/appointments/offline-slots",
   method: "GET",
@@ -679,22 +737,9 @@ http.route({
     if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
     const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
-
-    const url = new URL(request.url);
-    const dateStartUTC = parseInt(url.searchParams.get("dateStartUTC") ?? "0", 10);
-    const dayOfWeek = parseInt(url.searchParams.get("dayOfWeek") ?? "-1", 10);
-
-    if (isNaN(dateStartUTC) || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
-      return jsonRes({ error: "dateStartUTC and dayOfWeek are required." }, 400);
-    }
-
-    const slots = await ctx.runQuery(internal.appointmentAvailability.queries.getOfflineSlots, {
-      organisationId: session.organisationId,
-      dateStartUTC,
-      dayOfWeek,
-    });
-
-    return jsonRes({ slots });
+    // Offline now uses the same per-staff availability as online.
+    // Forward to /portal/appointments/slots with the caseId parameter.
+    return jsonRes({ slots: [], deprecated: true });
   }),
 });
 
@@ -718,7 +763,7 @@ http.route({
       }),
     ]);
 
-    return jsonRes({ cases, orgTimezone: orgSettings.timezone });
+    return jsonRes({ cases, bookingEnabled: orgSettings.bookingEnabled });
   }),
 });
 
@@ -732,29 +777,27 @@ http.route({
     const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
 
-    let body: { appointmentPricingId: string; startAt: number; durationMinutes: number; caseId?: string; modality?: "online" | "offline" };
+    let body: { appointmentPricingId: string; startAt: number; caseId?: string; modality?: "online" | "offline" };
     try {
       body = await request.json();
     } catch {
       return jsonRes({ error: "Invalid JSON body." }, 400);
     }
 
-    const { appointmentPricingId, startAt, durationMinutes, caseId } = body;
+    const { appointmentPricingId, startAt, caseId } = body;
     const modality: "online" | "offline" = body.modality === "offline" ? "offline" : "online";
+    const durationMinutes = 60; // fixed 60-minute slots
 
-    if (!appointmentPricingId || !startAt || !durationMinutes) {
-      return jsonRes({ error: "appointmentPricingId, startAt, and durationMinutes are required." }, 400);
+    if (!appointmentPricingId || !startAt) {
+      return jsonRes({ error: "appointmentPricingId and startAt are required." }, 400);
     }
     const now = Date.now();
     if (typeof startAt !== "number" || startAt < now) {
       return jsonRes({ error: "Appointment start time must be in the future." }, 400);
     }
-    // Upper bound: 30 days
-    if (startAt > now + 30 * 24 * 60 * 60 * 1000) {
-      return jsonRes({ error: "Appointment cannot be booked more than 30 days in advance." }, 400);
-    }
-    if (typeof durationMinutes !== "number" || durationMinutes < 5 || durationMinutes > 480) {
-      return jsonRes({ error: "Duration must be between 5 and 480 minutes." }, 400);
+    // Upper bound: 60 days
+    if (startAt > now + 60 * 24 * 60 * 60 * 1000) {
+      return jsonRes({ error: "Appointment cannot be booked more than 60 days in advance." }, 400);
     }
 
     // Fetch active pricing
@@ -801,7 +844,7 @@ http.route({
         caseId: caseId as Id<"cases"> | undefined,
         appointmentType: selected.appointmentType,
         startAt,
-        endAt: startAt + durationMinutes * 60_000,
+        endAt: startAt + 3_600_000,
         hostUserId: (theCase?.assigneeId ?? undefined) as Id<"users"> | undefined,
         modality,
       });
@@ -816,7 +859,6 @@ http.route({
         amountCents: selected.priceInCents,
         appointmentType: selected.appointmentType,
         startAt,
-        durationMinutes,
         caseId: caseId as Id<"cases"> | undefined,
         modality,
         hostUserId: (theCase?.assigneeId ?? undefined) as Id<"users"> | undefined,
@@ -895,18 +937,18 @@ http.route({
     const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
     if (!session) return jsonRes({ error: "Unauthorized" }, 401);
 
-    let body: { appointmentId?: string; newStartAt?: number; durationMinutes?: number };
+    let body: { appointmentId?: string; newStartAt?: number };
     try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
-    if (!body.appointmentId || !body.newStartAt || !body.durationMinutes) {
-      return jsonRes({ error: "appointmentId, newStartAt, and durationMinutes are required." }, 400);
+    if (!body.appointmentId || !body.newStartAt) {
+      return jsonRes({ error: "appointmentId and newStartAt are required." }, 400);
     }
 
     const now = Date.now();
     if (body.newStartAt < now + 60 * 60_000) {
       return jsonRes({ error: "New time must be at least 1 hour from now." }, 400);
     }
-    if (body.newStartAt > now + 30 * 24 * 60 * 60_000) {
-      return jsonRes({ error: "Cannot reschedule more than 30 days in advance." }, 400);
+    if (body.newStartAt > now + 60 * 24 * 60 * 60_000) {
+      return jsonRes({ error: "Cannot reschedule more than 60 days in advance." }, 400);
     }
 
     try {
@@ -915,7 +957,7 @@ http.route({
         clientId: session.clientId,
         organisationId: session.organisationId,
         newStartAt: body.newStartAt,
-        newEndAt: body.newStartAt + body.durationMinutes * 60_000,
+        newEndAt: body.newStartAt + 3_600_000,
       });
       return jsonRes({ ok: true });
     } catch (err) {

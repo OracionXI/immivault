@@ -7,32 +7,44 @@ import { cn } from "@/lib/utils";
 import { User, GitBranch, Layers, Building2, FileText, Shield, CalendarClock, CreditCard, Globe, DollarSign } from "lucide-react";
 import { useRole } from "@/hooks/use-role";
 
+// visibleTo: "all" | "admin" | "admin_cm" (admin + case_manager)
 const settingsTabs = [
-    { title: "Profile",         href: "/settings",                 icon: User,      adminOnly: false },
-    { title: "Case Stages",     href: "/settings/case-stages",     icon: GitBranch, adminOnly: true  },
-    { title: "Case Types",      href: "/settings/case-types",      icon: Layers,    adminOnly: true  },
-    { title: "Doc Types",       href: "/settings/doc-types",       icon: FileText,  adminOnly: true  },
-    { title: "Role Types",      href: "/settings/role-types",      icon: Shield,    adminOnly: true  },
-    { title: "Bank Accounts",   href: "/settings/bank-accounts",   icon: Building2, adminOnly: true  },
-    { title: "Appt Types",      href: "/settings/appointment-types", icon: CalendarClock, adminOnly: true },
-    { title: "Payments",        href: "/payments/settings",            icon: CreditCard,    adminOnly: true },
-    { title: "Client Portal",  href: "/settings/portal",              icon: Globe,         adminOnly: true },
-    { title: "Appt Pricing",   href: "/settings/appointment-pricing", icon: DollarSign,    adminOnly: true },
-];
+    { title: "Profile",         href: "/settings",                    icon: User,          visibleTo: "all"      },
+    { title: "My Availability", href: "/settings/my-availability",    icon: CalendarClock, visibleTo: "admin_cm" },
+    { title: "Case Stages",     href: "/settings/case-stages",        icon: GitBranch,     visibleTo: "admin"    },
+    { title: "Case Types",      href: "/settings/case-types",         icon: Layers,        visibleTo: "admin"    },
+    { title: "Doc Types",       href: "/settings/doc-types",          icon: FileText,      visibleTo: "admin"    },
+    { title: "Role Types",      href: "/settings/role-types",         icon: Shield,        visibleTo: "admin"    },
+    { title: "Bank Accounts",   href: "/settings/bank-accounts",      icon: Building2,     visibleTo: "admin"    },
+    { title: "Appt Types",      href: "/settings/appointment-types",  icon: CalendarClock, visibleTo: "admin"    },
+    { title: "Payments",        href: "/payments/settings",           icon: CreditCard,    visibleTo: "admin"    },
+    { title: "Client Portal",   href: "/settings/portal",             icon: Globe,         visibleTo: "admin"    },
+    { title: "Appt Pricing",    href: "/settings/appointment-pricing",icon: DollarSign,    visibleTo: "admin"    },
+] as const;
+
+// Paths accessible to case managers (in addition to /settings)
+const CM_ALLOWED_PATHS = ["/settings/my-availability"];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
-    const { isAdmin, isLoading } = useRole();
+    const { isAdmin, isCaseManager, isLoading } = useRole();
 
-    // Non-admins can only access /settings (Profile). Redirect any deeper path.
+    const canAccessPath = isAdmin || pathname === "/settings" || (isCaseManager && CM_ALLOWED_PATHS.some((p) => pathname.startsWith(p)));
+
+    // Redirect unauthorised access
     useEffect(() => {
-        if (!isLoading && !isAdmin && pathname !== "/settings") {
+        if (!isLoading && !canAccessPath) {
             router.replace("/settings");
         }
-    }, [isAdmin, isLoading, pathname, router]);
+    }, [isLoading, canAccessPath, router]);
 
-    const visibleTabs = settingsTabs.filter((tab) => !tab.adminOnly || isAdmin);
+    const visibleTabs = settingsTabs.filter((tab) => {
+        if (tab.visibleTo === "all") return true;
+        if (tab.visibleTo === "admin") return isAdmin;
+        if (tab.visibleTo === "admin_cm") return isAdmin || isCaseManager;
+        return false;
+    });
 
     return (
         <div className="space-y-6 pb-6">
@@ -64,9 +76,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                     })}
                 </nav>
 
-                {/* Settings Content — suppress children on admin-only paths for non-admins */}
+                {/* Settings Content */}
                 <div key={pathname} className="flex-1 min-w-0 animate-in fade-in slide-in-from-bottom-3 duration-300 ease-out">
-                    {isLoading || (!isAdmin && pathname !== "/settings") ? null : children}
+                    {isLoading || !canAccessPath ? null : children}
                 </div>
             </div>
         </div>

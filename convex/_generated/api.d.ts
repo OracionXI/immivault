@@ -58,6 +58,8 @@ import type * as portal_liveQueries from "../portal/liveQueries.js";
 import type * as portal_mutations from "../portal/mutations.js";
 import type * as portal_queries from "../portal/queries.js";
 import type * as seed from "../seed.js";
+import type * as staffAvailability_mutations from "../staffAvailability/mutations.js";
+import type * as staffAvailability_queries from "../staffAvailability/queries.js";
 import type * as tasks_mutations from "../tasks/mutations.js";
 import type * as tasks_queries from "../tasks/queries.js";
 import type * as users_actions from "../users/actions.js";
@@ -121,6 +123,8 @@ declare const fullApi: ApiFromModules<{
   "portal/mutations": typeof portal_mutations;
   "portal/queries": typeof portal_queries;
   seed: typeof seed;
+  "staffAvailability/mutations": typeof staffAvailability_mutations;
+  "staffAvailability/queries": typeof staffAvailability_queries;
   "tasks/mutations": typeof tasks_mutations;
   "tasks/queries": typeof tasks_queries;
   "users/actions": typeof users_actions;

@@ -246,11 +246,17 @@ export default function ProfilePage() {
         }
     };
 
-    const roleLabel =
-        user?.role === "admin" ? "Admin"
-        : user?.role === "case_manager" ? "Case Manager"
-        : user?.role === "accountant" ? "Accountant"
-        : "Staff";
+    const customRoles = settings?.customRoles ?? [];
+    const roleLabel = (() => {
+        if (user?.role === "admin") return "Admin";
+        if (user?.roleId) {
+            const match = customRoles.find((r) => r.id === user.roleId);
+            if (match) return match.name;
+        }
+        if (user?.role === "case_manager") return "Case Manager";
+        if (user?.role === "accountant") return "Accountant";
+        return "Staff";
+    })();
 
     return (
         <div className="space-y-6">

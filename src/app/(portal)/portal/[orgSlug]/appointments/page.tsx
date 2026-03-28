@@ -18,6 +18,7 @@ type PortalAppointment = {
   status: string;
   startAt: number;
   endAt: number;
+  caseId?: string | null;
   assigneeName: string | null;
   googleMeetLink: string | null;
   notes: string | null;
@@ -39,6 +40,10 @@ type BookingCase = {
   assigneeName: string | null;
   assigneeGoogleConnected: boolean;
 };
+
+const BROWSER_TZ = typeof window !== "undefined"
+  ? Intl.DateTimeFormat().resolvedOptions().timeZone
+  : "UTC";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,26 +82,6 @@ function getFirstDayOfWeek(year: number, month: number) {
   return new Date(year, month, 1).getDay();
 }
 
-function dateToOrgUTC(year: number, month: number, day: number, orgTimezone: string): number {
-  const noonUtc = new Date(Date.UTC(year, month, day, 12, 0, 0));
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: orgTimezone,
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hour12: false,
-  }).formatToParts(noonUtc);
-  const orgHour   = parseInt(parts.find((p) => p.type === "hour")!.value)   % 24;
-  const orgMinute = parseInt(parts.find((p) => p.type === "minute")!.value);
-  const orgSecond = parseInt(parts.find((p) => p.type === "second")!.value);
-  const offsetMs = (orgHour * 3600 + orgMinute * 60 + orgSecond - 12 * 3600) * 1000;
-  return Date.UTC(year, month, day, 0, 0, 0) - offsetMs;
-}
-
-function getDayOfWeekInTimezone(year: number, month: number, day: number, timezone: string) {
-  const date = new Date(year, month, day);
-  const str = date.toLocaleDateString("en-US", { timeZone: timezone, weekday: "short" });
-  const days: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return days[str] ?? date.getDay();
-}
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
@@ -135,13 +120,11 @@ function StepBar({ current, total }: { current: number; total: number }) {
 function AppointmentCard({
   appt,
   muted,
-  orgTimezone,
   onCancel,
   onReschedule,
 }: {
   appt: PortalAppointment;
   muted?: boolean;
-  orgTimezone: string;
   onCancel: (id: string) => void;
   onReschedule: (appt: PortalAppointment) => void;
 }) {
@@ -166,7 +149,7 @@ function AppointmentCard({
           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" />
-              {formatDateTime(appt.startAt, orgTimezone)}
+              {formatDateTime(appt.startAt, BROWSER_TZ)}
             </span>
             <span>{formatDuration(appt.startAt, appt.endAt)}</span>
             {appt.assigneeName && <span>with {appt.assigneeName}</span>}
@@ -271,12 +254,10 @@ type WizardMode = "book" | "reschedule";
 
 function BookingWizard({
   pricing,
-  orgTimezone,
   onDone,
   rescheduleAppointment,
 }: {
   pricing: AppointmentPricing[];
-  orgTimezone: string;
   onDone: () => void;
   rescheduleAppointment?: PortalAppointment | null;
 }) {
@@ -367,24 +348,27 @@ function BookingWizard({
     setSlotsLoading(true);
     setSelectedSlot(null);
 
-    const pricingToUse = selectedPricing ?? preselectPricing;
-    if (!pricingToUse) { setSlotsLoading(false); return; }
+    // Determine which case manager's availability to check
+    const caseId = isReschedule
+      ? (rescheduleAppointment?.caseId ?? null)
+      : (selectedCaseId !== "none" ? selectedCaseId : null);
+
+    if (!caseId) {
+      setSlotsError("Please link this appointment to a case to see available times.");
+      setSlotsLoading(false);
+      setStep("time");
+      return;
+    }
 
     try {
-      const dateStartUTC = dateToOrgUTC(year, month, day, orgTimezone);
-      const dayOfWeek = getDayOfWeekInTimezone(year, month, day, orgTimezone);
-      let endpoint: string;
-      let qs: URLSearchParams;
-      if (selectedModality === "offline") {
-        endpoint = "/api/portal/appointments/offline-slots";
-        qs = new URLSearchParams({ dateStartUTC: String(dateStartUTC), dayOfWeek: String(dayOfWeek) });
-      } else {
-        endpoint = "/api/portal/appointments/slots";
-        qs = new URLSearchParams({ pricingId: pricingToUse._id, dateStartUTC: String(dateStartUTC), dayOfWeek: String(dayOfWeek) });
-      }
-      const res = await fetch(`${endpoint}?${qs}`);
+      // Send noon UTC as a safe proxy for "this calendar day" — the server resolves
+      // the exact date using the staff member's timezone.
+      const dateStartUTC = Date.UTC(year, month, day, 12, 0, 0);
+      const qs = new URLSearchParams({ caseId, dateStartUTC: String(dateStartUTC) });
+      const res = await fetch(`/api/portal/appointments/slots?${qs}`);
       const data = await res.json();
       if (data.error) setSlotsError(data.error);
+      else if (data.noAssignee) setSlotsError("No case manager is assigned to this case yet. Please contact the office.");
       else setSlots(data.slots ?? []);
     } catch {
       setSlotsError("Failed to load available times.");
@@ -411,7 +395,6 @@ function BookingWizard({
           body: JSON.stringify({
             appointmentId: rescheduleAppointment!._id,
             newStartAt: selectedSlot,
-            durationMinutes: 60,
           }),
         });
         const data = await res.json();
@@ -433,7 +416,6 @@ function BookingWizard({
         body: JSON.stringify({
           appointmentPricingId: pricingToUse._id,
           startAt: selectedSlot,
-          durationMinutes: 60,
           caseId: selectedCaseId !== "none" ? selectedCaseId : undefined,
           modality: selectedModality,
         }),
@@ -513,7 +495,7 @@ function BookingWizard({
     }
   };
 
-  const maxDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const maxDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
   const minDate = new Date(Date.now() + 60 * 60 * 1000);
   const isDateSelectable = (year: number, month: number, day: number) => {
     const d = new Date(year, month, day, 23, 59);
@@ -559,7 +541,7 @@ function BookingWizard({
         </p>
         {selectedSlot && (
           <p className="text-sm font-medium text-foreground">
-            {formatDateTime(selectedSlot, orgTimezone)} · 1 hour
+            {formatDateTime(selectedSlot, BROWSER_TZ)} · 1 hour
           </p>
         )}
         <button
@@ -723,7 +705,7 @@ function BookingWizard({
         {step === "date" && (
           <div>
             <p className="text-sm text-muted-foreground mb-4">
-              {isReschedule ? "Select a new date — up to 30 days ahead." : "Select a date — up to 30 days ahead."} Times are shown in your local timezone.
+              {isReschedule ? "Select a new date — up to 60 days ahead." : "Select a date — up to 60 days ahead."} Times are shown in your local timezone.
             </p>
             <div className="flex items-center justify-between mb-4">
               <button onClick={goPrevMonth} disabled={!canGoPrevMonth()} className="p-1.5 rounded-lg hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
@@ -847,7 +829,7 @@ function BookingWizard({
             <div className="rounded-xl border border-border bg-accent/40 p-4 flex items-center justify-between">
               <div>
                 <p className="font-semibold text-foreground">{selectedPricing?.appointmentType}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{selectedSlot ? formatDateTime(selectedSlot, orgTimezone) : ""} · 1 hour</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{selectedSlot ? formatDateTime(selectedSlot, BROWSER_TZ) : ""} · 1 hour</p>
               </div>
               <p className="text-lg font-bold text-primary">{formatPrice(payAmount, payCurrency)}</p>
             </div>
@@ -903,7 +885,6 @@ export default function PortalAppointmentsPage() {
 
   const [appointments, setAppointments] = useState<PortalAppointment[]>([]);
   const [pricing, setPricing] = useState<AppointmentPricing[]>([]);
-  const [orgTimezone, setOrgTimezone] = useState("UTC");
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(() => {
@@ -912,7 +893,6 @@ export default function PortalAppointmentsPage() {
       .then((data) => {
         if (data.appointments) setAppointments(data.appointments);
         if (data.pricing) setPricing(data.pricing);
-        if (data.orgTimezone) setOrgTimezone(data.orgTimezone);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -952,32 +932,27 @@ export default function PortalAppointmentsPage() {
     setShowWizard(true);
   };
 
-  const pending = appointments.filter((a) => a.status === "PendingApproval");
-  const upcoming = appointments.filter((a) => a.status === "Upcoming" && a.startAt > Date.now());
-  const past = appointments.filter((a) => a.status !== "Upcoming" && a.status !== "PendingApproval" || a.startAt <= Date.now());
+  // All future appointments (pending + confirmed), sorted soonest first, minimum 3 shown
+  const upcomingAll = appointments
+    .filter((a) => (a.status === "PendingApproval" || a.status === "Upcoming") && a.startAt > Date.now())
+    .sort((a, b) => a.startAt - b.startAt);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+  const visibleUpcoming = showAllUpcoming ? upcomingAll : upcomingAll.slice(0, 3);
+
+  const past = appointments
+    .filter((a) => a.status !== "PendingApproval" && (a.status !== "Upcoming" || a.startAt <= Date.now()))
+    .sort((a, b) => b.startAt - a.startAt);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Appointments</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your scheduled meetings and consultations.</p>
-        </div>
-        {!loading && pricing.length > 0 && !showWizard && (
-          <button
-            onClick={() => { setRescheduleTarget(null); setShowWizard(true); }}
-            className="flex items-center gap-1.5 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg transition-colors shadow-sm"
-          >
-            <Calendar className="h-4 w-4" />
-            Book Appointment
-          </button>
-        )}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Appointments</h1>
+        <p className="text-sm text-muted-foreground mt-1">Your scheduled meetings and consultations.</p>
       </div>
 
       {showWizard && (
         <BookingWizard
           pricing={pricing}
-          orgTimezone={orgTimezone}
           onDone={handleWizardDone}
           rescheduleAppointment={rescheduleTarget}
         />
@@ -1008,41 +983,68 @@ export default function PortalAppointmentsPage() {
         </div>
       )}
 
-      {!loading && pending.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-2 px-1">Pending Review</h2>
-          <div className="space-y-3">
-            {pending.map((a) => (
-              <AppointmentCard
-                key={a._id} appt={a} orgTimezone={orgTimezone}
-                onCancel={setCancelTarget} onReschedule={handleReschedule}
-              />
-            ))}
+      {!loading && (upcomingAll.length > 0 || appointments.length > 0) && (
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div>
+              <h2 className="font-semibold text-foreground">Upcoming Appointments</h2>
+              {upcomingAll.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {upcomingAll.length} {upcomingAll.length === 1 ? "appointment" : "appointments"} scheduled
+                </p>
+              )}
+            </div>
+            {pricing.length > 0 && !showWizard && (
+              <button
+                onClick={() => { setRescheduleTarget(null); setShowWizard(true); }}
+                className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+              >
+                + Book New
+              </button>
+            )}
           </div>
-        </div>
-      )}
-
-      {!loading && upcoming.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">Upcoming</h2>
-          <div className="space-y-3">
-            {upcoming.map((a) => (
-              <AppointmentCard
-                key={a._id} appt={a} orgTimezone={orgTimezone}
-                onCancel={setCancelTarget} onReschedule={handleReschedule}
-              />
-            ))}
+          <div className="p-4 space-y-3">
+            {upcomingAll.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-sm text-muted-foreground">No upcoming appointments.</p>
+                {pricing.length > 0 && (
+                  <button
+                    onClick={() => setShowWizard(true)}
+                    className="mt-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                  >
+                    Book your first appointment
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                {visibleUpcoming.map((a) => (
+                  <AppointmentCard
+                    key={a._id} appt={a}
+                    onCancel={setCancelTarget} onReschedule={handleReschedule}
+                  />
+                ))}
+                {upcomingAll.length > 3 && (
+                  <button
+                    onClick={() => setShowAllUpcoming((v) => !v)}
+                    className="w-full text-sm text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+                  >
+                    {showAllUpcoming ? "Show less" : `Show ${upcomingAll.length - 3} more`}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
 
       {!loading && past.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1 mt-2">Past</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">Past</h2>
           <div className="space-y-3">
             {past.map((a) => (
               <AppointmentCard
-                key={a._id} appt={a} muted orgTimezone={orgTimezone}
+                key={a._id} appt={a} muted
                 onCancel={setCancelTarget} onReschedule={handleReschedule}
               />
             ))}
