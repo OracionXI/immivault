@@ -18,7 +18,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { StaffModal } from "./staff-modal";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Pencil, UserPlus, Trash2 } from "lucide-react";
+import { Pencil, UserPlus, Trash2, Crown } from "lucide-react";
 import { RoleGuard } from "@/components/shared/role-guard";
 import { InviteModal } from "./invite-modal";
 import {
@@ -47,7 +47,8 @@ export default function StaffPage() {
         return DEFAULT_ROLE_LABELS[s.role] ?? s.role;
     };
     const deleteStaff = useAction(api.users.actions.deleteStaff);
-    const { isAdmin } = useRole();
+    const { isAdmin, user: currentUser } = useRole();
+    const isFounder = currentUser?.isFounder === true;
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<ConvexUser | null>(null);
@@ -87,24 +88,36 @@ export default function StaffPage() {
                 </div>
             ),
         },
-        { key: "role", label: "Role", sortable: true, render: (s) => <span>{getRoleLabel(s)}</span> },
+        {
+            key: "role", label: "Role", sortable: true, render: (s) => (
+                <div className="flex items-center gap-1.5">
+                    {s.isFounder && <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                    <span>{getRoleLabel(s)}</span>
+                </div>
+            ),
+        },
         { key: "status", label: "Status", render: (s) => <StatusBadge status={s.status} /> },
         {
-            key: "actions", label: "Actions", render: (s) => isAdmin ? (
-                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(s); setModalOpen(true); }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => { setDeleteError(""); setDeleteTarget(s); }}
-                    >
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
-            ) : null,
+            key: "actions", label: "Actions", render: (s) => {
+                if (!isAdmin) return null;
+                // Non-founders cannot edit or delete the founder
+                if (s.isFounder && !isFounder) return null;
+                return (
+                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(s); setModalOpen(true); }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => { setDeleteError(""); setDeleteTarget(s); }}
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
+                );
+            },
         },
     ];
 

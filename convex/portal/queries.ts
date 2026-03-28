@@ -122,17 +122,22 @@ export const getPaymentLinks = internalQuery({
   },
 });
 
-/** Get Stripe payments for a client. */
+/** Get payments for a client visible in their portal. Security: clientId + organisationId
+ *  both come from the verified session — client cannot inject either value. */
 export const getPayments = internalQuery({
   args: { clientId: v.id("clients"), organisationId: v.id("organisations") },
   handler: async (ctx, args) => {
+    // Query client-first (by_client index) so we never touch another client's rows,
+    // then verify organisationId as a second boundary.
     const payments = await ctx.db
       .query("payments")
-      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .withIndex("by_client", (q) =>
+        q.eq("clientId", args.clientId).eq("organisationId", args.organisationId)
+      )
       .collect();
 
     return payments
-      .filter((p) => p.clientId === args.clientId && p.status === "Completed")
+      .filter((p) => p.status === "Completed" || p.status === "Refunded")
       .map((p) => ({
         _id: p._id,
         amount: p.amount,
@@ -140,6 +145,8 @@ export const getPayments = internalQuery({
         method: p.method,
         reference: p.reference ?? null,
         paidAt: p.paidAt,
+        type: p.type ?? null,
+        status: p.status as "Completed" | "Refunded",
       }))
       .sort((a, b) => b.paidAt - a.paidAt);
   },
@@ -174,6 +181,7 @@ export const getAppointments = internalQuery({
           title: a.title,
           type: a.type,
           status: a.status,
+          modality: a.modality ?? null,
           startAt: a.startAt,
           endAt: a.endAt,
           assigneeName,
@@ -301,6 +309,148 @@ export const getUnreadNotificationCount = internalQuery({
   },
 });
 
+/** Get a single payment by ID with org + client isolation check (for refund actions). */
+export const getPaymentById = internalQuery({
+  args: {
+    paymentId: v.id("payments"),
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+  },
+  handler: async (ctx, args) => {
+    const p = await ctx.db.get(args.paymentId);
+    if (!p || p.organisationId !== args.organisationId || p.clientId !== args.clientId) return null;
+    return {
+      _id: p._id,
+      status: p.status,
+      amount: p.amount,
+      currency: p.currency,
+      stripePaymentIntentId: p.stripePaymentIntentId ?? null,
+    };
+  },
+});
+
+/** Org Stripe settings (secret key, enabled flag) — for internal refund actions only. */
+export const getOrgStripeSettings = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const s = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .unique();
+    if (!s) return null;
+    return {
+      stripeEnabled: s.stripeEnabled ?? false,
+      stripeSecretKey: s.stripeSecretKey,
+      stripeSecretKeyEnc: s.stripeSecretKeyEnc,
+    };
+  },
+});
+
+/** Org timezone + booking settings — minimal, safe to return to portal. */
+export const getOrgSettings = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const s = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .unique();
+    return {
+      timezone: s?.timezone ?? "UTC",
+      bookingEnabled: s?.bookingEnabled ?? true,
+    };
+  },
+});
+
+/** Client's active cases with assignee info — for case selection in appointment booking. */
+export const getCasesForBooking = internalQuery({
+  args: { clientId: v.id("clients"), organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const cases = await ctx.db
+      .query("cases")
+      .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
+      .collect();
+
+    const active = cases.filter(
+      (c) =>
+        c.organisationId === args.organisationId &&
+        c.status !== "Archive" &&
+        c.status !== "Completed"
+    );
+
+    return await Promise.all(
+      active.map(async (c) => {
+        let assigneeName: string | null = null;
+        let assigneeId: string | null = null;
+        let assigneeGoogleConnected = false;
+        if (c.assignedTo) {
+          const user = await ctx.db.get(c.assignedTo);
+          assigneeName = user?.fullName ?? null;
+          assigneeId = c.assignedTo as string;
+          assigneeGoogleConnected = !!user?.googleRefreshToken;
+        }
+        return {
+          _id: c._id as string,
+          caseNumber: c.caseNumber,
+          title: c.title,
+          visaType: c.visaType,
+          status: c.status,
+          assigneeName,
+          assigneeId,
+          assigneeGoogleConnected,
+        };
+      })
+    );
+  },
+});
+
+/**
+ * Contract fee summary for the portal payments page.
+ * Returns total contract amount, amount paid so far (from contract draft invoice),
+ * outstanding balance, next payment date, currency, and whether Stripe is enabled.
+ */
+export const getContractSummary = internalQuery({
+  args: { clientId: v.id("clients"), organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.organisationId !== args.organisationId) return null;
+
+    const settings = await ctx.db
+      .query("organisationSettings")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .unique();
+
+    const currency = settings?.defaultCurrency ?? "USD";
+    const stripeEnabled = (settings?.stripeEnabled ?? false) && !!(settings?.stripePublishableKey);
+    const contractAmountCents = client.contractAmount ?? 0;
+
+    // Compute totalPaid live from payments — summing only Completed (non-refunded) payments.
+    // This is always accurate and immune to stale cached paidAmount on the contract draft.
+    const allPayments = await ctx.db
+      .query("payments")
+      .withIndex("by_client", (q) =>
+        q.eq("clientId", args.clientId).eq("organisationId", args.organisationId)
+      )
+      .collect();
+
+    // Only count case_fee payments — appointment payments are billed separately
+    // and must not reduce the contract fee outstanding balance.
+    const totalPaidCents = allPayments
+      .filter((p) => p.status === "Completed" && p.type !== "appointment")
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const outstandingCents = Math.max(0, contractAmountCents - totalPaidCents);
+
+    return {
+      contractAmountCents,
+      totalPaidCents,
+      outstandingCents,
+      nextPaymentDate: client.nextPaymentDate ?? null,
+      currency,
+      stripeEnabled,
+    };
+  },
+});
+
 /** Dashboard summary stats. */
 export const getDashboardStats = internalQuery({
   args: { clientId: v.id("clients"), organisationId: v.id("organisations") },
@@ -343,6 +493,136 @@ export const getDashboardStats = internalQuery({
       pendingInvoiceCount: pendingInvoices.length,
       pendingInvoiceTotal: pendingTotal,
       upcomingAppointments: upcomingAppts,
+    };
+  },
+});
+
+/** Enriched dashboard data: overdue invoices, next payment, next appointment, recent cases. */
+export const getDashboardDetail = internalQuery({
+  args: {
+    clientId: v.id("clients"),
+    organisationId: v.id("organisations"),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const [cases, invoices, appointments, client, orgSettings] = await Promise.all([
+      ctx.db
+        .query("cases")
+        .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
+        .collect(),
+      ctx.db
+        .query("invoices")
+        .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
+        .collect(),
+      ctx.db
+        .query("appointments")
+        .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
+        .collect(),
+      ctx.db.get(args.clientId),
+      ctx.db
+        .query("organisationSettings")
+        .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+        .unique(),
+    ]);
+
+    const orgCurrency = (orgSettings?.defaultCurrency ?? "USD").toUpperCase();
+
+    // ── Overdue invoices ─────────────────────────────────────────────────────
+    const overdueInvoices = invoices
+      .filter(
+        (i) =>
+          i.organisationId === args.organisationId &&
+          !i.isContractDraft &&
+          i.status === "Overdue"
+      )
+      .map((i) => ({
+        _id: i._id,
+        invoiceNumber: i.invoiceNumber,
+        total: i.total,
+        currency: orgCurrency,
+      }));
+
+    // ── Next payment due ─────────────────────────────────────────────────────
+    const nextPaymentDate = client?.nextPaymentDate ?? null;
+    const nextPayment = nextPaymentDate
+      ? { date: nextPaymentDate, currency: orgCurrency }
+      : null;
+
+    // ── Next upcoming appointment ────────────────────────────────────────────
+    const upcomingAppts = appointments
+      .filter(
+        (a) =>
+          a.organisationId === args.organisationId &&
+          !a.deletedAt &&
+          (a.status === "Upcoming" || a.status === "PendingApproval") &&
+          a.startAt > now
+      )
+      .sort((a, b) => a.startAt - b.startAt);
+
+    let nextAppointment = null;
+    if (upcomingAppts.length > 0) {
+      const appt = upcomingAppts[0];
+      let caseTitle: string | null = null;
+      if (appt.caseId) {
+        const relatedCase = await ctx.db.get(appt.caseId);
+        caseTitle = relatedCase?.title ?? null;
+      }
+      nextAppointment = {
+        _id: appt._id,
+        title: appt.title,
+        startAt: appt.startAt,
+        endAt: appt.endAt,
+        type: appt.type,
+        modality: appt.modality ?? null,
+        status: appt.status,
+        caseTitle,
+      };
+    }
+
+    // ── Recent active cases (last 3 by updatedAt or _creationTime) ───────────
+    const recentCases = cases
+      .filter(
+        (c) =>
+          c.organisationId === args.organisationId &&
+          c.status !== "Archive"
+      )
+      .sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime))
+      .slice(0, 3)
+      .map((c) => ({
+        _id: c._id,
+        title: c.title,
+        status: c.status,
+        caseNumber: c.caseNumber,
+        updatedAt: c.updatedAt ?? null,
+        _creationTime: c._creationTime,
+      }));
+
+    // ── Recent notifications (peek — does NOT mark as read) ──────────────────
+    const recentNotifications = await ctx.db
+      .query("portalNotifications")
+      .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
+      .order("desc")
+      .take(5)
+      .then((list) =>
+        list
+          .filter((n) => n.organisationId === args.organisationId)
+          .map((n) => ({
+            _id: n._id,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            read: n.read,
+            _creationTime: n._creationTime,
+          }))
+      );
+
+    return {
+      overdueInvoices,
+      nextPayment,
+      nextAppointment,
+      recentCases,
+      recentNotifications,
     };
   },
 });

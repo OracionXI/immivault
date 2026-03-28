@@ -1,18 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { Bell } from "lucide-react";
-
-type PortalNotification = {
-  _id: string;
-  type: string;
-  title: string;
-  message: string;
-  entityType?: string;
-  entityId?: string;
-  read: boolean;
-  _creationTime: number;
-};
 
 function formatDate(ts: number) {
   const diffMs = Date.now() - ts;
@@ -22,24 +12,25 @@ function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export default function PortalNotificationsPage() {
-  const [notifications, setNotifications] = useState<PortalNotification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type Notification = { _id: string; title: string; message: string; read: boolean; _creationTime: number };
 
-  useEffect(() => {
+export default function PortalNotificationsPage() {
+  const [notifications, setNotifications] = useState<Notification[] | null>(null);
+
+  const loadData = useCallback(() => {
     fetch("/api/portal/notifications")
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setError(data.error);
-        else setNotifications(data.notifications ?? []);
+        if (data.notifications) setNotifications(data.notifications);
       })
-      .catch(() => setError("Failed to load notifications."))
-      .finally(() => setLoading(false));
+      .catch(() => {});
   }, []);
 
-  const unread = notifications.filter((n) => !n.read);
-  const read = notifications.filter((n) => n.read);
+  usePolling(loadData, 15_000);
+
+  const loading = notifications === null;
+  const unread = (notifications ?? []).filter((n) => !n.read);
+  const read = (notifications ?? []).filter((n) => n.read);
 
   return (
     <div className="space-y-6">
@@ -54,11 +45,7 @@ export default function PortalNotificationsPage() {
         </div>
       )}
 
-      {error && (
-        <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-red-700 dark:text-red-400 text-sm">{error}</div>
-      )}
-
-      {!loading && !error && notifications.length === 0 && (
+      {!loading && notifications !== null && notifications.length === 0 && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-16 text-center">
           <Bell className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="font-medium text-foreground">No notifications</p>

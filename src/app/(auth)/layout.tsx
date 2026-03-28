@@ -25,7 +25,7 @@ function Logo() {
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
     return (
         /* Outer frame — neutral bg that shows around the floating left panel */
-        <div className="flex min-h-screen w-full bg-[#f0f1f4] lg:h-screen lg:gap-5 lg:p-5">
+        <div className="light flex min-h-screen w-full bg-[#f0f1f4] lg:h-screen lg:gap-5 lg:p-5">
 
             {/* ── Left panel: floating, rounded, shadowed ── */}
             <div

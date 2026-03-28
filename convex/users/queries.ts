@@ -130,13 +130,45 @@ export const getByClerkId = internalQuery({
   },
 });
 
+/**
+ * Internal: check if ANY internal user (across all orgs) has this email.
+ * Used to enforce global email uniqueness for staff/admin accounts.
+ */
+export const getByEmailGlobal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .first();
+  },
+});
+
+/**
+ * Internal: check if ANY pending invitation (across all orgs) is for this email.
+ * Prevents inviting an address that is already pending in another organisation.
+ */
+export const getInviteByEmailGlobal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db
+      .query("invitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .filter((q) =>
+        q.and(q.eq(q.field("used"), false), q.gt(q.field("expiresAt"), now))
+      )
+      .first();
+  },
+});
+
 /** Returns the most recent pending invitation for an email within an org, or null. */
 export const getInviteByEmail = internalQuery({
   args: { organisationId: v.id("organisations"), email: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("invitations")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
       .filter((q) =>
         q.and(
           q.eq(q.field("organisationId"), args.organisationId),

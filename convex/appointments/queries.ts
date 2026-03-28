@@ -132,3 +132,52 @@ export const getById = internalQuery({
     return await ctx.db.get(args.id);
   },
 });
+
+/** List portal appointments awaiting approval.
+ *  Admin: all PendingApproval portal bookings for the org.
+ *  Case manager: only those where they are the host (assignedTo).
+ */
+export const listPendingPortalBookings = authenticatedQuery({
+  args: {},
+  handler: async (ctx) => {
+    if (ctx.user.role === "staff" || ctx.user.role === "accountant") return [];
+
+    const pending = await ctx.db
+      .query("appointments")
+      .withIndex("by_org_and_status", (q) =>
+        q.eq("organisationId", ctx.user.organisationId).eq("status", "PendingApproval")
+      )
+      .filter((q) => q.eq(q.field("portalBooking"), true))
+      .order("asc")
+      .collect();
+
+    const visible =
+      ctx.user.role === "admin"
+        ? pending
+        : pending.filter((a) => a.assignedTo === ctx.user._id);
+
+    return await Promise.all(
+      visible.map(async (a) => {
+        let clientName: string | null = null;
+        if (a.clientId) {
+          const client = await ctx.db.get(a.clientId);
+          if (client) clientName = `${client.firstName} ${client.lastName}`.trim();
+        }
+        let assigneeName: string | null = null;
+        if (a.assignedTo) {
+          const user = await ctx.db.get(a.assignedTo);
+          assigneeName = user?.fullName ?? null;
+        }
+        return {
+          _id: a._id,
+          title: a.title,
+          type: a.type,
+          startAt: a.startAt,
+          endAt: a.endAt,
+          clientName,
+          assigneeName,
+        };
+      })
+    );
+  },
+});

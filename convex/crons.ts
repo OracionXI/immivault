@@ -52,4 +52,18 @@ crons.daily(
   internal.appointments.mutations.purgeExpired
 );
 
+// Daily at 09:00 UTC — nudge portal clients with incomplete profiles
+crons.daily(
+  "nudge incomplete portal profiles",
+  { hourUTC: 9, minuteUTC: 0 },
+  internal.portal.jobs.nudgeIncompleteProfiles
+);
+
+// Daily at 08:00 UTC — remind portal clients of upcoming case fee payment dates
+crons.daily(
+  "payment date reminders",
+  { hourUTC: 8, minuteUTC: 0 },
+  internal.portal.jobs.sendPaymentDateReminders
+);
+
 export default crons;

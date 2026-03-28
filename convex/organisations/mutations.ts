@@ -132,8 +132,8 @@ export const completeOnboarding = mutation({
       agreementSignedAt: Date.now(),
     });
 
-    // Activate the user
-    await ctx.db.patch(user._id, { status: "active" });
+    // Activate the user and mark them as the org founder
+    await ctx.db.patch(user._id, { status: "active", isFounder: true });
   },
 });
 
@@ -149,6 +149,13 @@ export const updateSettings = authenticatedMutation({
     taxRate: v.optional(v.number()),
     documentTypes: v.optional(v.array(v.string())),
     appointmentTypes: v.optional(v.array(v.string())),
+    timezone: v.optional(v.string()),
+    officeHours: v.optional(v.array(v.object({
+      dayOfWeek: v.number(),
+      startHour: v.number(),
+      endHour: v.number(),
+      isActive: v.boolean(),
+    }))),
     customRoles: v.optional(v.array(v.object({
       id: v.string(),
       name: v.string(),
@@ -198,6 +205,19 @@ export const updateSettings = authenticatedMutation({
     }
     if (args.defaultCurrency !== undefined && (args.defaultCurrency.length < 3 || args.defaultCurrency.length > 10)) {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Currency code must be 3–10 characters." });
+    }
+    if (args.timezone !== undefined && args.timezone.length > 100) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Timezone identifier must be ≤100 characters." });
+    }
+    if (args.officeHours !== undefined) {
+      for (const w of args.officeHours) {
+        if (w.dayOfWeek < 0 || w.dayOfWeek > 6)
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Invalid day of week in office hours." });
+        if (w.startHour < 0 || w.startHour > 23)
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Invalid start hour in office hours." });
+        if (w.endHour < 1 || w.endHour > 24 || w.endHour <= w.startHour)
+          throw new ConvexError({ code: "BAD_REQUEST", message: "Invalid end hour in office hours." });
+      }
     }
 
     // Enforce non-removable built-in roles and cascade-reassign members when a custom role is deleted.
@@ -252,7 +272,10 @@ export const updateSettings = authenticatedMutation({
   },
 });
 
-/** Admin-only: update client portal settings (slug + enabled flag). */
+/** Admin-only: update client portal settings (slug + enabled flag).
+ *  The slug is auto-generated from the org name and non-editable by admins.
+ *  If the base slug is already taken by another org, a numeric suffix is
+ *  appended (e.g. smithlawfirm → smithlawfirm2) to guarantee uniqueness. */
 export const updatePortalSettings = authenticatedMutation({
   args: {
     portalSlug: v.optional(v.string()),
@@ -264,21 +287,29 @@ export const updatePortalSettings = authenticatedMutation({
     }
 
     if (args.portalSlug !== undefined) {
-      const slug = args.portalSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "");
-      if (slug.length < 3 || slug.length > 50) {
-        throw new ConvexError({ code: "BAD_REQUEST", message: "Portal slug must be 3–50 characters." });
+      const baseSlug = args.portalSlug.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (baseSlug.length < 1) {
+        throw new ConvexError({ code: "BAD_REQUEST", message: "Organisation name cannot produce a valid portal slug." });
       }
-      // Uniqueness check
-      const existing = await ctx.db
-        .query("organisations")
-        .withIndex("by_portal_slug", (q) => q.eq("portalSlug", slug))
-        .unique();
-      if (existing && existing._id !== ctx.user.organisationId) {
-        throw new ConvexError({ code: "CONFLICT", message: "This portal slug is already taken. Choose another." });
+
+      // Auto-resolve uniqueness: try baseSlug, then baseSlug2, baseSlug3, …
+      let finalSlug = baseSlug;
+      let counter = 2;
+      while (true) {
+        const conflict = await ctx.db
+          .query("organisations")
+          .withIndex("by_portal_slug", (q) => q.eq("portalSlug", finalSlug))
+          .unique();
+        if (!conflict || conflict._id === ctx.user.organisationId) break;
+        finalSlug = `${baseSlug}${counter}`;
+        counter++;
       }
-      await ctx.db.patch(ctx.user.organisationId, { portalSlug: slug, portalEnabled: args.portalEnabled });
+
+      await ctx.db.patch(ctx.user.organisationId, { portalSlug: finalSlug, portalEnabled: args.portalEnabled });
+      return { portalSlug: finalSlug };
     } else {
       await ctx.db.patch(ctx.user.organisationId, { portalEnabled: args.portalEnabled });
+      return {};
     }
   },
 });
@@ -347,6 +378,7 @@ export const permanentDeleteOrg = internalMutation({
     await deleteAll("bankAccounts", "by_org");
     await deleteAll("disputes", "by_org");
     await deleteAll("webhookLogs", "by_org");
+    await deleteAll("appointmentAvailability", "by_org");
 
     await ctx.db.delete(organisationId);
   },

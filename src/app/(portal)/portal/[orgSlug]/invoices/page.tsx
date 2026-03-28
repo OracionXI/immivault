@@ -1,28 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { FileText, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-type PortalInvoice = {
-  _id: string;
-  invoiceNumber: string;
-  total: number;
-  status: string;
-  dueDate: number;
-  issuedAt: number | null;
-  paidAt: number | null;
-  paidAmount: number;
-};
-
-type PaymentLink = {
-  _id: string;
-  invoiceId: string | null;
-  amount: number;
-  description: string;
-  urlToken: string;
-  expiresAt: number;
-};
 
 const statusStyle: Record<string, string> = {
   Draft:   "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/20",
@@ -40,26 +21,24 @@ function formatAmount(cents: number) {
 }
 
 export default function PortalInvoicesPage() {
-  const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
-  const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>([]);
+  const [invoices, setInvoices] = useState<{ _id: string; invoiceNumber: string; total: number; status: string; dueDate: number; issuedAt: number | null; paidAt: number | null; paidAmount: number }[]>([]);
+  const [paymentLinks, setPaymentLinks] = useState<{ invoiceId: string | null; urlToken: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     fetch("/api/portal/invoices")
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setError(data.error);
-        else {
-          setInvoices(data.invoices ?? []);
-          setPaymentLinks(data.paymentLinks ?? []);
-        }
+        if (data.invoices) setInvoices(data.invoices);
+        if (data.paymentLinks) setPaymentLinks(data.paymentLinks);
       })
-      .catch(() => setError("Failed to load invoices."))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const getPayLink = (inv: PortalInvoice) =>
+  usePolling(loadData, 15_000);
+
+  const getPayLink = (inv: { _id: string }) =>
     paymentLinks.find((pl) => pl.invoiceId === inv._id);
 
   return (
@@ -75,11 +54,7 @@ export default function PortalInvoicesPage() {
         </div>
       )}
 
-      {error && (
-        <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-red-700 dark:text-red-400 text-sm">{error}</div>
-      )}
-
-      {!loading && !error && invoices.length === 0 && (
+      {!loading && invoices.length === 0 && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-16 text-center">
           <FileText className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="font-medium text-foreground">No invoices yet</p>
@@ -117,7 +92,7 @@ export default function PortalInvoicesPage() {
                     </div>
                     {canPay && (
                       <Button size="sm" asChild className="gap-1.5 shrink-0">
-                        <a href={`/pay/${payLink.urlToken}`} target="_blank" rel="noopener noreferrer">
+                        <a href={`/pay/${payLink!.urlToken}`} target="_blank" rel="noopener noreferrer">
                           Pay Now
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>

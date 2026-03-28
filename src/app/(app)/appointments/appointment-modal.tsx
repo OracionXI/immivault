@@ -20,7 +20,7 @@ import Link from "next/link";
 type ConvexAppointment = NonNullable<ReturnType<typeof useQuery<typeof api.appointments.queries.list>>>[number];
 
 interface Attendee {
-    type: "internal" | "external";
+    type: "internal" | "external" | "client";
     userId?: Id<"users">;
     email: string;
     name: string;
@@ -91,6 +91,12 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
 
+    // Suggested attendees for the selected case (populated reactively)
+    const caseAttendees = useQuery(
+        api.cases.queries.getAttendeesForCase,
+        meetingType === "case_appointment" && caseId ? { caseId: caseId as Id<"cases"> } : "skip"
+    );
+
     // ── Conflict detection ────────────────────────────────────────────────────
     const startAt = date && time ? toTimestamp(date, time) : 0;
     const endAt = startAt ? startAt + durationMins * 60_000 : 0;
@@ -124,6 +130,49 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
         }
         prevAutoTitleRef.current = autoTitle;
     }, [autoTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Auto-populate attendees when a case is selected (new appointments only)
+    const populatedForCaseRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (isEditing || meetingType !== "case_appointment") return;
+        if (!caseId) { populatedForCaseRef.current = null; setAttendees([]); return; }
+        if (!caseAttendees || caseId === populatedForCaseRef.current) return;
+        populatedForCaseRef.current = caseId;
+
+        const suggested: Attendee[] = [];
+
+        // Case manager (internal, exclude self)
+        if (caseAttendees.caseManager && caseAttendees.caseManager._id !== user?._id) {
+            suggested.push({
+                type: "internal",
+                userId: caseAttendees.caseManager._id as Id<"users">,
+                email: caseAttendees.caseManager.email,
+                name: caseAttendees.caseManager.fullName,
+            });
+        }
+
+        // Task staff (internal, unique, exclude self and already added)
+        for (const staff of caseAttendees.taskStaff) {
+            if (staff._id === user?._id) continue;
+            if (suggested.some((a) => a.userId === staff._id)) continue;
+            suggested.push({
+                type: "internal",
+                userId: staff._id as Id<"users">,
+                email: staff.email,
+                name: staff.fullName,
+            });
+        }
+
+        // Client (external)
+        if (caseAttendees.client?.email) {
+            const clientName = `${caseAttendees.client.firstName} ${caseAttendees.client.lastName}`;
+            if (!suggested.some((a) => a.email === caseAttendees.client!.email)) {
+                suggested.push({ type: "client", email: caseAttendees.client.email, name: clientName });
+            }
+        }
+
+        setAttendees(suggested);
+    }, [caseId, caseAttendees]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Reset / populate on open ──────────────────────────────────────────────
     useEffect(() => {
@@ -384,7 +433,7 @@ export function AppointmentModal({ open, onOpenChange, appointment }: Appointmen
                                 {attendees.map((a) => (
                                     <Badge key={a.email} variant="secondary" className="gap-1.5 pl-2.5 pr-1.5 py-1">
                                         <span className="text-xs">{a.name}</span>
-                                        <span className="text-xs text-muted-foreground">({a.type === "internal" ? "staff" : "external"})</span>
+                                        <span className="text-xs text-muted-foreground">({a.type === "internal" ? "staff" : a.type === "client" ? "client" : "external"})</span>
                                         <button
                                             type="button"
                                             onClick={() => removeAttendee(a.email)}

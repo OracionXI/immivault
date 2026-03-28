@@ -19,6 +19,9 @@ const notificationTypeValidator = v.union(
   v.literal("appointment_created"),
   v.literal("appointment_updated"),
   v.literal("appointment_cancelled"),
+  v.literal("appointment_pending_approval"),
+  v.literal("appointment_approved"),
+  v.literal("appointment_rejected"),
   v.literal("payment_dispute")
 );
 

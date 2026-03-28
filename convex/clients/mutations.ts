@@ -284,6 +284,8 @@ export const update = authenticatedMutation({
       .collect();
 
     if (isArchiving) {
+      // Disable portal access — archived clients should not be able to log in
+      await ctx.db.patch(id, { portalEnabled: false });
       // Cascade archive: cases → Archive, tasks → hidden
       for (const c of linkedCases) {
         await ctx.db.patch(c._id, { status: "Archive" });
@@ -356,6 +358,29 @@ export const remove = authenticatedMutation({
     for (const doc of linkedDocs) {
       await ctx.storage.delete(doc.storageId);
       await ctx.db.delete(doc._id);
+    }
+
+    // Snapshot client name on linked invoices and delete the contract draft
+    const linkedInvoices = await ctx.db
+      .query("invoices")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    const clientFullName = `${client.firstName} ${client.lastName}`;
+    for (const inv of linkedInvoices) {
+      if (inv.isContractDraft) {
+        // Remove contract draft — it exists only to track balance; deleting it
+        // removes this client's outstanding amount from org stats.
+        const items = await ctx.db
+          .query("invoiceItems")
+          .withIndex("by_invoice", (q) => q.eq("invoiceId", inv._id))
+          .collect();
+        for (const item of items) await ctx.db.delete(item._id);
+        await ctx.db.delete(inv._id);
+      } else {
+        // Preserve real invoices (Sent, Paid, Overdue) but snapshot the name
+        // so the billing page can still display it after the client record is gone.
+        await ctx.db.patch(inv._id, { clientName: clientFullName });
+      }
     }
 
     // Delete all tasks under every linked case, then delete each case

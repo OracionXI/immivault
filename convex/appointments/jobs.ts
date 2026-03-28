@@ -211,6 +211,121 @@ export const notifyUpdated = internalAction({
   },
 });
 
+/** Portal booking created — notify the assigned case manager (or all admins) for approval. */
+export const notifyPendingApproval = internalAction({
+  args: { appointmentId: v.id("appointments") },
+  handler: async (ctx, args) => {
+    const appt = await ctx.runQuery(internal.appointments.queries.getById, {
+      id: args.appointmentId,
+    });
+    if (!appt) return;
+
+    const fmtDate = formatDateTime(appt.startAt);
+    const clientAtt = (appt.attendees ?? []).find((a) => a.type === "external");
+    const clientName = clientAtt?.name ?? "A client";
+
+    const notifyUser = async (userId: string) => {
+      await ctx.runMutation(internal.notifications.mutations.insert, {
+        organisationId: appt.organisationId,
+        recipientId: userId as any,
+        type: "appointment_pending_approval",
+        title: "Appointment needs approval",
+        message: `${clientName} requested a "${appt.type}" appointment on ${fmtDate}`,
+        entityType: "appointment",
+        entityId: appt._id,
+      });
+      const user = await ctx.runQuery(internal.users.queries.getById, { id: userId as any });
+      if (user) {
+        await sendEmailOptional(
+          user.email,
+          `Appointment Request: ${appt.title}`,
+          renderHtml(
+            "New Appointment Request",
+            `<p>Hi ${user.fullName},</p>
+             <p>${clientName} has requested a portal appointment:</p>
+             <p><strong>${appt.title}</strong></p>
+             <p><strong>Requested time:</strong> ${fmtDate}</p>
+             <p>Please log in to Ordena to approve or reject this request.</p>`
+          )
+        );
+      }
+    };
+
+    if (appt.assignedTo) {
+      await notifyUser(appt.assignedTo as string);
+    } else {
+      const admins = await ctx.runQuery(internal.users.queries.listAdminsByOrg, {
+        organisationId: appt.organisationId,
+      });
+      for (const admin of admins) {
+        await notifyUser(admin._id as string);
+      }
+    }
+  },
+});
+
+/** Portal appointment approved — email external attendees (client). */
+export const notifyApproved = internalAction({
+  args: { appointmentId: v.id("appointments") },
+  handler: async (ctx, args) => {
+    const appt = await ctx.runQuery(internal.appointments.queries.getById, {
+      id: args.appointmentId,
+    });
+    if (!appt) return;
+
+    const fmtDate = formatDateTime(appt.startAt);
+    const meetLine = appt.googleMeetLink
+      ? `<p><a href="${appt.googleMeetLink}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Join Google Meet</a></p>`
+      : "";
+
+    for (const att of appt.attendees ?? []) {
+      if (att.type !== "external") continue;
+      await sendEmailOptional(
+        att.email,
+        `Appointment Confirmed: ${appt.title}`,
+        renderHtml(
+          "Appointment Confirmed",
+          `<p>Hi ${att.name},</p>
+           <p>Your appointment request has been approved:</p>
+           <p><strong>${appt.title}</strong></p>
+           <p><strong>When:</strong> ${fmtDate}</p>
+           ${meetLine}
+           <p>Please contact us if you have any questions.</p>`
+        )
+      );
+    }
+  },
+});
+
+/** Portal appointment rejected — email external attendees (client). */
+export const notifyRejected = internalAction({
+  args: { appointmentId: v.id("appointments"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const appt = await ctx.runQuery(internal.appointments.queries.getById, {
+      id: args.appointmentId,
+    });
+    if (!appt) return;
+
+    const reasonLine = args.reason ? `<p><strong>Reason:</strong> ${args.reason}</p>` : "";
+
+    for (const att of appt.attendees ?? []) {
+      if (att.type !== "external") continue;
+      await sendEmailOptional(
+        att.email,
+        `Appointment Not Approved: ${appt.title}`,
+        renderHtml(
+          "Appointment Request Not Approved",
+          `<p>Hi ${att.name},</p>
+           <p>Unfortunately your appointment request was not approved:</p>
+           <p><strong>${appt.title}</strong></p>
+           ${reasonLine}
+           <p>Please contact us to find another suitable time.</p>`
+        )
+      );
+    }
+  },
+});
+
 /** Appointment cancelled — notify all attendees (except the canceller). */
 export const notifyCancelled = internalAction({
   args: {

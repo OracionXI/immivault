@@ -60,7 +60,7 @@ export const getSettingsInternal = internalQuery({
   },
 });
 
-/** Returns the portal settings (slug + enabled) for the current user's org. */
+/** Returns the portal settings (slug + enabled + orgName) for the current user's org. */
 export const getPortalSettings = authenticatedQuery({
   args: {},
   handler: async (ctx) => {
@@ -68,7 +68,8 @@ export const getPortalSettings = authenticatedQuery({
     if (!org) return null;
     return {
       portalSlug: org.portalSlug ?? null,
-      portalEnabled: org.portalEnabled ?? false,
+      portalEnabled: org.portalEnabled ?? null,
+      orgName: org.name,
     };
   },
 });
