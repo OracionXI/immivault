@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -74,11 +75,13 @@ export default function PaymentsPage() {
 
     const [editPayment, setEditPayment] = useState<PaymentRow | null>(null);
     const [editForm, setEditForm] = useState({ amount: "", method: "", status: "", reference: "", notes: "", caseId: "" as Id<"cases"> | "" });
+    const [editErrors, setEditErrors] = useState<Record<string, string>>({});
     const [editLoading, setEditLoading] = useState(false);
     const [deletePaymentId, setDeletePaymentId] = useState<Id<"payments"> | null>(null);
 
     const [editLink, setEditLink] = useState<LinkRow | null>(null);
     const [editLinkForm, setEditLinkForm] = useState({ amount: "", description: "", expiryDate: "", status: "", paymentType: "", caseId: "" as Id<"cases"> | "", nextPaymentDate: "" });
+    const [editLinkErrors, setEditLinkErrors] = useState<Record<string, string>>({});
     const [editLinkLoading, setEditLinkLoading] = useState(false);
     const [deleteLinkId, setDeleteLinkId] = useState<Id<"paymentLinks"> | null>(null);
     const [qrCodeLink, setQrCodeLink] = useState<LinkRow | null>(null);
@@ -110,7 +113,8 @@ export default function PaymentsPage() {
 
     const payments: PaymentRow[] = rawPayments.map((p) => ({
         ...p,
-        clientName: clientMap.get(p.clientId) ?? "—",
+        // clientId is optional (prospect payments have none) — fall back to the clientName snapshot
+        clientName: (p.clientId ? clientMap.get(p.clientId) : null) ?? p.clientName ?? "Prospect",
         caseName: p.caseId ? (caseMap.get(p.caseId) ?? "—") : "—",
         dateDisplay: formatTs(p.paidAt),
     }));
@@ -154,11 +158,18 @@ export default function PaymentsPage() {
 
     const handleEditSave = async () => {
         if (!editPayment) return;
+        const errs: Record<string, string> = {};
+        const parsedAmount = Number(editForm.amount);
+        if (!editForm.amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+            errs.amount = "Enter a valid amount greater than 0";
+        }
+        if (Object.keys(errs).length > 0) { setEditErrors(errs); return; }
+        setEditErrors({});
         setEditLoading(true);
         try {
             await updatePayment({
                 id: editPayment._id,
-                amount: Math.round(Number(editForm.amount) * 100),
+                amount: Math.round(parsedAmount * 100),
                 method: editForm.method as "Card" | "Bank Transfer" | "Cash" | "Check" | "Online",
                 status: editForm.status as "Completed" | "Pending" | "Failed" | "Refunded" | "On Hold",
                 reference: editForm.reference || undefined,
@@ -223,6 +234,7 @@ export default function PaymentsPage() {
                         variant="ghost" size="icon" className="h-8 w-8"
                         onClick={() => {
                             setEditPayment(p);
+                            setEditErrors({});
                             setEditForm({
                                 amount: (Number(p.amount) / 100).toString(),
                                 method: p.method ?? "",
@@ -271,7 +283,7 @@ export default function PaymentsPage() {
                 <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <Button
                         variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => navigator.clipboard.writeText(l.linkUrl)}
+                        onClick={() => { navigator.clipboard.writeText(l.linkUrl); toast.success("Link copied."); }}
                         title="Copy link"
                     >
                         <Copy className="h-3.5 w-3.5" />
@@ -287,6 +299,7 @@ export default function PaymentsPage() {
                         variant="ghost" size="icon" className="h-8 w-8"
                         onClick={() => {
                             setEditLink(l);
+                            setEditLinkErrors({});
                             setEditLinkForm({
                                 amount: (Number(l.amount) / 100).toString(),
                                 description: l.description,
@@ -344,11 +357,18 @@ export default function PaymentsPage() {
 
     const handleEditLinkSave = async () => {
         if (!editLink) return;
+        const errs: Record<string, string> = {};
+        const parsedAmount = Number(editLinkForm.amount);
+        if (!editLinkForm.amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+            errs.amount = "Enter a valid amount greater than 0";
+        }
+        if (Object.keys(errs).length > 0) { setEditLinkErrors(errs); return; }
+        setEditLinkErrors({});
         setEditLinkLoading(true);
         try {
             await updatePaymentLink({
                 id: editLink._id,
-                amount: Math.round(Number(editLinkForm.amount) * 100),
+                amount: Math.round(parsedAmount * 100),
                 description: editLinkForm.description,
                 expiresAt: new Date(editLinkForm.expiryDate).getTime(),
                 status: editLinkForm.status as "Active" | "Used" | "Expired",
@@ -491,6 +511,7 @@ export default function PaymentsPage() {
     return (
         <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
+            <PageTitle title="Payments" />
             <div className="flex items-center justify-between">
                 <PageHeader title="Payments" description="Track transactions and payment links" />
                 <Link href="/payments/settings">
@@ -753,9 +774,10 @@ export default function PaymentsPage() {
                                 <Input
                                     type="number"
                                     value={editForm.amount}
-                                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                                    onChange={(e) => { setEditForm({ ...editForm, amount: e.target.value }); setEditErrors((prev) => ({ ...prev, amount: "" })); }}
                                     placeholder="0.00"
                                 />
+                                {editErrors.amount && <p className="text-xs text-destructive">{editErrors.amount}</p>}
                             </div>
                             <div className="grid gap-2">
                                 <Label>Method</Label>
@@ -863,9 +885,10 @@ export default function PaymentsPage() {
                                 <Input
                                     type="number"
                                     value={editLinkForm.amount}
-                                    onChange={(e) => setEditLinkForm({ ...editLinkForm, amount: e.target.value })}
+                                    onChange={(e) => { setEditLinkForm({ ...editLinkForm, amount: e.target.value }); setEditLinkErrors((prev) => ({ ...prev, amount: "" })); }}
                                     placeholder="0.00"
                                 />
+                                {editLinkErrors.amount && <p className="text-xs text-destructive">{editLinkErrors.amount}</p>}
                             </div>
                             <div className="grid gap-2">
                                 <Label>Expiry Date</Label>

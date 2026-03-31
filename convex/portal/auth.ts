@@ -324,6 +324,7 @@ export const verifySession = internalQuery({
         firstName: client.firstName,
         lastName: client.lastName,
         email: client.email,
+        phone: client.phone,
       },
       org: {
         name: org.name,

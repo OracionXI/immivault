@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/shared/status-badge";
 import {
     Users,
@@ -30,6 +31,8 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useWidgetConfig } from "@/hooks/use-widget-config";
 import { CustomizeWidgetsModal } from "@/components/dashboard/customize-widgets-modal";
+import { PageTitle } from "@/components/shared/page-title";
+import { UnassignedBadge } from "@/components/shared/unassigned-badge";
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -108,6 +111,14 @@ export default function DashboardPage() {
         })
         .slice(0, isAdmin ? 7 : isAccountant ? 5 : 3);
 
+    // Compute the Sunday that starts the current week (safe across month boundaries)
+    const weekStartDate = useMemo(() => {
+        const today = new Date();
+        const d = new Date(today);
+        d.setDate(today.getDate() - today.getDay());
+        return d;
+    }, []);
+
     const recentCases = stats?.recentCases ?? [];
     const pendingTasksList = stats?.pendingTasksList ?? [];
     const upcomingAppointmentsList = stats?.upcomingAppointmentsList ?? [];
@@ -115,7 +126,7 @@ export default function DashboardPage() {
 
     return (
         <div className="flex flex-col gap-6 pb-6">
-
+            <PageTitle title="Dashboard" />
             {/* Top Toolbar matching Mockup */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2 mb-2">
                 <div className="flex items-center gap-2">
@@ -170,7 +181,20 @@ export default function DashboardPage() {
                     {/* Stat Cards */}
                     {isVisible("stat_cards") && (
                         <div className={`grid gap-3 md:gap-4 ${isAccountant ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-2 lg:grid-cols-4"}`}>
-                            {displayStatCards.map((stat, i) => (
+                            {stats === undefined
+                                ? Array.from({ length: isAdmin ? 6 : isAccountant ? 4 : 3 }).map((_, i) => (
+                                    <Card key={i} className="shadow-sm border-border overflow-hidden">
+                                        <CardContent className="p-4 md:p-5">
+                                            <div className="flex items-center justify-between mb-3 md:mb-4 gap-2">
+                                                <Skeleton className="h-4 w-28" />
+                                                <Skeleton className="h-5 w-12 rounded-full" />
+                                            </div>
+                                            <Skeleton className="h-7 w-20 mb-1" />
+                                            <Skeleton className="h-3 w-24" />
+                                        </CardContent>
+                                    </Card>
+                                ))
+                                : displayStatCards.map((stat, i) => (
                                 <Card key={stat.title} className={`shadow-sm border-border overflow-hidden ${"span2" in stat && stat.span2 ? "col-span-2" : ""}`}>
                                     <CardContent className="p-4 md:p-5">
                                         <div className="flex items-center justify-between mb-3 md:mb-4 gap-2 min-w-0">
@@ -295,7 +319,12 @@ export default function DashboardPage() {
                             </div>
                             <div className="overflow-x-auto">
                                 {recentCases.length === 0 ? (
-                                    <div className="h-32 flex items-center justify-center text-sm text-muted-foreground italic">No cases yet.</div>
+                                    <div className="h-32 flex flex-col items-center justify-center gap-2">
+                                        <p className="text-sm text-muted-foreground italic">No cases yet.</p>
+                                        <Link href="/cases" className="text-xs font-semibold text-primary hover:underline">
+                                            Open your first case →
+                                        </Link>
+                                    </div>
                                 ) : (
                                     <table className="w-full text-sm">
                                         <thead>
@@ -326,7 +355,7 @@ export default function DashboardPage() {
                                                         </td>
                                                         <td className="py-3 px-3 hidden lg:table-cell">
                                                             <span className="text-muted-foreground truncate max-w-[120px] block">
-                                                                {c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : <span className="italic opacity-50">Unassigned</span>}
+                                                                {c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : <UnassignedBadge />}
                                                             </span>
                                                         </td>
                                                         <td className="py-3 px-3 hidden sm:table-cell">
@@ -383,10 +412,6 @@ export default function DashboardPage() {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <div className="flex -space-x-1">
-                                                {/* Mock activity indicators */}
-                                                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-background"></div>
-                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -409,17 +434,22 @@ export default function DashboardPage() {
                             </Button>
                         </CardHeader>
                         <CardContent className="p-0">
-                            {/* Mock Calendar Header */}
+                            {/* Current week strip */}
                             <div className="px-6 pb-4 border-b border-border">
                                 <div className="flex justify-between items-center text-center">
-                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
-                                        <div key={day} className="flex flex-col gap-2">
-                                            <span className="text-[10px] uppercase font-semibold text-muted-foreground">{day}</span>
-                                            <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold ${i === new Date().getDay() ? 'bg-primary text-primary-foreground' : ''}`}>
-                                                {new Date().getDate() - new Date().getDay() + i}
+                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => {
+                                        const d = new Date(weekStartDate);
+                                        d.setDate(weekStartDate.getDate() + i);
+                                        const isToday = i === new Date().getDay() && d.getMonth() === new Date().getMonth() && d.getDate() === new Date().getDate();
+                                        return (
+                                            <div key={day} className="flex flex-col gap-2">
+                                                <span className="text-[10px] uppercase font-semibold text-muted-foreground">{day}</span>
+                                                <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold ${isToday ? 'bg-primary text-primary-foreground' : ''}`}>
+                                                    {d.getDate()}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
 

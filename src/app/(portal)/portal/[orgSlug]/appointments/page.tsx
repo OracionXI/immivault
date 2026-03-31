@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { usePolling } from "@/hooks/use-polling";
-import { loadStripe, type Stripe, type StripeElements, type StripeCardElement } from "@stripe/stripe-js";
 import {
   Calendar, Video, Clock, ChevronLeft, ChevronRight,
-  CheckCircle2, ArrowLeft, Loader2, Lock, FileText,
+  CheckCircle2, ArrowLeft, Loader2, FileText,
   X, RotateCcw, AlertTriangle, MapPin,
 } from "lucide-react";
 
@@ -47,9 +46,6 @@ const BROWSER_TZ = typeof window !== "undefined"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatPrice(cents: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
-}
 
 function formatDateTime(ts: number, timezone?: string) {
   return new Date(ts).toLocaleString("en-US", {
@@ -249,7 +245,7 @@ function CancelDialog({
 
 // ─── Booking wizard ───────────────────────────────────────────────────────────
 
-type WizardStep = "type" | "modality" | "case" | "date" | "time" | "payment" | "done";
+type WizardStep = "type" | "modality" | "case" | "date" | "time" | "done";
 type WizardMode = "book" | "reschedule";
 
 function BookingWizard({
@@ -288,19 +284,11 @@ function BookingWizard({
 
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
-  const [stripe, setStripe] = useState<Stripe | null>(null);
-  const [elements, setElements] = useState<StripeElements | null>(null);
-  const [cardElement, setCardElement] = useState<StripeCardElement | null>(null);
-  const [clientSecret, setClientSecret] = useState<string>("");
-  const [payAmount, setPayAmount] = useState(0);
-  const [payCurrency, setPayCurrency] = useState("USD");
-  const [paying, setPaying] = useState(false);
-  const [payError, setPayError] = useState<string | null>(null);
 
   const stepIndex: Record<WizardStep, number> = {
-    modality: 0, type: 1, case: 2, date: 3, time: 4, payment: 5, done: 6,
+    modality: 0, type: 1, case: 2, date: 3, time: 4, done: 5,
   };
-  const totalSteps = isReschedule ? 3 : 6;
+  const totalSteps = isReschedule ? 3 : 5;
 
   const handleSelectModality = (modality: "online" | "offline") => {
     setSelectedModality(modality);
@@ -422,76 +410,11 @@ function BookingWizard({
       });
       const data = await res.json();
       if (data.error) { setBookError(data.error); return; }
-      if (data.booked) { setStep("done"); return; }
-      if (data.clientSecret) {
-        await initStripePayment(data.clientSecret, data.publishableKey, data.amount, data.currency);
-        setStep("payment");
-      }
+      setStep("done");
     } catch {
       setBookError("Something went wrong. Please try again.");
     } finally {
       setBooking(false);
-    }
-  };
-
-  const initStripePayment = async (clientSecretVal: string, publishableKey: string, amount: number, currency: string) => {
-    const stripeInstance = await loadStripe(publishableKey);
-    if (!stripeInstance) { setPayError("Payment provider unavailable."); return; }
-    setPayAmount(amount);
-    setPayCurrency(currency);
-    setClientSecret(clientSecretVal);
-    setStripe(stripeInstance);
-    const els = stripeInstance.elements({ clientSecret: clientSecretVal });
-    // Stripe runs in an iframe — CSS variables don't cross the boundary.
-    // Read dark mode from the document class and pass explicit hex colors.
-    const isDark = document.documentElement.classList.contains("dark");
-    const card = els.create("card", {
-      style: {
-        base: {
-          fontSize: "14px",
-          color: isDark ? "#ffffff" : "#1a1a2e",
-          "::placeholder": { color: isDark ? "#6b7280" : "#94a3b8" },
-        },
-      },
-    });
-    setElements(els);
-    setCardElement(card);
-  };
-
-  const cardRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node && cardElement && !node.hasChildNodes()) cardElement.mount(node);
-    },
-    [cardElement]
-  );
-
-  const handlePay = async () => {
-    if (!stripe || !cardElement || !clientSecret) return;
-    setPaying(true);
-    setPayError(null);
-    try {
-      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: { card: cardElement },
-      });
-      if (error) { setPayError(error.message ?? "Card error."); return; }
-      // With capture_method:"manual", status is "requires_capture" (not "succeeded") until we capture
-      const validStatuses = ["succeeded", "requires_capture"];
-      if (!paymentIntent || !validStatuses.includes(paymentIntent.status)) {
-        setPayError("Payment not completed.");
-        return;
-      }
-      const confirmRes = await fetch("/api/portal/appointments/confirm-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentIntentId: paymentIntent.id }),
-      });
-      const confirmData = await confirmRes.json();
-      if (confirmData.error) { setPayError(confirmData.error); return; }
-      setStep("done");
-    } catch {
-      setPayError("Payment failed. Please try again.");
-    } finally {
-      setPaying(false);
     }
   };
 
@@ -516,7 +439,6 @@ function BookingWizard({
     else if (step === "case") setStep("type");
     else if (step === "date") setStep("case");
     else if (step === "time") setStep("date");
-    else if (step === "payment") { setStep("time"); setStripe(null); setCardElement(null); setClientSecret(""); }
   };
 
   const currentStepIndex = isReschedule
@@ -572,7 +494,6 @@ function BookingWizard({
             {!isReschedule && step === "case" && "Link to a Case"}
             {!isReschedule && step === "date" && "Choose a Date"}
             {!isReschedule && step === "time" && "Select a Time"}
-            {!isReschedule && step === "payment" && "Complete Payment"}
           </h2>
         </div>
         <StepBar current={currentStepIndex} total={totalSteps} />
@@ -609,7 +530,7 @@ function BookingWizard({
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">In-Person</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">Visit the office — no online payment required</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">Visit the office in person</p>
                 </div>
               </div>
             </button>
@@ -633,12 +554,7 @@ function BookingWizard({
                     <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{p.appointmentType}</p>
                     {p.description && <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>}
                   </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <p className="font-bold text-primary">
-                      {selectedModality === "offline" ? "Free" : p.priceInCents === 0 ? "Free" : formatPrice(p.priceInCents, p.currency)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">1 hour</p>
-                  </div>
+                  <p className="text-xs text-muted-foreground shrink-0 ml-4">1 hour</p>
                 </div>
               </button>
             ))}
@@ -794,15 +710,6 @@ function BookingWizard({
                       <span className="text-sm text-muted-foreground">
                         {formatSlotTime(selectedSlot)} – {formatSlotTime(selectedSlot + 3600_000)} · 1 hour
                       </span>
-                      {!isReschedule && (
-                        <span className="text-sm font-bold text-primary">
-                          {selectedModality === "offline"
-                            ? "Free · In-person"
-                            : (selectedPricing ?? preselectPricing)?.priceInCents === 0
-                            ? "Free"
-                            : formatPrice((selectedPricing ?? preselectPricing)?.priceInCents ?? 0, (selectedPricing ?? preselectPricing)?.currency ?? "USD")}
-                        </span>
-                      )}
                     </div>
                     <button
                       onClick={handleBookSlot}
@@ -810,11 +717,7 @@ function BookingWizard({
                       className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
                     >
                       {booking && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {isReschedule
-                        ? "Submit Reschedule Request"
-                        : selectedModality === "offline" || (selectedPricing ?? preselectPricing)?.priceInCents === 0
-                        ? "Confirm Booking"
-                        : "Continue to Payment"}
+                      {isReschedule ? "Submit Reschedule Request" : "Confirm Booking"}
                     </button>
                   </div>
                 )}
@@ -823,50 +726,6 @@ function BookingWizard({
           </div>
         )}
 
-        {/* ── Step 5: Payment ── */}
-        {step === "payment" && !isReschedule && (
-          <div className="space-y-5">
-            <div className="rounded-xl border border-border bg-accent/40 p-4 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-foreground">{selectedPricing?.appointmentType}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{selectedSlot ? formatDateTime(selectedSlot, BROWSER_TZ) : ""} · 1 hour</p>
-              </div>
-              <p className="text-lg font-bold text-primary">{formatPrice(payAmount, payCurrency)}</p>
-            </div>
-            {!stripe && !payError && (
-              <div className="flex items-center justify-center gap-2 py-6">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Loading payment form…</span>
-              </div>
-            )}
-            {payError && !paying && <p className="text-sm text-red-600 dark:text-red-400 text-center">{payError}</p>}
-            {stripe && (
-              <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Card details</label>
-                  <div ref={cardRef} className="border border-border rounded-lg px-3 py-3 bg-background min-h-[44px]" />
-                </div>
-                <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 px-3 py-2.5 flex items-start gap-2 text-xs text-yellow-700 dark:text-yellow-400">
-                  <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>Your card will only be charged once your appointment is confirmed. If declined, the hold will be released and you will not be charged.</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Lock className="h-3 w-3 shrink-0" />
-                  Payments are processed securely by Stripe. Your card details are never stored.
-                </div>
-                {payError && <p className="text-sm text-red-600 dark:text-red-400">{payError}</p>}
-                <button
-                  onClick={handlePay}
-                  disabled={paying}
-                  className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  {paying && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {paying ? "Processing…" : `Pay ${formatPrice(payAmount, payCurrency)}`}
-                </button>
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

@@ -395,8 +395,8 @@ export const permanentDeleteOrg = internalMutation({
 export const softDeleteOrg = authenticatedMutation({
   args: { confirmName: v.string() },
   handler: async (ctx, args) => {
-    if (ctx.user.role !== "admin") {
-      throw new ConvexError({ code: "FORBIDDEN", message: "Admin privileges required." });
+    if (ctx.user.role !== "admin" || !ctx.user.isFounder) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Only the organisation founder can delete the organisation." });
     }
 
     // Rate limit: max 3 attempts per hour per org

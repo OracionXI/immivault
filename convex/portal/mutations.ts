@@ -21,6 +21,7 @@ export const updateClientProfile = internalMutation({
     nationality: v.optional(v.string()),
     countryOfBirth: v.optional(v.string()),
     passportNumber: v.optional(v.string()),
+    phone: v.optional(v.string()),
     mobilePhone: v.optional(v.string()),
     address: v.optional(v.string()),
     markComplete: v.optional(v.boolean()),
@@ -46,6 +47,8 @@ export const updateClientProfile = internalMutation({
       throw new ConvexError({ code: "BAD_REQUEST", message: "Country of birth cannot exceed 100 characters." });
     if (fields.passportNumber !== undefined && fields.passportNumber.length > 50)
       throw new ConvexError({ code: "BAD_REQUEST", message: "Passport number cannot exceed 50 characters." });
+    if (fields.phone !== undefined && fields.phone.length > 50)
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Phone number cannot exceed 50 characters." });
     if (fields.mobilePhone !== undefined && fields.mobilePhone.length > 50)
       throw new ConvexError({ code: "BAD_REQUEST", message: "Mobile phone cannot exceed 50 characters." });
     if (fields.address !== undefined && fields.address.length > 500)

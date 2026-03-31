@@ -52,6 +52,7 @@ export const create = authenticatedMutation({
     assignedTo: v.optional(v.id("users")),
     contractAmount: v.optional(v.number()), // in cents
     portalEnabled: v.optional(v.boolean()),
+    prospectRequestId: v.optional(v.id("appointmentRequests")),
   },
   handler: async (ctx, args) => {
     requireAdmin(ctx);
@@ -90,7 +91,7 @@ export const create = authenticatedMutation({
       throw new ConvexError({ code: "BAD_REQUEST", message: "Contract amount cannot be negative." });
     }
 
-    const { portalEnabled, ...clientFields } = args;
+    const { portalEnabled, prospectRequestId, ...clientFields } = args;
 
     const clientId = await ctx.db.insert("clients", {
       ...clientFields,
@@ -98,6 +99,21 @@ export const create = authenticatedMutation({
       portalEnabled: portalEnabled ?? false,
       organisationId: ctx.user.organisationId,
     });
+
+    // Link prospect request → mark as accepted
+    if (prospectRequestId) {
+      const req = await ctx.db.get(prospectRequestId);
+      if (req && req.organisationId === ctx.user.organisationId) {
+        await ctx.db.patch(prospectRequestId, {
+          status: "accepted_as_client",
+          convertedClientId: clientId,
+        });
+        // Link the existing appointment to the new client
+        if (req.convertedAppointmentId) {
+          await ctx.db.patch(req.convertedAppointmentId, { clientId });
+        }
+      }
+    }
 
     // Auto-create an unassigned case for the new client
     await ctx.db.insert("cases", {
@@ -340,7 +356,7 @@ export const update = authenticatedMutation({
   },
 });
 
-/** Admin-only: permanently delete a client along with all linked cases and tasks. */
+/** Admin-only: permanently delete a client along with all linked data. */
 export const remove = authenticatedMutation({
   args: { id: v.id("clients") },
   handler: async (ctx, args) => {
@@ -349,8 +365,9 @@ export const remove = authenticatedMutation({
     if (!client || client.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Client not found." });
     }
+    const clientFullName = `${client.firstName} ${client.lastName}`;
 
-    // Delete all documents (+ storage files) linked to this client
+    // ── 1. Documents (+ storage files) ────────────────────────────────────────
     const linkedDocs = await ctx.db
       .query("documents")
       .withIndex("by_client", (q) => q.eq("clientId", args.id))
@@ -360,16 +377,13 @@ export const remove = authenticatedMutation({
       await ctx.db.delete(doc._id);
     }
 
-    // Snapshot client name on linked invoices and delete the contract draft
+    // ── 2. Invoices — snapshot name; delete contract drafts ───────────────────
     const linkedInvoices = await ctx.db
       .query("invoices")
       .withIndex("by_client", (q) => q.eq("clientId", args.id))
       .collect();
-    const clientFullName = `${client.firstName} ${client.lastName}`;
     for (const inv of linkedInvoices) {
       if (inv.isContractDraft) {
-        // Remove contract draft — it exists only to track balance; deleting it
-        // removes this client's outstanding amount from org stats.
         const items = await ctx.db
           .query("invoiceItems")
           .withIndex("by_invoice", (q) => q.eq("invoiceId", inv._id))
@@ -377,18 +391,44 @@ export const remove = authenticatedMutation({
         for (const item of items) await ctx.db.delete(item._id);
         await ctx.db.delete(inv._id);
       } else {
-        // Preserve real invoices (Sent, Paid, Overdue) but snapshot the name
-        // so the billing page can still display it after the client record is gone.
         await ctx.db.patch(inv._id, { clientName: clientFullName });
       }
     }
 
-    // Delete all tasks under every linked case, then delete each case
+    // ── 3. Cases — collect titles for payment snapshots, then cascade ─────────
     const linkedCases = await ctx.db
       .query("cases")
       .withIndex("by_client", (q) => q.eq("clientId", args.id))
       .collect();
+    // Build a map of caseId → case title for snapshotting on payments
+    const caseTitleMap = new Map(linkedCases.map((c) => [c._id as string, c.title]));
 
+    // ── 4. Payments — snapshot client name + case name, keep the record ───────
+    const linkedPayments = await ctx.db
+      .query("payments")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id).eq("organisationId", ctx.user.organisationId))
+      .collect();
+    for (const pmt of linkedPayments) {
+      const caseName = pmt.caseId ? (caseTitleMap.get(pmt.caseId) ?? undefined) : undefined;
+      await ctx.db.patch(pmt._id, { clientName: clientFullName, caseName });
+    }
+
+    // ── 5. Payment links — delete (just request links, not financial records) ──
+    const linkedPaymentLinks = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+      .filter((q) => q.eq(q.field("clientId"), args.id))
+      .collect();
+    for (const pl of linkedPaymentLinks) await ctx.db.delete(pl._id);
+
+    // ── 6. Appointments ────────────────────────────────────────────────────────
+    const linkedAppts = await ctx.db
+      .query("appointments")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    for (const appt of linkedAppts) await ctx.db.delete(appt._id);
+
+    // ── 7. Cases → tasks → comments ───────────────────────────────────────────
     for (const c of linkedCases) {
       const caseTasks = await ctx.db
         .query("tasks")
@@ -410,6 +450,32 @@ export const remove = authenticatedMutation({
       await ctx.db.delete(c._id);
     }
 
+    // ── 8. Portal sessions, magic links, OTP codes, notifications ─────────────
+    const portalSessions = await ctx.db
+      .query("portalSessions")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    for (const s of portalSessions) await ctx.db.delete(s._id);
+
+    const magicLinks = await ctx.db
+      .query("portalMagicLinks")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    for (const ml of magicLinks) await ctx.db.delete(ml._id);
+
+    const otpCodes = await ctx.db
+      .query("portalOtpCodes")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    for (const otp of otpCodes) await ctx.db.delete(otp._id);
+
+    const portalNotifs = await ctx.db
+      .query("portalNotifications")
+      .withIndex("by_client", (q) => q.eq("clientId", args.id))
+      .collect();
+    for (const n of portalNotifs) await ctx.db.delete(n._id);
+
+    // ── 9. The client record itself ────────────────────────────────────────────
     await ctx.db.delete(args.id);
   },
 });

@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Loader2, Plus, Trash2, DollarSign } from "lucide-react";
+import { HintPopover } from "@/components/shared/hint-popover";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { RoleGuard } from "@/components/shared/role-guard";
@@ -88,6 +89,18 @@ export default function AppointmentPricingPage() {
             <CardTitle className="flex items-center gap-2">
               <DollarSign className="h-5 w-5" />
               Pricing
+              <HintPopover
+                title="Appointment Pricing"
+                description="Set a price per appointment type. These prices are shown to clients when they book through the client portal."
+                tips={[
+                    { text: "Only active pricing entries are visible to clients." },
+                    { text: "Appointment types without a pricing entry cannot be booked via the portal." },
+                    { text: "Currency is inherited from your Billing Defaults setting." },
+                    { text: "You can add an optional description to explain what is included." },
+                ]}
+                accent="green"
+                side="right"
+              />
             </CardTitle>
             <Button size="sm" className="gap-2" onClick={() => setDialogOpen(true)}>
               <Plus className="h-4 w-4" />

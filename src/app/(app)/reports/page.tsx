@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useRole } from "@/hooks/use-role";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -66,7 +67,7 @@ export default function ReportsPage() {
         [isAdmin, allInvoices, visibleClientIds]
     );
     const payments = useMemo(
-        () => isAdmin ? allPayments : allPayments.filter((p) => visibleClientIds.has(p.clientId)),
+        () => isAdmin ? allPayments : allPayments.filter((p) => p.clientId && visibleClientIds.has(p.clientId)),
         [isAdmin, allPayments, visibleClientIds]
     );
 
@@ -244,8 +245,9 @@ export default function ReportsPage() {
     ];
 
     return (
-        <RoleGuard allowedRoles={["admin", "case_manager", "accountant"]} redirectTo="/dashboard">
+        <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
+            <PageTitle title="Reports" />
             <PageHeader title="Reports" description="Generate reports and analyse your practice" />
 
             {/* Summary Cards */}

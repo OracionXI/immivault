@@ -45,6 +45,13 @@ crons.interval(
   internal.appointments.mutations.transitionStatuses
 );
 
+// Every 30 min — expire prospect requests whose 48h payment window has passed
+crons.interval(
+  "expire unpaid prospect requests",
+  { minutes: 30 },
+  internal.appointmentRequests.mutations.expireUnpaid
+);
+
 // Daily at 03:00 UTC — hard-delete cancelled/expired appointments older than 40 days
 crons.daily(
   "purge expired appointments",

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Globe, Copy, Check, ExternalLink } from "lucide-react";
+import { HintPopover } from "@/components/shared/hint-popover";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { RoleGuard } from "@/components/shared/role-guard";
@@ -71,13 +72,28 @@ export default function PortalSettingsPage() {
             <CardTitle className="flex items-center gap-2">
               <Globe className="h-5 w-5" />
               Portal Settings
+              <HintPopover
+                title="Client Portal"
+                description="A branded self-service portal where your clients can view cases, invoices, appointments, and make payments — without needing access to Ordena."
+                tips={[
+                    { text: "Clients receive a magic-link invite email when they are added to the system." },
+                    { text: "Returning clients log in with their email + a 6-digit code (no password needed)." },
+                    { text: "Each client only sees their own data — completely isolated." },
+                    { text: "Disable the portal at any time to prevent all client logins." },
+                ]}
+                accent="purple"
+                side="right"
+              />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Enable toggle */}
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-base font-medium">Enable Client Portal</Label>
+                <Label className="text-base font-medium flex items-center gap-1.5">
+                Enable Client Portal
+                <HintPopover title="Enable / Disable Portal" description="When disabled, all client portal logins are blocked — clients will see an error if they try to access their portal URL. Existing data is preserved." accent="amber" side="top" />
+              </Label>
                 <p className="text-sm text-muted-foreground mt-0.5">
                   When enabled, clients with portal access can sign in using their email.
                 </p>
@@ -90,7 +106,10 @@ export default function PortalSettingsPage() {
 
             {/* Portal URL — read-only */}
             <div className="space-y-2">
-              <Label>Portal URL</Label>
+              <Label className="flex items-center gap-1.5">
+                Portal URL
+                <HintPopover title="Portal URL" description="Your firm's unique portal address. It is automatically derived from your organisation name and cannot be customised. Share this link with clients." accent="blue" side="top" />
+              </Label>
               <p className="text-sm text-muted-foreground">
                 Your firm's unique client portal address. This is automatically generated and cannot be changed.
               </p>

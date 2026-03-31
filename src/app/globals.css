@@ -152,3 +152,7 @@
 .recharts-label {
   fill: var(--muted-foreground);
 }
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}

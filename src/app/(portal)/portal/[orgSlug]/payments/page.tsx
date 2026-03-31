@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { usePolling } from "@/hooks/use-polling";
-import { loadStripe, type Stripe, type StripeCardElement } from "@stripe/stripe-js";
-import { CreditCard, TrendingUp, DollarSign, Calendar, Lock, CheckCircle2, Loader2, X, RotateCcw, Clock, Ban } from "lucide-react";
+import { StripeCardForm } from "@/components/shared/stripe-card-form";
+import { CreditCard, TrendingUp, DollarSign, Calendar, CheckCircle2, Loader2, X, RotateCcw, Clock, Ban } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -149,46 +149,15 @@ function PaymentDialog({
   const [nextPaymentDate, setNextPaymentDate] = useState("");
   const [step, setStep] = useState<"form" | "card" | "done">("form");
   const [clientSecret, setClientSecret] = useState("");
+  const [publishableKey, setPublishableKey] = useState("");
   const [currency, setCurrency] = useState(summary.currency);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const stripeRef = useRef<Stripe | null>(null);
-  const cardRef = useRef<StripeCardElement | null>(null);
-  const cardElRef = useRef<HTMLDivElement>(null);
 
   const maxDate = new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString().split("T")[0];
   const minDate = new Date(Date.now() + 24 * 60 * 60_000).toISOString().split("T")[0];
   const maxAmountDollars = (summary.outstandingCents / 100).toFixed(2);
   const amountCents = Math.round(parseFloat(amountInput || "0") * 100);
-
-  // Mount the card element only — Stripe instance is pre-loaded in handleFormNext
-  useEffect(() => {
-    if (step !== "card" || !cardElRef.current || !stripeRef.current) return;
-
-    const isDark = document.documentElement.classList.contains("dark");
-    const elements = stripeRef.current.elements();
-    const card = elements.create("card", {
-      style: {
-        base: {
-          fontSize: "15px",
-          color: isDark ? "#f9fafb" : "#111827",
-          fontFamily: "inherit",
-          "::placeholder": { color: isDark ? "#6b7280" : "#9ca3af" },
-        },
-        invalid: {
-          color: isDark ? "#f87171" : "#ef4444",
-        },
-      },
-    });
-    card.mount(cardElRef.current);
-    cardRef.current = card;
-
-    return () => {
-      cardRef.current?.destroy();
-      cardRef.current = null;
-    };
-  }, [step]);
 
   async function handleFormNext() {
     setError(null);
@@ -214,12 +183,8 @@ function PaymentDialog({
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? "Checkout failed.");
 
-      // Load Stripe once here — before changing step — so the effect only mounts the card
-      const stripe = await loadStripe(data.publishableKey);
-      if (!stripe) throw new Error("Failed to load payment processor.");
-      stripeRef.current = stripe;
-
       setClientSecret(data.clientSecret);
+      setPublishableKey(data.publishableKey);
       setCurrency(data.currency ?? summary.currency);
       setStep("card");
     } catch (err) {
@@ -229,27 +194,17 @@ function PaymentDialog({
     }
   }
 
-  async function handlePay() {
-    if (!stripeRef.current || !cardRef.current) return;
+  async function handlePaySuccess(paymentIntentId: string) {
     setError(null);
     setLoading(true);
-
     try {
-      const { error: stripeError, paymentIntent } = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: { card: cardRef.current },
-      });
-
-      if (stripeError) throw new Error(stripeError.message ?? "Payment failed.");
-      if (paymentIntent?.status !== "succeeded") throw new Error("Payment was not completed.");
-
       const res = await fetch("/api/portal/payments/confirm-case-fee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentIntentId: paymentIntent!.id }),
+        body: JSON.stringify({ paymentIntentId }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? "Confirmation failed.");
-
       setStep("done");
       setTimeout(() => { onSuccess(); onClose(); }, 2000);
     } catch (err) {
@@ -340,34 +295,23 @@ function PaymentDialog({
                 <p className="text-lg font-bold text-foreground">{formatCurrency(amountCents, currency)}</p>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                  Card details
-                </label>
-                <div ref={cardElRef} className="w-full px-4 py-3 rounded-lg border border-input bg-background min-h-[44px]" />
-                <p className="text-xs text-muted-foreground">Your payment is encrypted and secure.</p>
-              </div>
+              <StripeCardForm
+                publishableKey={publishableKey}
+                clientSecret={clientSecret}
+                buttonLabel={`Pay ${formatCurrency(amountCents, currency)}`}
+                disabled={loading}
+                onSuccess={handlePaySuccess}
+              />
 
               {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setStep("form"); setError(null); }}
-                  disabled={loading}
-                  className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handlePay}
-                  disabled={loading}
-                  className="flex-1 flex items-center justify-center gap-2 bg-primary text-primary-foreground py-2.5 rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                  Pay {formatCurrency(amountCents, currency)}
-                </button>
-              </div>
+              <button
+                onClick={() => { setStep("form"); setError(null); }}
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Back
+              </button>
             </>
           )}
         </div>

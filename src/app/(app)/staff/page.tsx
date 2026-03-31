@@ -13,6 +13,7 @@ const DEFAULT_ROLE_LABELS: Record<string, string> = {
 };
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StaffModal } from "./staff-modal";
@@ -124,6 +125,7 @@ export default function StaffPage() {
     return (
         <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
+            <PageTitle title="Staff" />
             <div className="flex items-start justify-between">
                 <PageHeader
                     title="Staff Management"

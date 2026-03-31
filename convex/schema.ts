@@ -285,7 +285,8 @@ export default defineSchema({
   payments: defineTable({
     organisationId: v.id("organisations"),
     invoiceId: v.optional(v.id("invoices")), // optional — standalone payment links have no invoice
-    clientId: v.id("clients"),
+    // optional — prospect appointment payments have no client record yet
+    clientId: v.optional(v.id("clients")),
     amount: v.number(),
     currency: v.string(),
     method: v.union(
@@ -309,7 +310,11 @@ export default defineSchema({
     stripePaymentIntentId: v.optional(v.string()),
     caseId: v.optional(v.id("cases")),
     appointmentId: v.optional(v.id("appointments")), // set for portal appointment payments
+    requestId: v.optional(v.id("appointmentRequests")), // set for prospect appointment payments
     type: v.optional(v.union(v.literal("appointment"), v.literal("case_fee"))), // payment category
+    // Snapshot fields — set when the linked client/case is deleted so billing history is preserved
+    clientName: v.optional(v.string()),
+    caseName: v.optional(v.string()),
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId", "organisationId"])
@@ -490,6 +495,19 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_org", ["organisationId"]),
 
+  // ─── Staff Availability Exclusions (recurring weekly hour blocks within a day) ──
+  // Subtracts specific hours from an existing availability window.
+  // Example: available Mon 9–17, exclude 12–13 (lunch) and 14–15 (standup).
+  staffAvailabilityExclusions: defineTable({
+    organisationId: v.id("organisations"),
+    userId: v.id("users"),
+    dayOfWeek: v.number(),   // 0=Sun … 6=Sat
+    startHour: v.number(),   // 0–23 (inclusive, whole hours only)
+    endHour: v.number(),     // 1–24 (exclusive; endHour=13 blocks 12:00–13:00)
+  })
+    .index("by_user", ["userId"])
+    .index("by_org", ["organisationId"]),
+
   // ─── Rate Limits (fixed-window counter, server-side only) ────────────────────
   rateLimits: defineTable({
     key: v.string(),       // e.g. "inviteStaff:<orgId>"
@@ -520,11 +538,12 @@ export default defineSchema({
       v.literal("appointment_pending_approval"),
       v.literal("appointment_approved"),
       v.literal("appointment_rejected"),
-      v.literal("payment_dispute")
+      v.literal("payment_dispute"),
+      v.literal("prospect_request")
     ),
     title: v.string(),
     message: v.string(),
-    entityType: v.optional(v.union(v.literal("case"), v.literal("task"), v.literal("appointment"))),
+    entityType: v.optional(v.union(v.literal("case"), v.literal("task"), v.literal("appointment"), v.literal("appointment_request"))),
     entityId: v.optional(v.string()),
     read: v.boolean(),
   })
@@ -602,6 +621,47 @@ export default defineSchema({
   })
     .index("by_org", ["organisationId"])
     .index("by_stripe_dispute", ["stripeDisputeId"]),
+
+  // ─── Appointment Requests (public prospect intake) ────────────────────────────
+  appointmentRequests: defineTable({
+    organisationId: v.id("organisations"),
+    firstName: v.string(),
+    lastName: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    appointmentType: v.string(),
+    preferredDate: v.string(),      // "YYYY-MM-DD" in the client's local timezone (display only)
+    preferredTime: v.string(),      // "HH:MM" 24-hour in the client's local timezone (display only)
+    preferredSlotUTC: v.optional(v.number()), // UTC epoch ms of the selected slot — authoritative startAt source
+    clientTimezone: v.optional(v.string()), // IANA tz e.g. "America/New_York"
+    meetingMode: v.optional(v.union(v.literal("online"), v.literal("in_person"))),
+    message: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("confirmed"),
+      v.literal("awaiting_payment"),    // confirmed by admin, waiting for prospect to pay
+      v.literal("paid"),                // payment received — appointment is finalised
+      v.literal("rejected"),
+      v.literal("payment_expired"),     // 48-hour payment window elapsed without payment
+      v.literal("accepted_as_client"),  // admin accepted prospect as a full client post-meeting
+      v.literal("declined_after_meeting"), // admin decided not to onboard after meeting
+    ),
+    rejectionReason: v.optional(v.string()),
+    reviewedBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    convertedClientId: v.optional(v.id("clients")),
+    convertedAppointmentId: v.optional(v.id("appointments")),
+    // Payment fields (populated when admin confirms a paid consultation)
+    paymentIntentId: v.optional(v.string()),       // Stripe PaymentIntent ID
+    paymentAmountCents: v.optional(v.number()),
+    paymentCurrency: v.optional(v.string()),
+    paymentDeadline: v.optional(v.number()),       // epoch ms — 48h after confirmation
+    paidAt: v.optional(v.number()),                // epoch ms — when payment succeeded
+    createdAt: v.number(),
+  })
+    .index("by_org", ["organisationId"])
+    .index("by_org_and_status", ["organisationId", "status"])
+    .index("by_status", ["status"]),
 
   // ─── Stripe Webhook Audit Log ─────────────────────────────────────────────────
   webhookLogs: defineTable({

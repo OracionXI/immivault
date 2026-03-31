@@ -377,6 +377,7 @@ http.route({
       nationality: typeof body.nationality === "string" ? body.nationality : undefined,
       countryOfBirth: typeof body.countryOfBirth === "string" ? body.countryOfBirth : undefined,
       passportNumber: typeof body.passportNumber === "string" ? body.passportNumber : undefined,
+      phone: typeof body.phone === "string" ? body.phone : undefined,
       mobilePhone: typeof body.mobilePhone === "string" ? body.mobilePhone : undefined,
       address: typeof body.address === "string" ? body.address : undefined,
       markComplete: body.markComplete === true,
@@ -617,11 +618,23 @@ http.route({
       clientId: session.clientId,
       organisationId: session.organisationId,
     });
+    return jsonRes({ notifications });
+  }),
+});
+
+http.route({
+  path: "/portal/notifications/read",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const hash = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!hash) return jsonRes({ error: "Unauthorized" }, 401);
+    const session = await ctx.runQuery(internal.portal.auth.verifySession, { sessionHash: hash });
+    if (!session) return jsonRes({ error: "Unauthorized" }, 401);
     await ctx.runMutation(internal.portal.mutations.markAllNotificationsRead, {
       clientId: session.clientId,
       organisationId: session.organisationId,
     });
-    return jsonRes({ notifications });
+    return jsonRes({ ok: true });
   }),
 });
 
@@ -835,9 +848,9 @@ http.route({
       return jsonRes({ error: "Too many booking requests. Please try again later." }, 429);
     }
 
-    // Offline appointments: always book immediately (payment handled later by office)
-    // Zero-price online: also book immediately, no payment
-    if (modality === "offline" || selected.priceInCents === 0) {
+    // All portal bookings are confirmed immediately — payment (if any) is handled offline by the office.
+    // For online appointments, Google Meet is created when the case manager approves via approvePortalAppointment.
+    try {
       await ctx.runMutation(internal.portal.mutations.bookFreeAppointment, {
         organisationId: session.organisationId,
         clientId: session.clientId,
@@ -849,21 +862,6 @@ http.route({
         modality,
       });
       return jsonRes({ booked: true });
-    }
-
-    // Online paid: create Stripe PaymentIntent directly — no payment link created
-    try {
-      const result = await ctx.runAction(internal.portal.actions.createAppointmentPaymentIntent, {
-        organisationId: session.organisationId,
-        clientId: session.clientId,
-        amountCents: selected.priceInCents,
-        appointmentType: selected.appointmentType,
-        startAt,
-        caseId: caseId as Id<"cases"> | undefined,
-        modality,
-        hostUserId: (theCase?.assigneeId ?? undefined) as Id<"users"> | undefined,
-      });
-      return jsonRes(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Payment initialisation failed.";
       return jsonRes({ error: msg }, 422);
@@ -981,6 +979,233 @@ http.route({
       organisationId: session.organisationId,
     });
     return jsonRes(detail);
+  }),
+});
+
+// ── Public: org info for the prospect appointment request form (no auth) ──────
+http.route({
+  path: "/portal/public-info",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const orgSlug = new URL(request.url).searchParams.get("orgSlug");
+    if (!orgSlug) return jsonRes({ error: "orgSlug is required" }, 400);
+
+    const org = await ctx.runQuery(internal.organisations.queries.getByPortalSlug, { portalSlug: orgSlug });
+    if (!org || !org.portalEnabled) return jsonRes({ error: "Portal not found or not active" }, 404);
+
+    const [settings, consultationPricing] = await Promise.all([
+      ctx.runQuery(internal.organisations.queries.getSettingsInternal, { organisationId: org._id }),
+      ctx.runQuery(internal.appointmentAvailability.queries.getConsultationPricing, { organisationId: org._id }),
+    ]);
+
+    return jsonRes({
+      orgName: org.name,
+      appointmentTypes: settings?.appointmentTypes ?? [],
+      consultationPricing,
+    });
+  }),
+});
+
+// ── Public: submit a prospect appointment request (no auth) ───────────────────
+http.route({
+  path: "/portal/prospect-request",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let body: Record<string, unknown>;
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+
+    const { orgSlug, firstName, lastName, email, phone, appointmentType, preferredDate, preferredTime, preferredSlotUTC, clientTimezone, meetingMode, message } = body as Record<string, unknown>;
+
+    if (!orgSlug || !firstName || !lastName || !email || !appointmentType || !preferredDate || !preferredTime) {
+      return jsonRes({ error: "Missing required fields" }, 400);
+    }
+
+    // ── Input length caps ──────────────────────────────────────────────────
+    const firstNameStr = String(firstName).trim();
+    const lastNameStr  = String(lastName).trim();
+    const emailStr     = String(email).trim().toLowerCase();
+    const phoneStr     = phone ? String(phone).trim() : undefined;
+    const messageStr   = message ? String(message).trim() : undefined;
+    const apptTypeStr  = String(appointmentType);
+
+    if (firstNameStr.length > 100 || lastNameStr.length > 100)
+      return jsonRes({ error: "Name too long." }, 400);
+    if (emailStr.length > 254)
+      return jsonRes({ error: "Email too long." }, 400);
+    if (phoneStr && phoneStr.length > 30)
+      return jsonRes({ error: "Phone number too long." }, 400);
+    if (messageStr && messageStr.length > 5000)
+      return jsonRes({ error: "Message too long (max 5000 characters)." }, 400);
+    if (apptTypeStr.length > 100)
+      return jsonRes({ error: "Invalid appointment type." }, 400);
+
+    // ── Date/time format validation ────────────────────────────────────────
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(preferredDate)))
+      return jsonRes({ error: "preferredDate must be YYYY-MM-DD." }, 400);
+    const parsedDate = new Date(String(preferredDate) + "T12:00:00Z");
+    if (isNaN(parsedDate.getTime()))
+      return jsonRes({ error: "Invalid preferredDate." }, 400);
+
+    if (!/^\d{2}:\d{2}$/.test(String(preferredTime)))
+      return jsonRes({ error: "preferredTime must be HH:MM." }, 400);
+    const [ph, pm] = String(preferredTime).split(":").map(Number);
+    if (ph > 23 || pm > 59)
+      return jsonRes({ error: "Invalid preferredTime." }, 400);
+
+    const org = await ctx.runQuery(internal.organisations.queries.getByPortalSlug, { portalSlug: String(orgSlug) });
+    if (!org || !org.portalEnabled) return jsonRes({ error: "Portal not found or not active" }, 404);
+
+    // ── Rate limit: 10 submissions per org per 5 min ───────────────────────
+    try {
+      await ctx.runMutation(internal.billing.mutations.checkRateLimitPublic, {
+        key: `prospectRequest:${org._id}`,
+        maxRequests: 10,
+        windowMs: 5 * 60_000,
+      });
+    } catch {
+      return jsonRes({ error: "Too many requests. Please try again later." }, 429);
+    }
+
+    // ── Validate appointment type against org's configured types ──────────
+    const settings = await ctx.runQuery(internal.organisations.queries.getSettingsInternal, { organisationId: org._id });
+    const validTypes: string[] = settings?.appointmentTypes ?? [];
+    if (validTypes.length > 0 && !validTypes.includes(apptTypeStr)) {
+      return jsonRes({ error: "Invalid appointment type." }, 400);
+    }
+
+    await ctx.runMutation(internal.appointmentRequests.mutations.create, {
+      organisationId: org._id,
+      firstName: firstNameStr,
+      lastName: lastNameStr,
+      email: emailStr,
+      phone: phoneStr,
+      appointmentType: apptTypeStr,
+      preferredDate: String(preferredDate),
+      preferredTime: String(preferredTime),
+      preferredSlotUTC: typeof preferredSlotUTC === "number" && isFinite(preferredSlotUTC) ? preferredSlotUTC : undefined,
+      clientTimezone: clientTimezone ? String(clientTimezone).slice(0, 100) : undefined,
+      meetingMode: meetingMode === "online" ? "online" : "in_person",
+      message: messageStr,
+    });
+
+    return jsonRes({ ok: true });
+  }),
+});
+
+// ── Public: merged admin availability slots for the prospect request form ──────
+// Returns sorted UTC timestamps for which at least one admin is available.
+// Query params: orgSlug, dateStr (YYYY-MM-DD), timezoneOffset (minutes, optional)
+http.route({
+  path: "/portal/public-admin-slots",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const orgSlug = url.searchParams.get("orgSlug");
+    const dateStr = url.searchParams.get("dateStr"); // "YYYY-MM-DD"
+    if (!orgSlug || !dateStr) return jsonRes({ error: "orgSlug and dateStr are required" }, 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return jsonRes({ error: "dateStr must be YYYY-MM-DD" }, 400);
+
+    // Validate the date is actually a real calendar date (e.g. rejects Feb 30)
+    const parsedCheck = new Date(dateStr + "T12:00:00Z");
+    if (isNaN(parsedCheck.getTime())) return jsonRes({ error: "Invalid date" }, 400);
+    // Reject dates > 90 days in the future or more than 1 day in the past
+    const nowMs = Date.now();
+    const dateMs = parsedCheck.getTime();
+    if (dateMs < nowMs - 86_400_000 || dateMs > nowMs + 90 * 86_400_000) {
+      return jsonRes({ error: "Date out of range" }, 400);
+    }
+
+    const org = await ctx.runQuery(internal.organisations.queries.getByPortalSlug, { portalSlug: orgSlug });
+    if (!org || !org.portalEnabled) return jsonRes({ error: "Portal not found" }, 404);
+
+    // Compute dateStartUTC (midnight UTC of the date) and dayOfWeek
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const dateStartUTC = Date.UTC(year, month - 1, day);
+    const dayOfWeek = new Date(dateStartUTC).getUTCDay();
+
+    const slots = await ctx.runQuery(internal.staffAvailability.queries.getMergedAdminSlots, {
+      organisationId: org._id,
+      dateStr,
+      dateStartUTC,
+      dayOfWeek,
+    });
+
+    return jsonRes({ slots });
+  }),
+});
+
+// ── Public: prospect payment intent init ──────────────────────────────────────
+http.route({
+  path: "/portal/prospect-pay-init",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let body: Record<string, unknown>;
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+
+    const { orgSlug, requestId } = body as Record<string, unknown>;
+    if (!orgSlug || !requestId) return jsonRes({ error: "Missing fields" }, 400);
+    if (typeof requestId !== "string" || requestId.length > 100)
+      return jsonRes({ error: "Invalid requestId" }, 400);
+
+    const org = await ctx.runQuery(internal.organisations.queries.getByPortalSlug, { portalSlug: String(orgSlug) });
+    if (!org) return jsonRes({ error: "Organisation not found" }, 404);
+
+    // Rate limit: 5 pay-init attempts per requestId per 10 minutes
+    try {
+      await ctx.runMutation(internal.billing.mutations.checkRateLimitPublic, {
+        key: `prospectPayInit:${requestId}`,
+        maxRequests: 5,
+        windowMs: 10 * 60_000,
+      });
+    } catch {
+      return jsonRes({ error: "Too many requests. Please try again later." }, 429);
+    }
+
+    const result = await ctx.runAction(internal.portal.actions.initProspectPayment, {
+      organisationId: org._id,
+      requestId: requestId as import("./_generated/dataModel").Id<"appointmentRequests">,
+    });
+
+    return jsonRes(result);
+  }),
+});
+
+// ── Public: complete prospect payment after Stripe confirmation ───────────────
+http.route({
+  path: "/portal/prospect-pay-complete",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let body: Record<string, unknown>;
+    try { body = await request.json(); } catch { return jsonRes({ error: "Invalid JSON" }, 400); }
+
+    const { orgSlug, requestId, paymentIntentId } = body as Record<string, unknown>;
+    if (!orgSlug || !requestId || !paymentIntentId) return jsonRes({ error: "Missing fields" }, 400);
+    if (typeof requestId !== "string" || requestId.length > 100)
+      return jsonRes({ error: "Invalid requestId" }, 400);
+    if (typeof paymentIntentId !== "string" || !/^pi_[A-Za-z0-9_]+$/.test(paymentIntentId))
+      return jsonRes({ error: "Invalid paymentIntentId" }, 400);
+
+    const org = await ctx.runQuery(internal.organisations.queries.getByPortalSlug, { portalSlug: String(orgSlug) });
+    if (!org) return jsonRes({ error: "Organisation not found" }, 404);
+
+    // Rate limit: 3 completion attempts per requestId per 10 minutes
+    try {
+      await ctx.runMutation(internal.billing.mutations.checkRateLimitPublic, {
+        key: `prospectPayComplete:${requestId}`,
+        maxRequests: 3,
+        windowMs: 10 * 60_000,
+      });
+    } catch {
+      return jsonRes({ error: "Too many requests. Please try again later." }, 429);
+    }
+
+    await ctx.runAction(internal.portal.actions.completeProspectPayment, {
+      organisationId: org._id,
+      requestId: requestId as import("./_generated/dataModel").Id<"appointmentRequests">,
+      paymentIntentId: String(paymentIntentId),
+    });
+
+    return jsonRes({ ok: true });
   }),
 });
 

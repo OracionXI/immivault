@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, CalendarClock, Globe, CalendarX, Trash2, Info } from "lucide-react";
+import { Loader2, CalendarClock, Globe, CalendarX, Trash2, Info, Ban, Plus, X } from "lucide-react";
+import { HintPopover } from "@/components/shared/hint-popover";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { RoleGuard } from "@/components/shared/role-guard";
@@ -53,6 +54,61 @@ export default function MyAvailabilityPage() {
     const upsertAvailability = useMutation(api.staffAvailability.mutations.upsertMyAvailability);
     const addBlackout = useMutation(api.staffAvailability.mutations.addBlackoutDate);
     const removeBlackout = useMutation(api.staffAvailability.mutations.removeBlackoutDate);
+    const upsertExclusions = useMutation(api.staffAvailabilityExclusions.mutations.upsertExclusions);
+
+    // ── Time Exclusions ───────────────────────────────────────────────────────
+    const myExclusions = useQuery(api.staffAvailabilityExclusions.queries.getMyExclusions);
+
+    type ExclusionWindow = { startHour: number; endHour: number };
+    // Local state: map from dayOfWeek → windows (mirrors DB, updated on save)
+    const [exclusionsByDay, setExclusionsByDay] = useState<Record<number, ExclusionWindow[]>>({});
+    const [savingExclusionDay, setSavingExclusionDay] = useState<number | null>(null);
+    // Single add form (day + time range)
+    const [addExclDay, setAddExclDay] = useState<number>(1);
+    const [addExclStart, setAddExclStart] = useState<number>(9);
+    const [addExclEnd, setAddExclEnd] = useState<number>(10);
+
+    useEffect(() => {
+        if (!myExclusions) return;
+        const map: Record<number, ExclusionWindow[]> = {};
+        for (const ex of myExclusions) {
+            if (!map[ex.dayOfWeek]) map[ex.dayOfWeek] = [];
+            map[ex.dayOfWeek].push({ startHour: ex.startHour, endHour: ex.endHour });
+        }
+        setExclusionsByDay(map);
+    }, [myExclusions]);
+
+    const handleSaveExclusions = async (dayOfWeek: number, newWindows: ExclusionWindow[]) => {
+        setSavingExclusionDay(dayOfWeek);
+        try {
+            await upsertExclusions({ dayOfWeek, windows: newWindows });
+            setExclusionsByDay((prev) => ({ ...prev, [dayOfWeek]: newWindows }));
+            toast.success("Exclusions saved.");
+        } catch (err) {
+            toast.error(getErrorMessage(err));
+        } finally {
+            setSavingExclusionDay(null);
+        }
+    };
+
+    const handleAddExclusion = async () => {
+        if (addExclEnd <= addExclStart) {
+            toast.error("End time must be after start time.");
+            return;
+        }
+        const current = exclusionsByDay[addExclDay] ?? [];
+        const exists = current.some((w) => w.startHour === addExclStart && w.endHour === addExclEnd);
+        if (exists) { toast.error("This window already exists."); return; }
+        const updated = [...current, { startHour: addExclStart, endHour: addExclEnd }]
+            .sort((a, b) => a.startHour - b.startHour);
+        await handleSaveExclusions(addExclDay, updated);
+    };
+
+    const handleRemoveExclusion = async (dayOfWeek: number, idx: number) => {
+        const current = exclusionsByDay[dayOfWeek] ?? [];
+        const updated = current.filter((_, i) => i !== idx);
+        await handleSaveExclusions(dayOfWeek, updated);
+    };
 
     // ── Timezone ──────────────────────────────────────────────────────────────
     const detectedTz = typeof window !== "undefined"
@@ -170,6 +226,17 @@ export default function MyAvailabilityPage() {
                         <CardTitle className="flex items-center gap-2 text-base">
                             <Globe className="h-4 w-4" />
                             My Timezone
+                            <HintPopover
+                                title="Why timezone matters"
+                                description="Your availability hours are stored and interpreted in this timezone. Clients see the same slots converted to their own local time automatically."
+                                tips={[
+                                    { text: "Set this to where you physically work — not your client's location." },
+                                    { text: "If you travel, update this before clients start booking." },
+                                    { text: "Changes take effect for future bookings only." },
+                                ]}
+                                accent="blue"
+                                side="right"
+                            />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -217,6 +284,18 @@ export default function MyAvailabilityPage() {
                         <CardTitle className="flex items-center gap-2 text-base">
                             <CalendarClock className="h-4 w-4" />
                             Weekly Schedule
+                            <HintPopover
+                                title="Weekly Schedule"
+                                description="Defines the recurring hours each week when clients can book 1-hour appointments with you through the client portal."
+                                tips={[
+                                    { text: "Click a day name to toggle it on or off." },
+                                    { text: "Each active day generates 1-hour slots from start to end hour." },
+                                    { text: "Slots within 1 hour of now are excluded from booking automatically." },
+                                    { text: "Slots already taken by confirmed appointments are hidden." },
+                                ]}
+                                accent="purple"
+                                side="right"
+                            />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -291,12 +370,132 @@ export default function MyAvailabilityPage() {
                     </CardContent>
                 </Card>
 
+                {/* ── Time Exclusions ── */}
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                            <Ban className="h-4 w-4" />
+                            Time Exclusions
+                            <HintPopover
+                                title="Time Exclusions"
+                                description="Block specific hours on recurring days within your availability windows. Clients cannot book those hours even if they fall within your weekly schedule."
+                                tips={[
+                                    { text: "Use for lunch breaks, team stand-ups, or recurrent commitments." },
+                                    { text: "Exclusions only subtract from existing availability windows — they do not affect days you haven't enabled." },
+                                    { text: "Changes take effect immediately for future bookings." },
+                                ]}
+                                accent="amber"
+                                side="right"
+                            />
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                            Block recurring hours within your weekly schedule (e.g. lunch break, team meetings).
+                        </p>
+
+                        {/* Single add row */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <Select value={String(addExclDay)} onValueChange={(v) => setAddExclDay(parseInt(v))}>
+                                <SelectTrigger className="h-9 w-24 text-sm">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {DAYS.map((label, i) => (
+                                        <SelectItem key={i} value={String(i)}>{label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={String(addExclStart)} onValueChange={(v) => setAddExclStart(parseInt(v))}>
+                                <SelectTrigger className="h-9 w-24 text-sm">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {Array.from({ length: 24 }, (_, h) => (
+                                        <SelectItem key={h} value={String(h)}>
+                                            {String(h).padStart(2, "0")}:00
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <span className="text-sm text-muted-foreground">to</span>
+                            <Select value={String(addExclEnd)} onValueChange={(v) => setAddExclEnd(parseInt(v))}>
+                                <SelectTrigger className="h-9 w-24 text-sm">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => (
+                                        <SelectItem key={h} value={String(h)} disabled={h <= addExclStart}>
+                                            {String(h).padStart(2, "0")}:00
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button
+                                size="sm"
+                                onClick={handleAddExclusion}
+                                disabled={savingExclusionDay === addExclDay}
+                            >
+                                {savingExclusionDay === addExclDay
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <><Plus className="h-4 w-4 mr-1.5" />Add</>
+                                }
+                            </Button>
+                        </div>
+
+                        {/* Existing exclusions grouped by day */}
+                        {DAYS.some((_, i) => (exclusionsByDay[i] ?? []).length > 0) ? (
+                            <div className="space-y-2">
+                                {DAYS.map((label, day) => {
+                                    const dayWindows = exclusionsByDay[day] ?? [];
+                                    if (dayWindows.length === 0) return null;
+                                    return (
+                                        <div key={day} className="flex items-start gap-3">
+                                            <span className="text-xs font-semibold text-muted-foreground uppercase w-8 mt-1.5 shrink-0">{label}</span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {dayWindows.map((w, idx) => (
+                                                    <span
+                                                        key={idx}
+                                                        className="inline-flex items-center gap-1 text-xs bg-destructive/10 text-destructive border border-destructive/20 rounded-full px-2.5 py-1 font-medium"
+                                                    >
+                                                        {String(w.startHour).padStart(2, "0")}:00 – {String(w.endHour).padStart(2, "0")}:00
+                                                        <button
+                                                            onClick={() => handleRemoveExclusion(day, idx)}
+                                                            className="ml-0.5 hover:text-destructive/70 transition-colors"
+                                                            disabled={savingExclusionDay === day}
+                                                        >
+                                                            <X className="h-3 w-3" />
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground italic">No exclusions set.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
                 {/* ── Blackout Dates ── */}
                 <Card>
                     <CardHeader className="pb-3">
                         <CardTitle className="flex items-center gap-2 text-base">
                             <CalendarX className="h-4 w-4" />
                             Blackout Dates
+                            <HintPopover
+                                title="Blackout Dates"
+                                description="Specific dates where you are completely unavailable. No booking slots will be shown to clients on these dates, regardless of your weekly schedule."
+                                tips={[
+                                    { text: "Use for vacations, public holidays, training days, or sick leave." },
+                                    { text: "Blackout dates also disable those dates in the internal appointment date picker." },
+                                    { text: "Adding a reason is optional but helpful for your own records." },
+                                ]}
+                                accent="rose"
+                                side="right"
+                            />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">

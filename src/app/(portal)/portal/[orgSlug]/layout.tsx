@@ -239,10 +239,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isLoginPage = pathname === `/portal/${orgSlug}`;
-  const isShellFree = isLoginPage || pathname.endsWith("/welcome") || pathname.endsWith("/onboarding");
+  const isPublicPage =
+    pathname === `/portal/${orgSlug}/request` ||
+    pathname.startsWith(`/portal/${orgSlug}/pay/`);
+  const isShellFree = isLoginPage || isPublicPage || pathname.endsWith("/welcome") || pathname.endsWith("/onboarding");
 
   useEffect(() => {
-    if (isLoginPage) { setLoading(false); return; }
+    if (isLoginPage || isPublicPage) { setLoading(false); return; }
     fetch("/api/portal/me")
       .then((r) => r.json())
       .then((data) => {
@@ -254,7 +257,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       })
       .catch(() => router.replace(`/portal/${orgSlug}`))
       .finally(() => setLoading(false));
-  }, [orgSlug, router, isLoginPage, isShellFree]);
+  }, [orgSlug, router, isLoginPage, isPublicPage, isShellFree]);
 
   if (loading) {
     return (

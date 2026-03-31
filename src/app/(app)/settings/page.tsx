@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save, Loader2, Camera, CheckCircle2, Unlink, Trash2, AlertTriangle, RotateCcw } from "lucide-react";
+import { HintPopover } from "@/components/shared/hint-popover";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { useRole } from "@/hooks/use-role";
 import { toast } from "sonner";
@@ -411,6 +412,17 @@ export default function ProfilePage() {
                                 <path d="M19 4h-1V2h-2v2H8V2H6v2H5C3.9 4 3 4.9 3 6v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z" fill="#4285F4"/>
                             </svg>
                             Google Calendar
+                            <HintPopover
+                                title="Google Calendar Integration"
+                                description="Connecting your Google account lets Ordena automatically create Google Meet video links and send calendar invites to all attendees when you schedule appointments."
+                                tips={[
+                                    { text: "Each staff member connects their own Google account." },
+                                    { text: "Invites are sent from your connected Google email address." },
+                                    { text: "You can disconnect at any time without losing existing appointments." },
+                                ]}
+                                accent="blue"
+                                side="right"
+                            />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -474,11 +486,28 @@ export default function ProfilePage() {
             {isAdmin && (
                 <>
                     <Card>
-                        <CardHeader><CardTitle>Billing Defaults</CardTitle></CardHeader>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                Billing Defaults
+                                <HintPopover
+                                    title="Billing Defaults"
+                                    description="These values are applied automatically when creating new invoices. They can be overridden on a per-invoice basis."
+                                    tips={[
+                                        { text: "Currency affects all invoice amounts shown to clients." },
+                                        { text: "Tax rate is pre-filled on new invoices — edit per invoice as needed." },
+                                    ]}
+                                    accent="green"
+                                    side="right"
+                                />
+                            </CardTitle>
+                        </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="grid gap-2">
-                                    <Label>Default Currency</Label>
+                                    <Label className="flex items-center gap-1.5">
+                                        Default Currency
+                                        <HintPopover title="Default Currency" description="The currency used for all invoices, quotes, and client-facing amounts. Choose the currency your clients pay in." accent="green" side="top" />
+                                    </Label>
                                     <Select
                                         value={settingsForm.defaultCurrency}
                                         onValueChange={(v) => setSettingsForm({ ...settingsForm, defaultCurrency: v })}
@@ -508,7 +537,10 @@ export default function ProfilePage() {
                                     </Select>
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label>Default Tax Rate (%)</Label>
+                                    <Label className="flex items-center gap-1.5">
+                                        Default Tax Rate (%)
+                                        <HintPopover title="Default Tax Rate" description="Applied automatically to new invoices as a line item. Set to 0 if you don't charge tax, or if tax varies per client." accent="green" side="top" />
+                                    </Label>
                                     <Input
                                         type="number"
                                         min={0}
@@ -562,8 +594,8 @@ export default function ProfilePage() {
                         </Card>
                     )}
 
-                    {/* Danger Zone — shown when org is active */}
-                    {!org?.deletedAt && (
+                    {/* Danger Zone — founder-only, shown when org is active */}
+                    {!org?.deletedAt && user?.isFounder && (
                         <Card className="border-destructive/40">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2 text-destructive">

@@ -855,3 +855,296 @@ export const onDocumentUploaded = internalAction({
     );
   },
 });
+
+// ─── Prospect request outcome emails ─────────────────────────────────────────
+
+/** Sent to a prospect when their appointment request is confirmed by an admin. */
+export const sendProspectConfirmation = internalAction({
+  args: {
+    clientEmail: v.string(),
+    clientFirstName: v.string(),
+    orgName: v.string(),
+    founderName: v.optional(v.string()),
+    appointmentType: v.string(),
+    preferredDate: v.string(),
+    preferredTime: v.string(),
+    clientTimezone: v.optional(v.string()),
+    meetingMode: v.string(), // "online" | "in_person"
+    meetLink: v.optional(v.string()),
+    payUrl: v.optional(v.string()),
+    paymentDeadline: v.optional(v.number()),
+  },
+  handler: async (_ctx, args) => {
+    // Format date: "2026-04-02" → "Wednesday, April 2, 2026"
+    const dateObj = new Date(`${args.preferredDate}T12:00:00`);
+    const formattedDate = isNaN(dateObj.getTime())
+      ? args.preferredDate
+      : dateObj.toLocaleDateString("en-US", {
+          weekday: "long", year: "numeric", month: "long", day: "numeric",
+        });
+
+    // Format time: "14:30" → "2:30 PM"
+    const timeParts = args.preferredTime.split(":");
+    const h = parseInt(timeParts[0] ?? "0", 10);
+    const m = parseInt(timeParts[1] ?? "0", 10);
+    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    const ampm = h < 12 ? "AM" : "PM";
+    const formattedTime = (!isNaN(h) && !isNaN(m))
+      ? `${hour12}:${String(m).padStart(2, "0")} ${ampm}`
+      : args.preferredTime;
+    const tzNote = args.clientTimezone
+      ? ` <span style="color:#94a3b8;font-size:12px;">(${escapeHtml(args.clientTimezone)})</span>`
+      : "";
+
+    const isOnline = args.meetingMode === "online";
+    const hasMeetLink = isOnline && !!args.meetLink;
+
+    const meetingRow = isOnline
+      ? hasMeetLink
+        ? `<tr>
+            <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:120px;vertical-align:top;padding-right:16px;">Format</td>
+            <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#0f172a;font-weight:600;">Online Meeting</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;color:#64748b;font-size:13px;vertical-align:top;padding-right:16px;">Join Link</td>
+            <td style="padding:10px 0;font-size:14px;">
+              <a href="${escapeHtml(args.meetLink!)}" style="color:#1d4ed8;font-weight:600;text-decoration:none;word-break:break-all;">${escapeHtml(args.meetLink!)}</a>
+            </td>
+          </tr>`
+        : `<tr>
+            <td style="padding:10px 0;color:#64748b;font-size:13px;vertical-align:top;padding-right:16px;">Format</td>
+            <td style="padding:10px 0;font-size:14px;color:#0f172a;font-weight:600;">Online Meeting</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;color:#64748b;font-size:13px;vertical-align:top;padding-right:16px;">Join Link</td>
+            <td style="padding:10px 0;font-size:14px;color:#64748b;font-style:italic;">You'll receive your meeting link before the appointment</td>
+          </tr>`
+      : `<tr>
+          <td style="padding:10px 0;color:#64748b;font-size:13px;vertical-align:top;padding-right:16px;">Format</td>
+          <td style="padding:10px 0;font-size:14px;color:#0f172a;font-weight:600;">In-Person</td>
+        </tr>`;
+
+    const contextNote = isOnline
+      ? hasMeetLink
+        ? `<div style="margin:24px 0 0;padding:14px 18px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;">
+            <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.65;">
+              The meeting link above is unique to your appointment. No account or software download is required —
+              simply click the link at your scheduled time to join.
+            </p>
+          </div>`
+        : `<div style="margin:24px 0 0;padding:14px 18px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;">
+            <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.65;">
+              This is an online video meeting. Your unique Google Meet link will be sent to you before your appointment — no software download required.
+            </p>
+          </div>`
+      : `<div style="margin:24px 0 0;padding:14px 18px;background:#f0fdf4;border-left:3px solid #22c55e;border-radius:0 8px 8px 0;">
+          <p style="margin:0;font-size:13px;color:#166534;line-height:1.65;">
+            Our team will reach out to you prior to your appointment to confirm the meeting location and
+            any documents you may wish to bring along.
+          </p>
+        </div>`;
+
+    const signingName = args.founderName
+      ? escapeHtml(args.founderName)
+      : `The Team at ${escapeHtml(args.orgName)}`;
+
+    const isPaid = !!args.payUrl;
+
+    // Payment deadline formatted as "Thursday, April 3 at 2:30 PM"
+    let deadlineNote = "";
+    if (isPaid && args.paymentDeadline) {
+      const dl = new Date(args.paymentDeadline);
+      const dlFormatted = dl.toLocaleString("en-US", {
+        weekday: "long", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+      deadlineNote = `<p style="margin:10px 0 0;font-size:12px;color:#b45309;">
+        Payment must be completed by <strong>${escapeHtml(dlFormatted)}</strong> to secure your slot.
+        After this deadline, the appointment will be released.
+      </p>`;
+    }
+
+    const paymentSection = isPaid
+      ? `<div style="margin:28px 0 0;padding:24px 26px;background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;text-align:center;">
+          <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#92400e;letter-spacing:0.1em;text-transform:uppercase;">Payment Required</p>
+          <p style="margin:0 0 20px;font-size:14px;color:#78350f;line-height:1.65;">
+            To finalise your booking, please complete your payment using the secure link below.
+            Your appointment will be activated as soon as payment is received.
+          </p>
+          <a href="${escapeHtml(args.payUrl!)}" style="display:inline-block;padding:14px 32px;background:#1e40af;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;letter-spacing:0.3px;">
+            Complete Payment →
+          </a>
+          ${deadlineNote}
+        </div>`
+      : "";
+
+    const headerTitle = isPaid ? "Appointment Reserved" : "Appointment Confirmed";
+    const headerIcon = isPaid ? "⏳" : "✓";
+    const introParagraph = isPaid
+      ? `<p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75;">
+          Thank you for your interest. Your
+          <strong style="color:#1e40af;">${escapeHtml(args.appointmentType)}</strong> appointment
+          with <strong style="color:#0f172a;">${escapeHtml(args.orgName)}</strong> has been
+          <strong>reserved</strong>. To officially confirm your slot, please complete
+          the payment using the button below.
+        </p>`
+      : `<p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75;">
+          We are pleased to inform you that your
+          <strong style="color:#1e40af;">${escapeHtml(args.appointmentType)}</strong> appointment
+          with <strong style="color:#0f172a;">${escapeHtml(args.orgName)}</strong> has been
+          officially confirmed. We genuinely look forward to meeting with you and are fully committed
+          to providing you with an exceptional experience.
+        </p>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${headerTitle}</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f1f5f9;padding:48px 16px;">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:580px;">
+
+        <!-- Header banner -->
+        <tr><td style="background:linear-gradient(135deg,#1e40af 0%,#4f46e5 100%);border-radius:14px 14px 0 0;padding:40px 48px 36px;text-align:center;">
+          <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+            <tr><td align="center" style="padding-bottom:18px;">
+              <div style="display:inline-block;width:52px;height:52px;background:rgba(255,255,255,0.2);border-radius:50%;text-align:center;line-height:52px;">
+                <span style="color:white;font-size:24px;font-weight:700;">${headerIcon}</span>
+              </div>
+            </td></tr>
+            <tr><td align="center">
+              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">${headerTitle}</h1>
+              <p style="margin:8px 0 0;color:rgba(255,255,255,0.75);font-size:14px;font-weight:400;">${escapeHtml(args.orgName)}</p>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <!-- Main content -->
+        <tr><td style="background:#ffffff;padding:40px 48px;">
+
+          <p style="margin:0 0 8px;font-size:17px;font-weight:600;color:#0f172a;">Dear ${escapeHtml(args.clientFirstName)},</p>
+
+          ${introParagraph}
+
+          <!-- Details card -->
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:22px 26px;margin:0 0 8px;">
+            <p style="margin:0 0 16px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.1em;text-transform:uppercase;">Your Appointment Details</p>
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td style="padding:10px 16px 10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;width:110px;white-space:nowrap;vertical-align:top;">Date</td>
+                <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#0f172a;font-weight:600;">${escapeHtml(formattedDate)}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 16px 10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;vertical-align:top;">Time</td>
+                <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#0f172a;font-weight:600;">${formattedTime}${tzNote}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 16px 10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;vertical-align:top;">Type</td>
+                <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#0f172a;font-weight:500;">${escapeHtml(args.appointmentType)}</td>
+              </tr>
+              ${meetingRow}
+            </table>
+          </div>
+
+          ${contextNote}
+
+          ${paymentSection}
+
+          <p style="margin:28px 0 0;font-size:14px;color:#475569;line-height:1.75;">
+            If you need to reschedule or have any questions prior to your appointment, please do not
+            hesitate to reply to this email. We are always happy to assist.
+          </p>
+
+          <!-- Founder sign-off -->
+          <div style="margin:36px 0 0;padding:28px 0 0;border-top:1px solid #f1f5f9;">
+            <p style="margin:0 0 6px;font-size:14px;color:#475569;">Warm regards,</p>
+            <p style="margin:0 0 3px;font-size:16px;font-weight:700;color:#0f172a;">${signingName}</p>
+            <p style="margin:0;font-size:13px;color:#94a3b8;">${escapeHtml(args.orgName)}</p>
+          </div>
+
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;padding:22px 48px;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.7;">
+            This confirmation was sent on behalf of <strong style="color:#64748b;">${escapeHtml(args.orgName)}</strong>
+            via <strong style="color:#64748b;">Ordena</strong>.<br/>
+            If you received this email in error, please disregard it.
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    const subject = isPaid
+      ? `Action Required: Complete Payment to Confirm Your Appointment with ${args.orgName}`
+      : `Your ${args.appointmentType} with ${args.orgName} is Confirmed`;
+
+    await sendEmailOptional(args.clientEmail, subject, html);
+  },
+});
+
+/** Sent to a prospect when their appointment request is rejected by an admin. */
+export const sendProspectRejection = internalAction({
+  args: {
+    clientEmail: v.string(),
+    clientFirstName: v.string(),
+    orgName: v.string(),
+    appointmentType: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (_ctx, args) => {
+    const reasonBlock = args.reason
+      ? `<p><strong>Reason:</strong> ${escapeHtml(args.reason)}</p>`
+      : "";
+
+    await sendEmailOptional(
+      args.clientEmail,
+      `Update on your appointment request with ${args.orgName}`,
+      renderHtml(
+        "Appointment Request Update",
+        `<p>Hi ${escapeHtml(args.clientFirstName)},</p>
+         <p>Thank you for reaching out to <strong>${escapeHtml(args.orgName)}</strong>.</p>
+         <p>Unfortunately, we are unable to confirm your <strong>${escapeHtml(args.appointmentType)}</strong> appointment request at this time.</p>
+         ${reasonBlock}
+         <p>Please feel free to contact our office directly if you would like to discuss alternative arrangements or have any questions.</p>`
+      )
+    );
+  },
+});
+
+/** Sent to a prospect when their 7-day payment window expires and the appointment is cancelled. */
+export const sendProspectPaymentExpired = internalAction({
+  args: {
+    clientEmail: v.string(),
+    clientFirstName: v.string(),
+    orgName: v.string(),
+    appointmentType: v.string(),
+    preferredDate: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const dateObj = new Date(`${args.preferredDate}T12:00:00`);
+    const formattedDate = isNaN(dateObj.getTime())
+      ? args.preferredDate
+      : dateObj.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+    await sendEmailOptional(
+      args.clientEmail,
+      `Your appointment with ${escapeHtml(args.orgName)} has been cancelled`,
+      renderHtml(
+        "Appointment Cancelled",
+        `<p>Hi ${escapeHtml(args.clientFirstName)},</p>
+         <p>Thank you for your interest in <strong>${escapeHtml(args.orgName)}</strong>.</p>
+         <p>Unfortunately, your <strong>${escapeHtml(args.appointmentType)}</strong> appointment
+         reserved for <strong>${escapeHtml(formattedDate)}</strong> has been
+         <strong>cancelled</strong> because payment was not completed within the 7-day window.</p>
+         <p>If you would still like to book a consultation, please visit our booking page to submit a new request. We would be happy to assist you.</p>
+         <p>Please feel free to contact our office directly if you have any questions.</p>`
+      )
+    );
+  },
+});

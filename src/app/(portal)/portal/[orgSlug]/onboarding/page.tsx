@@ -37,14 +37,14 @@ type FormData = {
   nationality: string;
   countryOfBirth: string;
   passportNumber: string;
-  mobilePhone: string;
+  phone: string;
   address: string;
 };
 
 const emptyForm: FormData = {
   firstName: "", lastName: "", prefix: "", middleName: "", dateOfBirth: "",
   maritalStatus: "", languagePreference: "", nationality: "", countryOfBirth: "",
-  passportNumber: "", mobilePhone: "", address: "",
+  passportNumber: "", phone: "", address: "",
 };
 
 // ─── Field wrapper ─────────────────────────────────────────────────────────────
@@ -118,6 +118,7 @@ export default function PortalOnboardingPage() {
           ...f,
           firstName: data.client.firstName ?? "",
           lastName: data.client.lastName ?? "",
+          phone: data.client.phone ?? "",
         }));
         setReady(true);
       })
@@ -175,7 +176,7 @@ export default function PortalOnboardingPage() {
       if (form.nationality.trim()) body.nationality = form.nationality.trim();
       if (form.countryOfBirth.trim()) body.countryOfBirth = form.countryOfBirth.trim();
       if (form.passportNumber.trim()) body.passportNumber = form.passportNumber.trim();
-      if (form.mobilePhone.trim()) body.mobilePhone = form.mobilePhone.trim();
+      if (form.phone.trim()) body.phone = form.phone.trim();
       if (form.address.trim()) body.address = form.address.trim();
 
       const res = await fetch("/api/portal/profile", {
@@ -334,9 +335,9 @@ export default function PortalOnboardingPage() {
                 <h2 className="font-semibold text-slate-900 dark:text-slate-100">Address & Contact</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Where we can reach you and send official correspondence.</p>
               </div>
-              <F label="Mobile Phone" id="mobilePhone">
-                <Input id="mobilePhone" value={form.mobilePhone}
-                  onChange={(e) => set("mobilePhone", e.target.value)}
+              <F label="Primary Phone" id="phone">
+                <Input id="phone" value={form.phone}
+                  onChange={(e) => set("phone", e.target.value)}
                   placeholder="+1 555 0100" type="tel" />
               </F>
               <F label="Home Address" id="address"

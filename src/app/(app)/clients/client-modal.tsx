@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Send, User, Briefcase, FileText, MapPin, StickyNote, Copy, Check } from "lucide-react";
+import { Globe, Send, User, Briefcase, FileText, StickyNote, Copy, Check, UserCheck } from "lucide-react";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -58,18 +58,50 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
     currency: string;
 }) {
     const createClient = useMutation(api.clients.mutations.create);
+    const convertibleProspects = useQuery(api.appointmentRequests.queries.listConvertible) ?? [];
+    const me = useQuery(api.users.queries.me);
+
+    const [selectedProspectId, setSelectedProspectId] = useState<string>("");
     const [form, setForm] = useState({
-        firstName: "", lastName: "", email: "", phone: "",
+        firstName: "", lastName: "", email: "", phone: "", mobilePhone: "",
         status: "Active" as "Active" | "Inactive" | "Archived",
         assignedTo: "",
         contractAmount: "",
     });
+
+    // Default assignedTo to the current admin once loaded
+    useEffect(() => {
+        if (me?._id && !form.assignedTo) {
+            setForm((f) => ({ ...f, assignedTo: me._id }));
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [me?._id]);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
 
     const set = (k: keyof typeof form, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
 
-    const assignableStaff = staff?.filter((u) => u.role === "admin" || u.role === "case_manager");
+    const assignableStaff = staff?.filter((u) => u.role === "admin");
+
+    const handleProspectSelect = (prospectId: string) => {
+        setSelectedProspectId(prospectId);
+        if (prospectId === "manual") {
+            setForm((f) => ({ ...f, firstName: "", lastName: "", email: "", phone: "" }));
+            return;
+        }
+        const prospect = convertibleProspects.find((p) => p._id === prospectId);
+        if (prospect) {
+            setForm((f) => ({
+                ...f,
+                firstName: prospect.firstName,
+                lastName: prospect.lastName,
+                email: prospect.email,
+                phone: prospect.phone ?? "",
+                mobilePhone: "",
+            }));
+            setErrors({});
+        }
+    };
 
     const validate = () => {
         const e: Record<string, string> = {};
@@ -81,6 +113,9 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
         } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
             e.email = "Enter a valid email address";
         }
+        if (!form.contractAmount || isNaN(parseFloat(form.contractAmount)) || parseFloat(form.contractAmount) <= 0) {
+            e.contractAmount = "Required";
+        }
         setErrors(e);
         return Object.keys(e).length === 0;
     };
@@ -89,18 +124,20 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
         if (!validate()) return;
         setLoading(true);
         try {
-            const contractAmountCents = form.contractAmount
-                ? Math.round(parseFloat(form.contractAmount) * 100)
-                : undefined;
+            const contractAmountCents = Math.round(parseFloat(form.contractAmount) * 100);
             await createClient({
                 firstName: form.firstName.trim(),
                 lastName: form.lastName.trim(),
                 email: form.email.trim(),
                 phone: form.phone.trim() || undefined,
+                mobilePhone: form.mobilePhone.trim() || undefined,
                 status: form.status,
                 assignedTo: form.assignedTo ? (form.assignedTo as Id<"users">) : undefined,
                 contractAmount: contractAmountCents,
                 portalEnabled: orgPortalReady,
+                prospectRequestId: (selectedProspectId && selectedProspectId !== "manual")
+                    ? (selectedProspectId as Id<"appointmentRequests">)
+                    : undefined,
             });
             toast.success(
                 orgPortalReady
@@ -115,6 +152,8 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
         }
     };
 
+    const isProspectSelected = selectedProspectId && selectedProspectId !== "manual";
+
     return (
         <>
             <DialogHeader className="px-6 pt-6 pb-4 border-b">
@@ -125,12 +164,36 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
             </DialogHeader>
 
             <div className="px-6 py-5 space-y-4 overflow-y-auto">
+                {/* Prospect import */}
+                {convertibleProspects.length > 0 && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                        <div className="flex items-center gap-1.5">
+                            <UserCheck className="h-3.5 w-3.5 text-primary" />
+                            <p className="text-xs font-medium text-primary">Import from Prospect</p>
+                        </div>
+                        <Select value={selectedProspectId} onValueChange={handleProspectSelect}>
+                            <SelectTrigger className="bg-background text-sm">
+                                <SelectValue placeholder="Select a confirmed prospect…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="manual">— Enter manually —</SelectItem>
+                                {convertibleProspects.map((p) => (
+                                    <SelectItem key={p._id} value={p._id}>
+                                        {p.firstName} {p.lastName} · {p.email}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+
                 {/* Name */}
                 <div className="grid grid-cols-2 gap-3">
                     <F label="First Name *" id="firstName" error={errors.firstName}>
                         <Input id="firstName" value={form.firstName}
                             onChange={(e) => set("firstName", e.target.value)}
-                            placeholder="Maria" autoFocus />
+                            placeholder="Maria"
+                            autoFocus={!isProspectSelected} />
                     </F>
                     <F label="Last Name *" id="lastName" error={errors.lastName}>
                         <Input id="lastName" value={form.lastName}
@@ -139,17 +202,24 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                     </F>
                 </div>
 
-                {/* Email + Phone */}
+                {/* Email */}
+                <F label="Email *" id="email" error={errors.email}>
+                    <Input id="email" type="email" value={form.email}
+                        onChange={(e) => set("email", e.target.value)}
+                        placeholder="maria@example.com" />
+                </F>
+
+                {/* Phone numbers */}
                 <div className="grid grid-cols-2 gap-3">
-                    <F label="Email *" id="email" error={errors.email}>
-                        <Input id="email" type="email" value={form.email}
-                            onChange={(e) => set("email", e.target.value)}
-                            placeholder="maria@example.com" />
-                    </F>
-                    <F label="Phone" id="phone">
+                    <F label="Primary Number" id="phone">
                         <Input id="phone" value={form.phone}
                             onChange={(e) => set("phone", e.target.value)}
                             placeholder="+1 555 0100" />
+                    </F>
+                    <F label="Secondary Number" id="mobilePhone">
+                        <Input id="mobilePhone" value={form.mobilePhone}
+                            onChange={(e) => set("mobilePhone", e.target.value)}
+                            placeholder="+1 555 0200" />
                     </F>
                 </div>
 
@@ -165,7 +235,7 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                             </SelectContent>
                         </Select>
                     </F>
-                    <F label="Assigned Member / Staff" id="assignedTo">
+                    <F label="Client Manager" id="assignedTo">
                         <Select value={form.assignedTo} onValueChange={(v) => set("assignedTo", v)}>
                             <SelectTrigger id="assignedTo"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                             <SelectContent>
@@ -179,14 +249,14 @@ function NewClientModal({ onOpenChange, orgPortalReady, staff, currency }: {
                 </div>
 
                 {/* Contract Amount */}
-                <F label={`Contract Amount (${currency})`} id="contractAmount"
-                    hint="Creates a Draft billing record for this client's contract balance.">
+                <F label={`Contract Amount (${currency}) *`} id="contractAmount"
+                    hint="Creates a Draft billing record for this client's contract balance."
+                    error={errors.contractAmount}>
                     <Input id="contractAmount" type="number" min="0" step="0.01"
                         value={form.contractAmount}
                         onChange={(e) => set("contractAmount", e.target.value)}
                         placeholder="e.g., 5000.00" />
                 </F>
-
             </div>
 
             <DialogFooter className="px-6 py-4 border-t">
@@ -466,12 +536,12 @@ function EditClientModal({ client, onOpenChange, orgPortalReady, portalSlug, sta
                                 </SelectContent>
                             </Select>
                         </F>
-                        <F label="Assigned Member / Staff" id="assignedTo">
+                        <F label="Client Manager" id="assignedTo">
                             <Select value={form.assignedTo} onValueChange={(v) => set("assignedTo", v)}>
                                 <SelectTrigger id="assignedTo"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                                    {staff?.filter((u) => u.role === "admin" || u.role === "case_manager").map((u) => (
+                                    {staff?.filter((u) => u.role === "admin").map((u) => (
                                         <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -585,7 +655,7 @@ export function ClientModal({ open, onOpenChange, client }: ClientModalProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                style={{ maxWidth: client ? "820px" : "560px", maxHeight: "90vh" }}
+                style={{ maxWidth: client ? "820px" : "680px", maxHeight: "90vh" }}
                 className="flex flex-col overflow-hidden p-0"
             >
                 {client ? (

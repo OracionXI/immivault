@@ -23,6 +23,17 @@ export const getById = internalQuery({
   },
 });
 
+/** Internal: look up an org by its portal slug (used by public HTTP actions). */
+export const getByPortalSlug = internalQuery({
+  args: { portalSlug: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("organisations")
+      .withIndex("by_portal_slug", (q) => q.eq("portalSlug", args.portalSlug))
+      .unique();
+  },
+});
+
 /**
  * Internal: returns the first organisation in the database.
  * Used as a fallback when a new admin signs up without invitation metadata.

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useConvex } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -136,6 +137,7 @@ export default function BillingPage() {
     return (
         <RoleGuard allowedRoles={["admin", "accountant"]} redirectTo="/dashboard">
         <div className="space-y-6">
+            <PageTitle title="Billing" />
             <PageHeader
                 title="Billing"
                 description="Manage invoices and billing"
