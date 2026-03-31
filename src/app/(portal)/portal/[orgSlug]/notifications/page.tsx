@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { usePolling } from "@/hooks/use-polling";
 import { Bell } from "lucide-react";
 import { usePortalSession } from "../layout";
@@ -23,16 +23,21 @@ export default function PortalNotificationsPage() {
     fetch("/api/portal/notifications")
       .then((r) => r.json())
       .then((data) => {
-        if (data.notifications) {
-          setNotifications(data.notifications);
-          portalSession?.clearUnreadCount();
-        }
+        if (data.notifications) setNotifications(data.notifications);
       })
       .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   usePolling(loadData, 15_000);
+
+  // Mark all as read and clear the badge when the user navigates away
+  useEffect(() => {
+    return () => {
+      fetch("/api/portal/notifications/read", { method: "POST" }).catch(() => {});
+      portalSession?.clearUnreadCount();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loading = notifications === null;
   const unread = (notifications ?? []).filter((n) => !n.read);

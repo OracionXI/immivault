@@ -5,6 +5,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -139,6 +140,7 @@ export default function DocumentsPage() {
     return (
         <RoleGuard allowedRoles={["admin", "case_manager", "staff"]}>
         <div className="space-y-6">
+            <PageTitle title="Documents" />
             <PageHeader
                 title="Documents"
                 description="Manage client documents and files"

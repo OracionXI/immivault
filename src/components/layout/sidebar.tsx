@@ -65,7 +65,7 @@ const navGroups = [
         label: "MANAGEMENT",
         items: [
             { title: "Appointments", href: "/appointments", icon: Calendar, roles: ["admin", "case_manager", "staff", "accountant"] as Role[] },
-            { title: "Reports", href: "/reports", icon: BarChart3, roles: ["admin", "case_manager"] as Role[] },
+            { title: "Reports", href: "/reports", icon: BarChart3, roles: ["admin", "accountant"] as Role[] },
             { title: "Billing", href: "/billing", icon: Receipt, roles: ["admin", "accountant"] as Role[] },
             { title: "Payments", href: "/payments", icon: CreditCard, roles: ["admin", "accountant"] as Role[] },
             { title: "Staff", href: "/staff", icon: UserCog, roles: ["admin", "accountant"] as Role[] },

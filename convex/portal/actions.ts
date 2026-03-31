@@ -476,3 +476,184 @@ export const refundForPortalCancellation = internalAction({
     }
   },
 });
+
+// ─── Prospect payment actions ─────────────────────────────────────────────────
+
+/**
+ * Create (or retrieve existing) a Stripe PaymentIntent for a prospect's appointment.
+ * Called from the public /portal/[orgSlug]/pay/[requestId] page.
+ * Idempotent — returns the existing PI if already created.
+ */
+export const initProspectPayment = internalAction({
+  args: {
+    organisationId: v.id("organisations"),
+    requestId: v.id("appointmentRequests"),
+  },
+  handler: async (ctx, args): Promise<{
+    clientSecret: string;
+    publishableKey: string;
+    amountCents: number;
+    currency: string;
+    appointmentType: string;
+    preferredDate: string;
+    preferredTime: string;
+    orgName: string;
+  }> => {
+    const req = await ctx.runQuery(internal.appointmentRequests.queries.getById, {
+      id: args.requestId,
+    });
+    if (!req || req.organisationId !== args.organisationId) {
+      throw new ConvexError("Request not found.");
+    }
+    if (req.status !== "awaiting_payment") {
+      throw new ConvexError("This request is not awaiting payment.");
+    }
+    if (req.paymentDeadline && Date.now() > req.paymentDeadline) {
+      throw new ConvexError("Payment window has expired.");
+    }
+
+    const settings = await ctx.runQuery(internal.organisations.queries.getSettingsInternal, {
+      organisationId: args.organisationId,
+    });
+    if (!settings?.stripeEnabled || !settings.stripePublishableKey) {
+      throw new ConvexError("Online payments are not enabled for this organisation.");
+    }
+    const secretKey = await resolveSecretKey(settings);
+    if (!secretKey) throw new ConvexError("Stripe is not configured.");
+
+    const org = await ctx.runQuery(internal.organisations.queries.getById, {
+      id: args.organisationId,
+    });
+
+    const stripe = new Stripe(secretKey, { apiVersion: "2026-02-25.clover" });
+
+    // Idempotent — reuse existing PaymentIntent if already created
+    if (req.paymentIntentId) {
+      let existing: Stripe.PaymentIntent;
+      try {
+        existing = await stripe.paymentIntents.retrieve(req.paymentIntentId);
+      } catch {
+        throw new ConvexError("Could not retrieve payment session.");
+      }
+      if (existing.status === "succeeded") throw new ConvexError("Payment already completed.");
+      return {
+        clientSecret: existing.client_secret!,
+        publishableKey: settings.stripePublishableKey,
+        amountCents: req.paymentAmountCents!,
+        currency: req.paymentCurrency!,
+        appointmentType: req.appointmentType,
+        preferredDate: req.preferredDate,
+        preferredTime: req.preferredTime,
+        orgName: org?.name ?? "the organisation",
+      };
+    }
+
+    const rawCurrency = (settings.defaultCurrency ?? "USD").toLowerCase();
+    const amountCents = req.paymentAmountCents!;
+
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: rawCurrency,
+        metadata: {
+          type: "prospect_appointment",
+          organisationId: String(args.organisationId),
+          requestId: String(args.requestId),
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Payment provider error.";
+      throw new ConvexError(`Payment initialisation failed: ${msg}`);
+    }
+
+    // Store PI id on the request record
+    await ctx.runMutation(internal.appointmentRequests.mutations.setPaymentIntent, {
+      requestId: args.requestId,
+      paymentIntentId: intent.id,
+    });
+
+    return {
+      clientSecret: intent.client_secret!,
+      publishableKey: settings.stripePublishableKey,
+      amountCents,
+      currency: (settings.defaultCurrency ?? "USD").toUpperCase(),
+      appointmentType: req.appointmentType,
+      preferredDate: req.preferredDate,
+      preferredTime: req.preferredTime,
+      orgName: org?.name ?? "the organisation",
+    };
+  },
+});
+
+/**
+ * Verify a Stripe PaymentIntent after the prospect confirms payment on the payment page.
+ * Marks the request as "paid" and the appointment as "Upcoming".
+ */
+export const completeProspectPayment = internalAction({
+  args: {
+    organisationId: v.id("organisations"),
+    requestId: v.id("appointmentRequests"),
+    paymentIntentId: v.string(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const req = await ctx.runQuery(internal.appointmentRequests.queries.getById, {
+      id: args.requestId,
+    });
+    if (!req || req.organisationId !== args.organisationId) {
+      throw new ConvexError("Request not found.");
+    }
+    if (req.status === "paid") return; // idempotent
+
+    const settings = await ctx.runQuery(internal.organisations.queries.getSettingsInternal, {
+      organisationId: args.organisationId,
+    });
+    const secretKey = settings ? await resolveSecretKey(settings) : null;
+    if (!secretKey) throw new ConvexError("Stripe not configured.");
+
+    const stripe = new Stripe(secretKey, { apiVersion: "2026-02-25.clover" });
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await stripe.paymentIntents.retrieve(args.paymentIntentId);
+    } catch {
+      throw new ConvexError("Could not verify payment.");
+    }
+
+    if (
+      intent.metadata?.type !== "prospect_appointment" ||
+      intent.metadata?.requestId !== args.requestId ||
+      intent.metadata?.organisationId !== args.organisationId
+    ) {
+      throw new ConvexError("Payment intent does not match this request.");
+    }
+    if (intent.status !== "succeeded") {
+      throw new ConvexError(`Payment has not succeeded (status: ${intent.status}).`);
+    }
+
+    await ctx.runMutation(internal.appointmentRequests.mutations.markPaid, {
+      requestId: args.requestId,
+      paymentIntentId: args.paymentIntentId,
+    });
+
+    // Record in the payments table so it appears in /payments → Stripe tab
+    const currency = (settings?.defaultCurrency ?? "USD").toUpperCase();
+    await ctx.runMutation(internal.billing.mutations.recordProspectPayment, {
+      organisationId: args.organisationId,
+      requestId: args.requestId,
+      appointmentId: req.convertedAppointmentId,
+      amountCents: req.paymentAmountCents!,
+      currency,
+      stripePaymentIntentId: args.paymentIntentId,
+      prospectName: `${req.firstName} ${req.lastName}`,
+      appointmentType: req.appointmentType,
+    });
+
+    // Schedule Google Meet creation for the confirmed appointment (online, paid path)
+    if (req.convertedAppointmentId && req.reviewedBy) {
+      await ctx.runAction(internal.googleCalendar.actions.createEvent, {
+        appointmentId: req.convertedAppointmentId,
+        creatorUserId: req.reviewedBy,
+      });
+    }
+  },
+});

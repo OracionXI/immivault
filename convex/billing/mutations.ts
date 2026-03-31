@@ -866,8 +866,10 @@ export const markPaymentRefunded = internalMutation({
         await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
       }
     }
-    // Deduct the refunded amount from the client's contract draft paidAmount
-    await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
+    // Deduct the refunded amount from the client's contract draft paidAmount (skip for prospect payments)
+    if (payment.clientId) {
+      await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
+    }
   },
 });
 
@@ -898,8 +900,10 @@ export const markPaymentRefundedByIntentId = internalMutation({
         await ctx.db.patch(payment.invoiceId, { status: "Sent", paidAt: undefined });
       }
     }
-    // Deduct the refunded amount from the client's contract draft paidAmount
-    await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
+    // Deduct the refunded amount from the client's contract draft paidAmount (skip for prospect payments)
+    if (payment.clientId) {
+      await subtractFromContractDraft(ctx, payment.clientId, payment.organisationId, payment.amount);
+    }
   },
 });
 
@@ -1032,6 +1036,50 @@ export const patchPaymentStatus = internalMutation({
   handler: async (ctx, args) => {
     const { paymentId, ...fields } = args;
     await ctx.db.patch(paymentId, fields);
+  },
+});
+
+/**
+ * Record a Stripe payment for a prospect appointment request.
+ * clientId is intentionally absent — the prospect has not been converted to a client yet.
+ * Idempotent via by_stripe_intent index.
+ */
+export const recordProspectPayment = internalMutation({
+  args: {
+    organisationId: v.id("organisations"),
+    requestId: v.id("appointmentRequests"),
+    appointmentId: v.optional(v.id("appointments")),
+    amountCents: v.number(),
+    currency: v.string(),
+    stripePaymentIntentId: v.string(),
+    prospectName: v.string(),
+    appointmentType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Idempotency — skip if already recorded
+    const existing = await ctx.db
+      .query("payments")
+      .withIndex("by_stripe_intent", (q) =>
+        q.eq("organisationId", args.organisationId).eq("stripePaymentIntentId", args.stripePaymentIntentId)
+      )
+      .unique();
+    if (existing) return;
+
+    await ctx.db.insert("payments", {
+      organisationId: args.organisationId,
+      amount: args.amountCents,
+      currency: args.currency,
+      method: "Card",
+      status: "Completed",
+      paidAt: Date.now(),
+      stripePaymentIntentId: args.stripePaymentIntentId,
+      reference: args.stripePaymentIntentId,
+      requestId: args.requestId,
+      appointmentId: args.appointmentId,
+      type: "appointment",
+      clientName: args.prospectName, // snapshot — no clientId yet
+      notes: `Prospect appointment: ${args.appointmentType}`,
+    });
   },
 });
 

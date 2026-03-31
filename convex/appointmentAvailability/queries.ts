@@ -155,3 +155,23 @@ export const getPricingWithAvailability = internalQuery({
     return pricing;
   },
 });
+
+/**
+ * Internal: return the active pricing record for the "Consultation" appointment type
+ * in the given org. Returns null if no active Consultation pricing is configured.
+ * Used by the public prospect request form to show whether a fee applies.
+ */
+export const getConsultationPricing = internalQuery({
+  args: { organisationId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    const pricing = await ctx.db
+      .query("appointmentPricing")
+      .withIndex("by_org", (q) => q.eq("organisationId", args.organisationId))
+      .collect()
+      .then((list) =>
+        list.find((p) => p.isActive && p.appointmentType === "Consultation")
+      );
+    if (!pricing) return null;
+    return { priceInCents: pricing.priceInCents, currency: pricing.currency };
+  },
+});

@@ -33,6 +33,10 @@ export function InvoiceModal({ open, onOpenChange, invoice }: InvoiceModalProps)
     const currency = useCurrency();
     const createInvoice = useMutation(api.billing.mutations.createInvoice);
     const updateInvoice = useMutation(api.billing.mutations.updateInvoice);
+    const invoiceDetail = useQuery(
+        api.billing.queries.getInvoice,
+        invoice ? { id: invoice._id } : "skip"
+    );
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const allCases = useQuery(api.cases.queries.listAll) ?? [];
 
@@ -63,7 +67,6 @@ export function InvoiceModal({ open, onOpenChange, invoice }: InvoiceModalProps)
                 taxRate: invoice.taxRate,
                 notes: invoice.notes ?? "",
             });
-            // Items can't be edited post-creation; show placeholder
             setItems([{ description: "", quantity: 1, unitPrice: 0 }]);
         } else {
             setForm({ clientId: "", caseId: "", status: "Draft", dueDate: "", taxRate: 0, notes: "" });
@@ -236,6 +239,23 @@ export function InvoiceModal({ open, onOpenChange, invoice }: InvoiceModalProps)
                                 </div>
                             )}
                         </>
+                    )}
+
+                    {/* Show existing line items (read-only) when editing */}
+                    {isEdit && invoiceDetail?.items && invoiceDetail.items.length > 0 && (
+                        <div className="grid gap-2">
+                            <Label className="text-muted-foreground text-xs">Line Items (read-only)</Label>
+                            <div className="rounded-md border divide-y text-sm bg-muted/30">
+                                {invoiceDetail.items.map((item, i) => (
+                                    <div key={i} className="flex items-center justify-between px-3 py-2 gap-2">
+                                        <span className="flex-1 text-muted-foreground">{item.description}</span>
+                                        <span className="text-xs text-muted-foreground shrink-0">× {item.quantity}</span>
+                                        <span className="font-medium shrink-0">{formatCurrency(item.unitPrice, currency)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">Line items cannot be modified after creation.</p>
+                        </div>
                     )}
 
                     <div className="grid gap-2">

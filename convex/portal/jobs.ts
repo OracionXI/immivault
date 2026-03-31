@@ -236,29 +236,6 @@ export const nudgeIncompleteProfiles = internalAction({
         organisationId: client.organisationId,
       });
 
-      // Email nudge
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://ordenacrm.com";
-      const profileUrl = `${appUrl}/portal/${org.portalSlug}/profile`;
-
-      await sendEmailOptional(
-        client.email,
-        `Action needed: Complete your ${org.name} portal profile`,
-        `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111">
-<h2 style="color:#1d4ed8">Complete Your Profile</h2>
-<p>Hi ${client.firstName},</p>
-<p>Your <strong>${org.name}</strong> client portal profile is still missing some details.
-Keeping it up-to-date helps your attorney prepare your case more effectively.</p>
-<p style="margin:24px 0">
-  <a href="${profileUrl}"
-     style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600">
-    Complete My Profile
-  </a>
-</p>
-<p style="font-size:12px;color:#6b7280">Or copy this link: ${profileUrl}</p>
-<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
-<p style="font-size:12px;color:#6b7280">${org.name} — Powered by Ordena</p>
-</body></html>`
-      );
     }
   },
 });

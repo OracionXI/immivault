@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreditCard, ExternalLink, Copy, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { HintPopover } from "@/components/shared/hint-popover";
 
 export default function PaymentSettingsPage() {
     const settings = useQuery(api.organisations.queries.getSettings);
@@ -100,6 +101,21 @@ export default function PaymentSettingsPage() {
                         <div className="flex items-center gap-2">
                             <CreditCard className="h-5 w-5 text-violet-500" />
                             <CardTitle className="text-base">Stripe</CardTitle>
+                            <HintPopover
+                                title="Stripe Integration"
+                                description="Connect your Stripe account to accept online payments from clients directly through Ordena."
+                                tips={[
+                                    { text: "Use test keys (pk_test_ / sk_test_) during setup — switch to live keys when ready to go live." },
+                                    { text: "Never share your Secret Key. It grants full access to your Stripe account." },
+                                    { text: "After saving, register the Webhook URL in your Stripe Dashboard to receive payment events." },
+                                ]}
+                                links={[
+                                    { label: "Get your API keys", href: "https://stripe.com/docs/keys" },
+                                    { label: "Stripe Dashboard → API Keys", href: "https://dashboard.stripe.com/apikeys" },
+                                ]}
+                                accent="purple"
+                                side="bottom"
+                            />
                             {settings?.stripeEnabled && (
                                 <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
                                     <CheckCircle2 className="h-3 w-3 mr-1" />Active
@@ -114,7 +130,22 @@ export default function PaymentSettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="grid gap-2">
-                        <Label>Publishable Key</Label>
+                        <div className="flex items-center gap-1.5">
+                            <Label>Publishable Key</Label>
+                            <HintPopover
+                                title="Publishable Key"
+                                description="Safe to expose publicly — used in the browser to initialize Stripe.js for client-side payment flows."
+                                tips={[
+                                    { text: "Starts with pk_test_ (test mode) or pk_live_ (production)." },
+                                    { text: "This key is not sensitive — it's embedded in your frontend code." },
+                                ]}
+                                links={[
+                                    { label: "About API keys", href: "https://stripe.com/docs/keys" },
+                                    { label: "Find your keys", href: "https://dashboard.stripe.com/apikeys" },
+                                ]}
+                                accent="blue"
+                            />
+                        </div>
                         <Input
                             value={publishableKey}
                             onChange={(e) => setPublishableKey(e.target.value)}
@@ -122,7 +153,23 @@ export default function PaymentSettingsPage() {
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label>Secret Key</Label>
+                        <div className="flex items-center gap-1.5">
+                            <Label>Secret Key</Label>
+                            <HintPopover
+                                title="Secret Key"
+                                description="Server-side only key used to create payment intents and charge customers. Never expose this in the browser."
+                                tips={[
+                                    { text: "Starts with sk_test_ (test mode) or sk_live_ (production)." },
+                                    { text: "Store this securely — anyone with this key can make charges on your behalf." },
+                                    { text: "If exposed, immediately roll it in the Stripe Dashboard." },
+                                ]}
+                                links={[
+                                    { label: "About API keys", href: "https://stripe.com/docs/keys" },
+                                    { label: "Roll a compromised key", href: "https://dashboard.stripe.com/apikeys" },
+                                ]}
+                                accent="rose"
+                            />
+                        </div>
                         <Input
                             type="password"
                             value={secretKey}
@@ -134,7 +181,23 @@ export default function PaymentSettingsPage() {
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label>Webhook Secret</Label>
+                        <div className="flex items-center gap-1.5">
+                            <Label>Webhook Secret</Label>
+                            <HintPopover
+                                title="Webhook Secret"
+                                description="Used to verify that incoming webhook events genuinely come from Stripe and haven't been tampered with."
+                                tips={[
+                                    { text: "Starts with whsec_ — generated when you create a webhook endpoint in Stripe." },
+                                    { text: "Ordena uses this to confirm payment events like payment_intent.succeeded." },
+                                    { text: "Each webhook endpoint has its own secret — don't mix them up." },
+                                ]}
+                                links={[
+                                    { label: "About Stripe Webhooks", href: "https://stripe.com/docs/webhooks" },
+                                    { label: "Create a webhook endpoint", href: "https://dashboard.stripe.com/webhooks" },
+                                ]}
+                                accent="amber"
+                            />
+                        </div>
                         <Input
                             type="password"
                             value={webhookSecret}
@@ -149,9 +212,26 @@ export default function PaymentSettingsPage() {
                     {/* Webhook URL */}
                     {webhookUrl && (
                         <div className="rounded-md bg-muted p-3 space-y-2">
-                            <p className="text-xs font-medium text-muted-foreground">
-                                Add this URL in your Stripe Dashboard → Webhooks:
-                            </p>
+                            <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-medium text-muted-foreground">
+                                    Add this URL in your Stripe Dashboard → Webhooks:
+                                </p>
+                                <HintPopover
+                                    title="Webhook URL"
+                                    description="Register this endpoint in your Stripe Dashboard so Stripe can notify Ordena when payments succeed or fail."
+                                    tips={[
+                                        { text: "Go to Stripe Dashboard → Developers → Webhooks → Add endpoint." },
+                                        { text: "Paste this URL and select payment_intent.succeeded as the event to listen for." },
+                                        { text: "After creating the endpoint, copy the Signing Secret (whsec_...) and paste it in the Webhook Secret field above." },
+                                    ]}
+                                    links={[
+                                        { label: "Add webhook endpoint", href: "https://dashboard.stripe.com/webhooks" },
+                                        { label: "Stripe Webhooks guide", href: "https://stripe.com/docs/webhooks" },
+                                    ]}
+                                    accent="blue"
+                                    side="top"
+                                />
+                            </div>
                             <div className="flex items-center gap-2">
                                 <code className="text-xs flex-1 font-mono truncate select-none">
                                     {webhookRevealed

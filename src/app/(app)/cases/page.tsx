@@ -5,6 +5,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { PageHeader } from "@/components/shared/page-header";
+import { PageTitle } from "@/components/shared/page-title";
 import { KanbanBoard, type KanbanColumn, type KanbanItem } from "@/components/shared/kanban-board";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { CaseModal } from "./case-modal";
@@ -196,6 +197,7 @@ export default function CasesPage() {
     return (
         <RoleGuard allowedRoles={["admin", "case_manager", "staff"]}>
         <div className="space-y-6">
+            <PageTitle title="Cases" />
             <PageHeader
                 title="Cases"
                 description="Manage cases with drag & drop feature"

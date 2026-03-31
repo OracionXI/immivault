@@ -2,6 +2,7 @@
 
 import type { Doc } from "../../../../convex/_generated/dataModel";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { UnassignedBadge } from "@/components/shared/unassigned-badge";
 import { Button } from "@/components/ui/button";
 import { Briefcase, CircleUser, Pencil, Trash2 } from "lucide-react";
 
@@ -80,7 +81,7 @@ export function CasesTableView({ cases, clientMap, userMap, onView, onEdit, canE
                                         <div className="flex items-center gap-1.5">
                                             <CircleUser className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                             <span className="text-muted-foreground truncate max-w-[120px]">
-                                                {c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : <span className="italic opacity-50">Unassigned</span>}
+                                                {c.assignedTo ? (userMap.get(c.assignedTo) ?? "—") : <UnassignedBadge />}
                                             </span>
                                         </div>
                                     </td>
