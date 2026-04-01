@@ -231,6 +231,74 @@ export const disconnectGoogle = authenticatedMutation({
   },
 });
 
+/**
+ * Marks the founder onboarding wizard as complete.
+ * Optionally records that the Stripe step was skipped.
+ * Can only be called by the org founder.
+ */
+export const markWizardComplete = authenticatedMutation({
+  args: {
+    stripeSkipped: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    if (!ctx.user.isFounder) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Only the organisation founder can complete the setup wizard." });
+    }
+    await ctx.db.patch(ctx.user._id, { wizardCompletedAt: Date.now() });
+    if (args.stripeSkipped) {
+      const settings = await ctx.db
+        .query("organisationSettings")
+        .withIndex("by_org", (q) => q.eq("organisationId", ctx.user.organisationId))
+        .unique();
+      if (settings) {
+        await ctx.db.patch(settings._id, { stripeWizardSkipped: true });
+      }
+    }
+  },
+});
+
+/**
+ * Seeds default Mon–Fri 09:00–17:00 availability and browser timezone for the calling user.
+ * Idempotent: no-op if the user already has staffAvailability rows.
+ * Only applies to admin and case_manager roles; silently returns for others.
+ */
+export const seedDefaultAvailability = authenticatedMutation({
+  args: { timezone: v.string() },
+  handler: async (ctx, args) => {
+    if (ctx.user.role !== "admin" && ctx.user.role !== "case_manager") return;
+
+    // Set timezone only if not already stored
+    if (!ctx.user.timezone) {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: args.timezone });
+        await ctx.db.patch(ctx.user._id, { timezone: args.timezone });
+      } catch {
+        // Invalid timezone string — ignore silently
+      }
+    }
+
+    // Seed availability only if user has no existing rows (idempotent)
+    const existing = await ctx.db
+      .query("staffAvailability")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.user._id))
+      .collect();
+
+    if (existing.length > 0) return;
+
+    // Mon–Fri (1–5), 09:00–17:00
+    for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+      await ctx.db.insert("staffAvailability", {
+        organisationId: ctx.user.organisationId,
+        userId: ctx.user._id,
+        dayOfWeek,
+        startHour: 9,
+        endHour: 17,
+        isActive: true,
+      });
+    }
+  },
+});
+
 /** Clears assignedTo on all cases, tasks, and appointments belonging to a user. */
 async function unassignAllWork(ctx: MutationCtx, userId: Id<"users">) {
   const [cases, tasks, appointments] = await Promise.all([

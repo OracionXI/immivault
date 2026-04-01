@@ -146,7 +146,7 @@ export const generateArchivalReport = internalAction({
       autoTable(doc, {
         startY: y,
         head: [["Task Name", "Task ID", "Completion Date & Time"]],
-        body: tasks.map((t) => [
+        body: tasks.map((t: { title: string; taskId: string; completedAt?: number }) => [
           t.title,
           t.taskId,
           t.completedAt ? fmt.datetime(t.completedAt) : "—",
@@ -162,9 +162,10 @@ export const generateArchivalReport = internalAction({
       });
     }
 
-    // ── S3 Glacier stub ───────────────────────────────────────────────────────
-    // TODO: Phase N — Move PDF to S3 Glacier for long-term cold storage
-    // await moveToGlacier(storageId, `archives/${c.caseNumber}.pdf`);
+    // ── S3 Glacier ────────────────────────────────────────────────────────────
+    // Archival PDFs stored in Convex Storage (case reports only).
+    // Document files in S3 (orgs/* prefix) auto-transition to Glacier via
+    // Terraform lifecycle rules — no code needed here.
 
     const pdfBytes = doc.output("arraybuffer");
     const blob = new Blob([pdfBytes], { type: "application/pdf" });

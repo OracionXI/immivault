@@ -344,14 +344,16 @@ export const remove = authenticatedMutation({
       .collect();
     await Promise.all(caseComments.map((cm) => ctx.db.delete(cm._id)));
 
-    // 3. Delete documents linked to this case (and their storage files)
+    // 3. Soft-delete documents linked to this case (S3 objects purged after 30 days by cron)
     const docs = await ctx.db
       .query("documents")
       .withIndex("by_case", (q) => q.eq("caseId", args.id))
       .collect();
+    const now = Date.now();
     for (const doc of docs) {
-      await ctx.storage.delete(doc.storageId);
-      await ctx.db.delete(doc._id);
+      if (!doc.deletedAt) {
+        await ctx.db.patch(doc._id, { deletedAt: now });
+      }
     }
 
     // 4. Unlink appointments

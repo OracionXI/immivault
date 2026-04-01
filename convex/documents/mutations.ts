@@ -1,105 +1,103 @@
-import { authenticatedMutation } from "../lib/auth";
+import { authenticatedMutation, authenticatedMutation as _am } from "../lib/auth";
+import { internalMutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireAtLeastCaseManager } from "../lib/rbac";
+import { checkRateLimit } from "../lib/rateLimit";
 
-const MAX_DOCUMENT_NAME_LENGTH = 255;
+// ── Internal helpers used by actions ─────────────────────────────────────────
 
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/plain",
-  "text/csv",
-]);
-
-/** Step 1 of upload: returns a one-time URL the client uploads the file to directly. */
-export const generateUploadUrl = authenticatedMutation({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.storage.generateUploadUrl();
+/** Rate-limit check for uploads (20/hr per user). Called from requestUpload action. */
+export const checkUploadRateLimit = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    await checkRateLimit(ctx, `doc-upload:${args.userId}`, 20, 3_600_000);
   },
 });
 
-/** Step 2 of upload: called after the file has been uploaded to storage.
- *  caseId is required — clientId is derived from the case server-side.
- *  Documents are always Verified on creation. */
-export const create = authenticatedMutation({
+/** Rate-limit check for view URL generation (100/hr per user). */
+export const checkViewRateLimit = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    await checkRateLimit(ctx, `doc-view:${args.userId}`, 100, 3_600_000);
+  },
+});
+
+/** Insert a pending document record. Returns the new document ID. */
+export const insertPending = internalMutation({
   args: {
-    caseId: v.id("cases"),
+    organisationId: v.id("organisations"),
+    clientId: v.id("clients"),
+    caseId: v.optional(v.id("cases")),
     name: v.string(),
     type: v.optional(v.string()),
-    storageId: v.id("_storage"),
-    fileSize: v.number(),
     mimeType: v.string(),
+    fileSize: v.number(),
+    visibility: v.union(v.literal("internal"), v.literal("client")),
+    uploadedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const trimmedName = args.name.trim();
-    if (trimmedName.length === 0 || trimmedName.length > MAX_DOCUMENT_NAME_LENGTH) {
-      throw new ConvexError({ code: "BAD_REQUEST", message: `Document name must be between 1 and ${MAX_DOCUMENT_NAME_LENGTH} characters.` });
-    }
-    if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
-      throw new ConvexError({ code: "BAD_REQUEST", message: "File type not allowed." });
-    }
-
-    const c = await ctx.db.get(args.caseId);
-    if (!c || c.organisationId !== ctx.user.organisationId) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
-    }
-
-    // Case managers can only add docs to their assigned cases
-    if (ctx.user.role === "case_manager" && c.assignedTo !== ctx.user._id) {
-      throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to your own cases." });
-    }
-
-    // Staff can only add docs to cases where they have an assigned task
-    if (ctx.user.role === "staff") {
-      const staffTask = await ctx.db
-        .query("tasks")
-        .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
-        .filter((q) => q.eq(q.field("assignedTo"), ctx.user._id))
-        .first();
-      if (!staffTask) {
-        throw new ConvexError({ code: "FORBIDDEN", message: "You can only add documents to cases where you have assigned tasks." });
-      }
-    }
-
-    const id = await ctx.db.insert("documents", {
+    return await ctx.db.insert("documents", {
       ...args,
-      name: trimmedName,
-      clientId: c.clientId,
+      s3Key: "",
+      uploadStatus: "pending",
       status: "Verified",
-      organisationId: ctx.user.organisationId,
-      uploadedBy: ctx.user._id,
     });
-
-    // Notify the case assignee that a new document was uploaded
-    await ctx.scheduler.runAfter(0, internal.notifications.actions.onDocumentUploaded, {
-      documentId: id,
-      uploaderId: ctx.user._id,
-    });
-
-    return id;
   },
 });
 
-/** Admin or Case Manager: update document metadata (name, type, case).
- *  If caseId changes, clientId is re-derived from the new case. */
+/** Patch the s3Key onto a pending document once the key is known. */
+export const patchS3Key = internalMutation({
+  args: { id: v.id("documents"), s3Key: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { s3Key: args.s3Key });
+  },
+});
+
+/** Hard-delete a document record (used by purge cron after S3 object is gone). */
+export const hardDelete = internalMutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+  },
+});
+
+// ── Authenticated mutations ───────────────────────────────────────────────────
+
+/**
+ * Step 3 of the upload flow.
+ * Called after the browser PUT to S3 succeeds. Marks the document "active"
+ * and fires the document_uploaded notification.
+ */
+export const confirmUpload = authenticatedMutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.id);
+    if (!doc || doc.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
+    }
+    if (doc.uploadStatus !== "pending") {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Document already confirmed." });
+    }
+
+    await ctx.db.patch(args.id, { uploadStatus: "active" });
+
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.onDocumentUploaded, {
+      documentId: args.id,
+      uploaderId: ctx.user._id,
+    });
+  },
+});
+
+/** Admin or Case Manager: update document metadata (name, type, case, visibility). */
 export const update = authenticatedMutation({
   args: {
     id: v.id("documents"),
     name: v.string(),
     type: v.optional(v.string()),
     caseId: v.id("cases"),
+    visibility: v.optional(v.union(v.literal("internal"), v.literal("client"))),
   },
   handler: async (ctx, args) => {
     requireAtLeastCaseManager(ctx);
@@ -113,7 +111,6 @@ export const update = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Case not found." });
     }
 
-    // Case managers can only edit docs on their own cases (both old and new)
     if (ctx.user.role === "case_manager") {
       if (doc.caseId) {
         const oldCase = await ctx.db.get(doc.caseId);
@@ -131,11 +128,12 @@ export const update = authenticatedMutation({
       type: args.type,
       caseId: args.caseId,
       clientId: newCase.clientId,
+      ...(args.visibility !== undefined ? { visibility: args.visibility } : {}),
     });
   },
 });
 
-/** Admin or Case Manager: delete a document and its storage file. */
+/** Admin or Case Manager: soft-delete a document (sets deletedAt). S3 purge cron cleans up after 30 days. */
 export const remove = authenticatedMutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
@@ -145,7 +143,6 @@ export const remove = authenticatedMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
     }
 
-    // Case managers can only remove docs from their cases
     if (ctx.user.role === "case_manager" && doc.caseId) {
       const c = await ctx.db.get(doc.caseId);
       if (!c || c.assignedTo !== ctx.user._id) {
@@ -153,7 +150,6 @@ export const remove = authenticatedMutation({
       }
     }
 
-    await ctx.storage.delete(doc.storageId);
-    await ctx.db.delete(args.id);
+    await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });

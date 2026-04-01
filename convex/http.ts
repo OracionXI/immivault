@@ -424,7 +424,7 @@ http.route({
   }),
 });
 
-// GET /portal/document-url?docId=xxx — signed view URL for a portal document
+// GET /portal/document-url?docId=xxx — S3 pre-signed view URL for a portal document
 http.route({
   path: "/portal/document-url",
   method: "GET",
@@ -436,13 +436,23 @@ http.route({
     const url = new URL(request.url);
     const docId = url.searchParams.get("docId");
     if (!docId) return jsonRes({ error: "Missing docId" }, 400);
-    const viewUrl = await ctx.runQuery(internal.portal.queries.getDocumentUrl, {
+    // Verify portal access (client ownership + visibility="client") before presigning
+    const doc = await ctx.runQuery(internal.portal.queries.getDocumentPortalAccess, {
       docId: docId as Id<"documents">,
       clientId: session.clientId,
       organisationId: session.organisationId,
     });
-    if (!viewUrl) return jsonRes({ error: "Not found" }, 404);
-    return jsonRes({ url: viewUrl });
+    if (!doc) return jsonRes({ error: "Not found" }, 404);
+    try {
+      const result = await ctx.runAction(internal.documents.actions.getPortalViewUrl, {
+        documentId: docId as Id<"documents">,
+        clientId: session.clientId,
+        organisationId: session.organisationId,
+      });
+      return jsonRes({ url: result.url });
+    } catch {
+      return jsonRes({ error: "Not found" }, 404);
+    }
   }),
 });
 

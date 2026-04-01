@@ -367,9 +367,10 @@ function ProspectLinkBanner({ onCopy, copied }: { onCopy: (slug: string) => void
     const org = useQuery(api.organisations.queries.mine);
     const portalSettings = useQuery(api.organisations.queries.getPortalSettings);
 
-    if (!org || !portalSettings?.portalSlug) return null;
+    if (!org) return null;
 
-    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/portal/${portalSettings.portalSlug}/request`;
+    const slug = portalSettings?.portalSlug ?? org.slug;
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/portal/${slug}/request`;
 
     return (
         <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center gap-3 flex-wrap">
@@ -381,7 +382,7 @@ function ProspectLinkBanner({ onCopy, copied }: { onCopy: (slug: string) => void
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                onClick={() => onCopy(portalSettings.portalSlug!)}
+                onClick={() => onCopy(slug)}
             >
                 {copied
                     ? <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-green-500" />Copied</>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
 import { api } from "../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +20,9 @@ import {
     Check,
     ChevronDown,
     Clock,
-    Hourglass
+    Hourglass,
+    X,
+    Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardChart } from "@/components/dashboard/dashboard-chart";
@@ -33,6 +36,171 @@ import { useWidgetConfig } from "@/hooks/use-widget-config";
 import { CustomizeWidgetsModal } from "@/components/dashboard/customize-widgets-modal";
 import { PageTitle } from "@/components/shared/page-title";
 import { UnassignedBadge } from "@/components/shared/unassigned-badge";
+import { HintPopover } from "@/components/shared/hint-popover";
+import { toast } from "sonner";
+
+// ─── Stripe setup warning banner ─────────────────────────────────────────────
+
+function StripeWarningBanner({ stripeEnabled }: { stripeEnabled: boolean | undefined }) {
+    const { isAdmin } = useRole();
+    const [dismissed, setDismissed] = useState(false);
+
+    if (dismissed || !isAdmin || stripeEnabled) return null;
+
+    return (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-900/50 dark:bg-orange-950/20 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40">
+                    <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-orange-900 dark:text-orange-200">
+                        Stripe payments not configured
+                    </p>
+                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-0.5 leading-relaxed">
+                        Clients won&apos;t be able to pay invoices online until you connect a Stripe account in Billing settings.
+                    </p>
+                </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+                <Link
+                    href="/payments/settings"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-white dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 px-3 py-1.5 text-xs font-semibold text-orange-900 dark:text-orange-200 shadow-sm transition-colors hover:bg-orange-50 dark:hover:bg-orange-900/50"
+                >
+                    Set up Stripe
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+                <button
+                    type="button"
+                    onClick={() => setDismissed(true)}
+                    className="p-1 rounded text-orange-500 hover:text-orange-700 dark:hover:text-orange-300 transition-colors"
+                    aria-label="Dismiss"
+                >
+                    <X className="h-4 w-4" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ─── Google Calendar warning banner ──────────────────────────────────────────
+
+function GoogleCalendarBanner() {
+    const { getToken } = useAuth();
+    const { user } = useRole();
+    const [connecting, setConnecting] = useState(false);
+    const [dismissed, setDismissed] = useState(false);
+
+    // Only show for admin / case_manager without Google connected
+    const shouldShow =
+        !dismissed &&
+        (user?.role === "admin" || user?.role === "case_manager") &&
+        !user?.googleEmail;
+
+    if (!shouldShow) return null;
+
+    const handleConnect = async () => {
+        setConnecting(true);
+        try {
+            const token = await getToken({ template: "convex" });
+            if (!token) throw new Error("Not authenticated");
+            const popup = window.open(
+                `/api/google-start?token=${encodeURIComponent(token)}`,
+                "google-oauth",
+                "width=500,height=650,left=100,top=100"
+            );
+            if (!popup) {
+                toast.error("Popup blocked. Allow popups for this site and try again.");
+                setConnecting(false);
+                return;
+            }
+            const onMessage = (e: MessageEvent) => {
+                if (e.data === "google-connected") {
+                    window.removeEventListener("message", onMessage);
+                    toast.success("Google Calendar connected.");
+                    setConnecting(false);
+                }
+            };
+            window.addEventListener("message", onMessage);
+            const pollClosed = setInterval(() => {
+                if (popup.closed) {
+                    clearInterval(pollClosed);
+                    window.removeEventListener("message", onMessage);
+                    setConnecting(false);
+                }
+            }, 500);
+        } catch {
+            toast.error("Failed to open Google sign-in. Please try again.");
+            setConnecting(false);
+        }
+    };
+
+    return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
+            {/* Icon + message */}
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                    </svg>
+                </div>
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                        Connect your Google Calendar
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-relaxed">
+                        Required to auto-generate Google Meet links and send calendar invites when scheduling appointments.
+                    </p>
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+                <button
+                    type="button"
+                    onClick={handleConnect}
+                    disabled={connecting}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-white dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:text-amber-200 shadow-sm transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                    {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                        </svg>
+                    )}
+                    {connecting ? "Connecting…" : "Connect now"}
+                </button>
+
+                <HintPopover
+                    title="How to connect manually"
+                    description="You can also connect Google Calendar from your profile settings at any time."
+                    tips={[
+                        { text: "1. Click your avatar or go to Settings in the sidebar." },
+                        { text: "2. Open Settings → Profile." },
+                        { text: "3. Scroll to the Google Calendar section." },
+                        { text: "4. Click 'Connect Google Calendar' and sign in." },
+                    ]}
+                    accent="blue"
+                    side="bottom"
+                />
+
+                <button
+                    type="button"
+                    onClick={() => setDismissed(true)}
+                    className="p-1 rounded text-amber-500 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+                    aria-label="Dismiss"
+                >
+                    <X className="h-4 w-4" />
+                </button>
+            </div>
+        </div>
+    );
+}
 
 function formatTs(ts: number) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -43,11 +211,25 @@ function formatTime(ts: number) {
 }
 
 export default function DashboardPage() {
-    const { isAdmin, isCaseManager, isAccountant } = useRole();
+    const { isAdmin, isCaseManager, isAccountant, user } = useRole();
     const currency = useCurrency();
     const { config, saveConfig, isVisible } = useWidgetConfig();
     const [widgetModalOpen, setWidgetModalOpen] = useState(false);
     const [chartTab, setChartTab] = useState("6 M");
+
+    // Auto-seed timezone + Mon–Fri 9–17 availability for admin/case_manager on first login
+    const seedDefaultAvailability = useMutation(api.users.mutations.seedDefaultAvailability);
+    const seedCalledRef = useRef(false);
+    useEffect(() => {
+        if (seedCalledRef.current) return;
+        if (!user) return;
+        if (user.role !== "admin" && user.role !== "case_manager") return;
+        // Only seed if timezone not yet set (indicates first visit)
+        if (user.timezone) return;
+        seedCalledRef.current = true;
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        seedDefaultAvailability({ timezone: tz }).catch(() => {});
+    }, [user, seedDefaultAvailability]);
 
     const TAB_ARGS: Record<string, { days?: number; months?: number }> = {
         "1 W":  { days: 7 },
@@ -127,6 +309,13 @@ export default function DashboardPage() {
     return (
         <div className="flex flex-col gap-6 pb-6">
             <PageTitle title="Dashboard" />
+
+            {/* Stripe setup banner — shown to admins until Stripe is configured */}
+            <StripeWarningBanner stripeEnabled={orgSettings?.stripeEnabled} />
+
+            {/* Google Calendar onboarding banner — shown to admin/case_manager until connected */}
+            <GoogleCalendarBanner />
+
             {/* Top Toolbar matching Mockup */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2 mb-2">
                 <div className="flex items-center gap-2">

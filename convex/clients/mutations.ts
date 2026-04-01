@@ -367,14 +367,16 @@ export const remove = authenticatedMutation({
     }
     const clientFullName = `${client.firstName} ${client.lastName}`;
 
-    // ── 1. Documents (+ storage files) ────────────────────────────────────────
+    // ── 1. Documents — soft-delete (S3 objects purged after 30 days by cron) ──
     const linkedDocs = await ctx.db
       .query("documents")
       .withIndex("by_client", (q) => q.eq("clientId", args.id))
       .collect();
+    const now = Date.now();
     for (const doc of linkedDocs) {
-      await ctx.storage.delete(doc.storageId);
-      await ctx.db.delete(doc._id);
+      if (!doc.deletedAt) {
+        await ctx.db.patch(doc._id, { deletedAt: now });
+      }
     }
 
     // ── 2. Invoices — snapshot name; delete contract drafts ───────────────────

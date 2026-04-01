@@ -99,7 +99,7 @@ export const createEvent = internalAction({
 
       const attendeeEmails = [
         creator.email, // Always include creator
-        ...(appt.attendees ?? []).map((a) => a.email).filter((e) => e !== creator.email),
+        ...(appt.attendees ?? []).map((a: { email: string }) => a.email).filter((e: string) => e !== creator.email),
       ];
 
       const isOffline = appt.modality === "offline";
@@ -176,7 +176,7 @@ export const updateEvent = internalAction({
 
       const attendeeEmails = [
         creator.email,
-        ...(appt.attendees ?? []).map((a) => a.email).filter((e) => e !== creator.email),
+        ...(appt.attendees ?? []).map((a: { email: string }) => a.email).filter((e: string) => e !== creator.email),
       ];
 
       const body = buildEventBody({

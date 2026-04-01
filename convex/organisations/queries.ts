@@ -23,13 +23,20 @@ export const getById = internalQuery({
   },
 });
 
-/** Internal: look up an org by its portal slug (used by public HTTP actions). */
+/** Internal: look up an org by its portal slug (used by public HTTP actions).
+ *  Falls back to the regular org slug so orgs without a custom portalSlug still work. */
 export const getByPortalSlug = internalQuery({
   args: { portalSlug: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const byPortalSlug = await ctx.db
       .query("organisations")
       .withIndex("by_portal_slug", (q) => q.eq("portalSlug", args.portalSlug))
+      .unique();
+    if (byPortalSlug) return byPortalSlug;
+
+    return await ctx.db
+      .query("organisations")
+      .withIndex("by_slug", (q) => q.eq("slug", args.portalSlug))
       .unique();
   },
 });
