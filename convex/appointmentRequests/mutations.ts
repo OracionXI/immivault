@@ -108,7 +108,7 @@ export const confirm = authenticatedMutation({
     // No clientId/caseId yet — those are created when admin accepts the prospect as a client.
     const appointmentId = await ctx.db.insert("appointments", {
       organisationId: ctx.user.organisationId,
-      assignedTo: args.assignedTo,
+      assignedTo: args.assignedTo ?? ctx.user._id,
       createdBy: ctx.user._id,
       title: `${req.appointmentType} — ${req.firstName} ${req.lastName}`,
       meetingType: "case_appointment",

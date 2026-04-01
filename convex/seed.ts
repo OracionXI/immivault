@@ -142,19 +142,21 @@ export const repairOrg = mutation({
 /**
  * DEV-ONLY: Wipes all records from every table.
  * Run from the Convex dashboard before a fresh seed.
+ *
+ * Auth: uses Clerk identity directly — does NOT rely on the users table
+ * existing, so it works even after a prior wipe.
  */
 export const clearAllData = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated — log in first.");
-    const caller = await ctx.db
-      .query("users")
-      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-      .unique();
-    if (!caller || caller.role !== "admin") throw new Error("Admin privileges required.");
+    // Guard: only runs when ALLOW_CLEAR_DATA=true is set on the deployment.
+    // Set it on dev only — never on prod — to prevent accidental data loss.
+    if (process.env.ALLOW_CLEAR_DATA !== "true") {
+      throw new Error("clearAllData is disabled. Set ALLOW_CLEAR_DATA=true on the dev deployment to enable it.");
+    }
 
     const tables = [
+      // Child / junction tables first (foreign-key order)
       "comments",
       "invoiceItems",
       "paymentLinks",
@@ -163,11 +165,27 @@ export const clearAllData = mutation({
       "documents",
       "tasks",
       "appointments",
+      "appointmentRequests",
+      "appointmentPricing",
+      "appointmentAvailability",
       "cases",
       "clients",
+      "staffAvailability",
+      "staffBlackoutDates",
+      "staffAvailabilityExclusions",
+      "notifications",
+      "portalMagicLinks",
+      "portalOtpCodes",
+      "portalSessions",
+      "portalNotifications",
+      "bankAccounts",
+      "bankTransactions",
+      "disputes",
+      "webhookLogs",
+      "invoiceCounters",
       "rateLimits",
       "invitations",
-      "bankAccounts",
+      // Parent tables last
       "organisationSettings",
       "users",
       "organisations",

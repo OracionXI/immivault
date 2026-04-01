@@ -73,4 +73,11 @@ crons.daily(
   internal.portal.jobs.sendPaymentDateReminders
 );
 
+// Daily at 04:00 UTC — permanently delete S3 objects for documents soft-deleted 30+ days ago
+crons.daily(
+  "purge deleted documents from S3",
+  { hourUTC: 4, minuteUTC: 0 },
+  internal.documents.actions.purgeDeleted
+);
+
 export default crons;

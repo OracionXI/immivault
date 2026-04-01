@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { Loader2, Plus, Trash2, DollarSign } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, DollarSign, Lock } from "lucide-react";
 import { HintPopover } from "@/components/shared/hint-popover";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -20,6 +20,8 @@ import { RoleGuard } from "@/components/shared/role-guard";
 import { PageHeader } from "@/components/shared/page-header";
 
 const DEFAULT_APPOINTMENT_TYPES = ["Consultation", "Document Review", "Interview Prep", "Follow-up"];
+
+type PricingRow = NonNullable<ReturnType<typeof useQuery<typeof api.organisations.queries.getAppointmentPricing>>>[number];
 
 export default function AppointmentPricingPage() {
   const pricing = useQuery(api.organisations.queries.getAppointmentPricing) ?? [];
@@ -29,8 +31,30 @@ export default function AppointmentPricingPage() {
 
   const appointmentTypes = settings?.appointmentTypes ?? DEFAULT_APPOINTMENT_TYPES;
   const defaultCurrency = (settings?.defaultCurrency ?? "USD").toUpperCase();
+  const stripeReady = !!(settings?.stripeEnabled);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // Seed "Consultation" at $0 for existing orgs that pre-date this feature
+  const seedCalledRef = useRef(false);
+  useEffect(() => {
+    if (seedCalledRef.current) return;
+    if (pricing.length === 0) return; // still loading — [] is the default
+    const hasConsultation = pricing.some((p) => p.appointmentType === "Consultation");
+    if (hasConsultation) return;
+    seedCalledRef.current = true;
+    upsert({
+      appointmentType: "Consultation",
+      priceInCents: 0,
+      currency: defaultCurrency,
+      description: "Initial consultation — free of charge.",
+      isActive: true,
+    }).catch(() => {});
+  }, [pricing, defaultCurrency, upsert]);
+
+  // Dialog: null = closed, undefined = new, PricingRow = editing existing
+  const [editing, setEditing] = useState<PricingRow | null | undefined>(undefined);
+  const isDialogOpen = editing !== undefined;
+  const isEditing = editing !== null && editing !== undefined;
+
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<Id<"appointmentPricing"> | null>(null);
 
@@ -41,8 +65,28 @@ export default function AppointmentPricingPage() {
     isActive: true,
   });
 
+  const openAdd = () => {
+    setForm({ appointmentType: "", priceInCents: "", description: "", isActive: true });
+    setEditing(null);
+  };
+
+  const openEdit = (row: PricingRow) => {
+    setForm({
+      appointmentType: row.appointmentType,
+      priceInCents: row.priceInCents === 0 ? "0" : String(row.priceInCents / 100),
+      description: row.description ?? "",
+      isActive: row.isActive,
+    });
+    setEditing(row);
+  };
+
+  const closeDialog = () => {
+    setEditing(undefined);
+    setForm({ appointmentType: "", priceInCents: "", description: "", isActive: true });
+  };
+
   const handleSave = async () => {
-    if (!form.appointmentType || !form.priceInCents) return;
+    if (!form.appointmentType || form.priceInCents === "") return;
     setSaving(true);
     try {
       await upsert({
@@ -53,8 +97,7 @@ export default function AppointmentPricingPage() {
         isActive: form.isActive,
       });
       toast.success("Pricing saved.");
-      setDialogOpen(false);
-      setForm({ appointmentType: "", priceInCents: "", description: "", isActive: true });
+      closeDialog();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -75,6 +118,10 @@ export default function AppointmentPricingPage() {
 
   const formatPrice = (cents: number, currency: string) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
+
+  // Types available for "Add" — exclude any that already have a pricing row
+  const pricedTypes = new Set(pricing.map((p) => p.appointmentType));
+  const addableTypes = appointmentTypes.filter((t) => !pricedTypes.has(t));
 
   return (
     <RoleGuard allowedRoles={["admin"]} redirectTo="/settings">
@@ -102,10 +149,18 @@ export default function AppointmentPricingPage() {
                 side="right"
               />
             </CardTitle>
-            <Button size="sm" className="gap-2" onClick={() => setDialogOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Add Pricing
-            </Button>
+            {addableTypes.length > 0 && (
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={openAdd}
+                disabled={!stripeReady}
+                title={!stripeReady ? "Configure Stripe in Payments → Settings before adding paid pricing" : undefined}
+              >
+                <Plus className="h-4 w-4" />
+                Add Pricing
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {pricing.length === 0 ? (
@@ -114,53 +169,83 @@ export default function AppointmentPricingPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {pricing.map((p) => (
-                  <div key={p._id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-                    <div>
-                      <p className="font-medium text-sm">{p.appointmentType}</p>
-                      {p.description && <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>}
+                {pricing.map((p) => {
+                  const isProtected = p.appointmentType === "Consultation";
+                  return (
+                    <div key={p._id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-medium text-sm">{p.appointmentType}</p>
+                            {isProtected && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                                <Lock className="h-2.5 w-2.5" />
+                                Protected
+                              </span>
+                            )}
+                          </div>
+                          {p.description && <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.isActive ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                          {p.isActive ? "Active" : "Inactive"}
+                        </span>
+                        <span className="font-semibold text-sm">
+                          {p.priceInCents === 0 ? "Free" : formatPrice(p.priceInCents, p.currency)}
+                        </span>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => openEdit(p)}
+                          disabled={!stripeReady}
+                          title={!stripeReady ? "Configure Stripe in Payments → Settings before editing pricing" : undefined}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isProtected && (
+                          <Button
+                            variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => setDeleteId(p._id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.isActive ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                        {p.isActive ? "Active" : "Inactive"}
-                      </span>
-                      <span className="font-semibold text-sm">
-                        {p.priceInCents === 0 ? "Free" : formatPrice(p.priceInCents, p.currency)}
-                      </span>
-                      <Button
-                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteId(p._id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Add Pricing Dialog */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Add / Edit Pricing Dialog */}
+        <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
           <DialogContent style={{ maxWidth: "480px" }}>
-            <DialogHeader><DialogTitle>Set Appointment Pricing</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>{isEditing ? "Edit Pricing" : "Add Pricing"}</DialogTitle>
+            </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label>Appointment Type</Label>
-                <Select
-                  value={form.appointmentType}
-                  onValueChange={(v) => setForm({ ...form, appointmentType: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {appointmentTypes.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isEditing ? (
+                  // Type is locked when editing — you can't change what type this pricing is for
+                  <Input value={form.appointmentType} readOnly className="bg-muted text-muted-foreground cursor-default" />
+                ) : (
+                  <Select
+                    value={form.appointmentType}
+                    onValueChange={(v) => setForm({ ...form, appointmentType: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addableTypes.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
@@ -196,7 +281,7 @@ export default function AppointmentPricingPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={closeDialog}>Cancel</Button>
               <Button
                 onClick={handleSave}
                 disabled={saving || !form.appointmentType || form.priceInCents === ""}

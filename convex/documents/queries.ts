@@ -4,6 +4,11 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { getVisibleCaseIds, getVisibleClientIds } from "../lib/visibility";
 
+/** Active (non-deleted, confirmed) documents only. */
+function isActive(doc: { uploadStatus: string; deletedAt?: number }): boolean {
+  return doc.uploadStatus === "active" && doc.deletedAt == null;
+}
+
 /**
  * Visible documents scoped by role:
  *   admin        → all documents in org
@@ -16,11 +21,12 @@ export const list = authenticatedQuery({
     const { role, _id: userId, organisationId } = ctx.user;
 
     if (role === "admin") {
-      return await ctx.db
+      const docs = await ctx.db
         .query("documents")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
         .order("desc")
         .collect();
+      return docs.filter(isActive);
     }
 
     const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
@@ -28,14 +34,12 @@ export const list = authenticatedQuery({
       .query("documents")
       .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
       .collect();
-    return all.filter((d) => !d.caseId || visibleCaseIds.has(d.caseId));
+    return all.filter((d) => isActive(d) && (!d.caseId || visibleCaseIds.has(d.caseId)));
   },
 });
 
 /**
  * Documents with clientName + caseName pre-joined server-side.
- * Replaces the 3-query pattern (documents + clients + cases) on the Documents page.
- * Non-admin path uses per-case indexed lookups — no full org-wide scan.
  */
 export const listEnriched = authenticatedQuery({
   args: {},
@@ -45,14 +49,14 @@ export const listEnriched = authenticatedQuery({
     let docs: any[];
 
     if (role === "admin") {
-      docs = await ctx.db
+      const all = await ctx.db
         .query("documents")
         .withIndex("by_org", (q) => q.eq("organisationId", organisationId))
         .order("desc")
         .collect();
+      docs = all.filter(isActive);
     } else {
       const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-      // Indexed per-case lookup — no full table scan
       const perCase = await Promise.all(
         [...visibleCaseIds].map((caseId) =>
           ctx.db
@@ -61,10 +65,9 @@ export const listEnriched = authenticatedQuery({
             .collect()
         )
       );
-      docs = perCase.flat();
+      docs = perCase.flat().filter(isActive);
     }
 
-    // Batch-fetch unique clients and cases — no duplicate round-trips
     const uniqueClientIds = [...new Set(docs.map((d) => d.clientId as string))];
     const uniqueCaseIds = [...new Set(docs.filter((d) => d.caseId).map((d) => d.caseId as string))];
 
@@ -106,10 +109,11 @@ export const listByClient = authenticatedQuery({
       }
     }
 
-    return await ctx.db
+    const docs = await ctx.db
       .query("documents")
       .withIndex("by_client", (q) => q.eq("clientId", args.clientId))
       .collect();
+    return docs.filter(isActive);
   },
 });
 
@@ -131,14 +135,15 @@ export const listByCase = authenticatedQuery({
       }
     }
 
-    return await ctx.db
+    const docs = await ctx.db
       .query("documents")
       .withIndex("by_case", (q) => q.eq("caseId", args.caseId))
       .collect();
+    return docs.filter(isActive);
   },
 });
 
-/** Internal: get a document by ID. Used by onDocumentUploaded notification action. */
+/** Internal: get a document by ID. Used by actions and notification handlers. */
 export const getById = internalQuery({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
@@ -146,25 +151,18 @@ export const getById = internalQuery({
   },
 });
 
-/** Returns a short-lived signed URL for viewing/downloading a document.
- *  Enforces org isolation + role-based visibility before issuing the URL. */
-export const getViewUrl = authenticatedQuery({
-  args: { id: v.id("documents") },
+/** Internal: list documents soft-deleted before a given timestamp. Capped by limit. */
+export const listExpiredDeleted = internalQuery({
+  args: {
+    beforeMs: v.number(),
+    limit: v.number(),
+  },
   handler: async (ctx, args) => {
-    const { role, _id: userId, organisationId } = ctx.user;
-
-    const doc = await ctx.db.get(args.id);
-    if (!doc || doc.organisationId !== organisationId) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
-    }
-
-    if (role !== "admin" && doc.caseId) {
-      const visibleCaseIds = await getVisibleCaseIds(ctx.db, role, userId, organisationId);
-      if (!visibleCaseIds.has(doc.caseId)) {
-        throw new ConvexError({ code: "NOT_FOUND", message: "Document not found." });
-      }
-    }
-
-    return await ctx.storage.getUrl(doc.storageId);
+    return await ctx.db
+      .query("documents")
+      .withIndex("by_deleted_at", (q) =>
+        q.gt("deletedAt", 0).lt("deletedAt", args.beforeMs)
+      )
+      .take(args.limit);
   },
 });

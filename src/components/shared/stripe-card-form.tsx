@@ -145,10 +145,21 @@ export function StripeCardForm({
         </div>
       )}
 
-      {/* Stripe card element mount point */}
+      {/* Stripe card element mount point.
+          When colorMode="light" we pin bg/border to literal values so the
+          white background is always present regardless of the page theme. */}
       <div
         ref={setMountNode}
-        className="w-full px-4 py-3 rounded-lg border border-input bg-background min-h-[44px] transition-colors focus-within:border-primary/60"
+        className={
+          colorMode === "light"
+            ? "w-full px-4 py-3 rounded-lg min-h-[44px] transition-colors"
+            : "w-full px-4 py-3 rounded-lg border border-input bg-background min-h-[44px] transition-colors focus-within:border-primary/60"
+        }
+        style={
+          colorMode === "light"
+            ? { background: "#ffffff", border: "1px solid #e2e8f0", color: "#111827" }
+            : undefined
+        }
       />
 
       {/* Stripe error */}

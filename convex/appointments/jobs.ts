@@ -221,7 +221,7 @@ export const notifyPendingApproval = internalAction({
     if (!appt) return;
 
     const fmtDate = formatDateTime(appt.startAt);
-    const clientAtt = (appt.attendees ?? []).find((a) => a.type === "external");
+    const clientAtt = (appt.attendees ?? []).find((a: { type: string }) => a.type === "external");
     const clientName = clientAtt?.name ?? "A client";
 
     const notifyUser = async (userId: string) => {

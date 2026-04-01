@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { usePolling } from "@/hooks/use-polling";
+import { usePortalSession } from "../layout";
 import { StripeCardForm } from "@/components/shared/stripe-card-form";
-import { CreditCard, TrendingUp, DollarSign, Calendar, CheckCircle2, Loader2, X, RotateCcw, Clock, Ban } from "lucide-react";
+import { CreditCard, TrendingUp, DollarSign, Calendar, CheckCircle2, Loader2, X, RotateCcw, Clock, Ban, AlertCircle } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,10 +66,11 @@ function ContractSummaryCard({
           <h2 className="text-lg font-semibold text-foreground">Contract Fee</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Your total legal service fee and payment progress.</p>
         </div>
-        {summary.stripeEnabled && hasOutstanding && (
+        {hasOutstanding && (
           <button
-            onClick={onPay}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors shrink-0"
+            onClick={summary.stripeEnabled ? onPay : undefined}
+            disabled={!summary.stripeEnabled}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <CreditCard className="h-4 w-4" />
             Make a Payment
@@ -323,6 +325,8 @@ function PaymentDialog({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PortalPaymentsPage() {
+  const session = usePortalSession();
+  const orgName = session?.org.name ?? "your firm";
   const [showPayDialog, setShowPayDialog] = useState(false);
   const [payments, setPayments] = useState<PortalPayment[]>([]);
   const [contractSummary, setContractSummary] = useState<ContractSummary | null>(null);
@@ -351,6 +355,15 @@ export default function PortalPaymentsPage() {
       {loading && (
         <div className="flex justify-center py-16">
           <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
+      {!loading && contractSummary && !contractSummary.stripeEnabled && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20 px-4 py-3.5 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
+            Online payment is currently unavailable. Please contact <strong>{orgName}</strong> directly to complete the payment process. Thank you for your understanding.
+          </p>
         </div>
       )}
 

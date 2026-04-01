@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -280,6 +280,15 @@ export default function AppointmentsPage() {
     const [search, setSearch] = useState("");
     const [filterStatus, setFilterStatus] = useState("all");
     const [filterType, setFilterType] = useState("all");
+    const [filterMember, setFilterMember] = useState<string | "all">("all");
+
+    // Default the member filter to the current user once their profile loads
+    const memberFilterInitialized = useRef(false);
+    useEffect(() => {
+        if (memberFilterInitialized.current || !user?._id) return;
+        memberFilterInitialized.current = true;
+        setFilterMember(user._id);
+    }, [user?._id]);
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<ConvexAppointment | null>(null);
     const [cancelDialog, setCancelDialog] = useState<{ open: boolean; id: Id<"appointments"> | null }>({ open: false, id: null });
@@ -320,9 +329,16 @@ export default function AppointmentsPage() {
             if (q && !a.title.toLowerCase().includes(q) && !clientName.toLowerCase().includes(q)) return false;
             if (filterStatus !== "all" && a.status !== filterStatus) return false;
             if (filterType !== "all" && a.type !== filterType) return false;
+            if (filterMember !== "all") {
+                const isCreator = a.createdBy === filterMember;
+                const isAttendee = (a.attendees ?? []).some(
+                    (att) => att.type === "internal" && att.userId === filterMember
+                );
+                if (!isCreator && !isAttendee) return false;
+            }
             return true;
         });
-    }, [appointments, search, filterStatus, filterType, clientMap]);
+    }, [appointments, search, filterStatus, filterType, filterMember, clientMap]);
 
     const handleCancel = async () => {
         if (!cancelDialog.id) return;
@@ -406,6 +422,15 @@ export default function AppointmentsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             {typeOptions.map((t) => (
                                 <SelectItem key={t} value={t}>{t}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Select value={filterMember} onValueChange={setFilterMember}>
+                        <SelectTrigger className="h-8 w-44 text-sm"><SelectValue placeholder="All Members" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Members</SelectItem>
+                            {users.map((u) => (
+                                <SelectItem key={u._id} value={u._id}>{u.fullName}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>

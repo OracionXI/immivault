@@ -251,8 +251,10 @@ export const getCaseDetail = internalQuery({
   },
 });
 
-/** Get a signed view URL for a document — only if it belongs to a case owned by this client. */
-export const getDocumentUrl = internalQuery({
+/** Verify that a document belongs to this client/org and is portal-visible.
+ *  Returns the document if access is granted, null otherwise.
+ *  Actual pre-signed URL generation is done by the documents.actions.getViewUrl action. */
+export const getDocumentPortalAccess = internalQuery({
   args: {
     docId: v.id("documents"),
     clientId: v.id("clients"),
@@ -261,14 +263,16 @@ export const getDocumentUrl = internalQuery({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.docId);
     if (!doc || doc.organisationId !== args.organisationId) return null;
-    // Verify the document's case belongs to this client
+    if (doc.uploadStatus !== "active" || doc.deletedAt != null) return null;
+    if (doc.visibility !== "client") return null;
+    // Verify the document belongs to this client (directly or via case)
     if (doc.caseId) {
       const c = await ctx.db.get(doc.caseId);
       if (!c || c.clientId !== args.clientId) return null;
     } else if (doc.clientId !== args.clientId) {
       return null;
     }
-    return await ctx.storage.getUrl(doc.storageId);
+    return doc;
   },
 });
 

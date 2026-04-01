@@ -36,6 +36,17 @@ export const getOrCreateDefault = internalMutation({
       customRoles: DEFAULT_CUSTOM_ROLES,
     });
 
+    // Seed the default "Consultation" pricing at $0 (free) for every new org.
+    // This entry is protected — it can be modified but never deleted.
+    await ctx.db.insert("appointmentPricing", {
+      organisationId: orgId,
+      appointmentType: "Consultation",
+      priceInCents: 0,
+      currency: "USD",
+      description: "Initial consultation — free of charge.",
+      isActive: true,
+    });
+
     return orgId;
   },
 });
@@ -111,23 +122,34 @@ export const completeOnboarding = mutation({
       ? rawSlug
       : `org-${Math.random().toString(36).slice(2, 10)}`;
 
-    // Ensure slug uniqueness by appending a counter if necessary
+    // Ensure slug uniqueness by appending a counter if necessary.
+    // Check both by_slug and by_portal_slug so the same value works for both.
     let slug = baseSlug;
     let counter = 1;
     while (true) {
-      const existing = await ctx.db
-        .query("organisations")
-        .withIndex("by_slug", (q) => q.eq("slug", slug))
-        .unique();
-      if (!existing || existing._id === user.organisationId) break;
+      const [existingSlug, existingPortalSlug] = await Promise.all([
+        ctx.db
+          .query("organisations")
+          .withIndex("by_slug", (q) => q.eq("slug", slug))
+          .unique(),
+        ctx.db
+          .query("organisations")
+          .withIndex("by_portal_slug", (q) => q.eq("portalSlug", slug))
+          .unique(),
+      ]);
+      const slugOwned = !existingSlug || existingSlug._id === user.organisationId;
+      const portalSlugOwned = !existingPortalSlug || existingPortalSlug._id === user.organisationId;
+      if (slugOwned && portalSlugOwned) break;
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
 
-    // Update organisation with the real name and agreement record
+    // Update organisation with the real name, agreement record, and default portal slug
     await ctx.db.patch(user.organisationId, {
       name: orgName,
       slug,
+      portalSlug: slug,
+      portalEnabled: true,
       agreementSignature: args.agreementSignature,
       agreementSignedAt: Date.now(),
     });
@@ -474,7 +496,8 @@ export const upsertAppointmentPricing = authenticatedMutation({
   },
 });
 
-/** Admin: delete appointment pricing by ID. */
+/** Admin: delete appointment pricing by ID.
+ *  The "Consultation" entry is protected and cannot be deleted — only modified. */
 export const deleteAppointmentPricing = authenticatedMutation({
   args: { id: v.id("appointmentPricing") },
   handler: async (ctx, args) => {
@@ -484,6 +507,12 @@ export const deleteAppointmentPricing = authenticatedMutation({
     const record = await ctx.db.get(args.id);
     if (!record || record.organisationId !== ctx.user.organisationId) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Pricing record not found." });
+    }
+    if (record.appointmentType === "Consultation") {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "The Consultation pricing entry is protected and cannot be deleted. You may modify it instead.",
+      });
     }
     await ctx.db.delete(args.id);
   },

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { DocumentViewer } from "./document-viewer";
 import { FileText, File } from "lucide-react";
@@ -21,14 +20,27 @@ interface DocAttachmentPreviewProps {
  */
 export function DocAttachmentPreview({ docId, name, mimeType }: DocAttachmentPreviewProps) {
     const [viewerOpen, setViewerOpen] = useState(false);
+    const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+    const { getToken } = useAuth();
     const isImage = mimeType.startsWith("image/");
     const isPdf = mimeType === "application/pdf";
 
     // Only fetch the URL upfront for image thumbnails; DocumentViewer fetches its own URL on open.
-    const url = useQuery(
-        api.documents.queries.getViewUrl,
-        isImage ? { id: docId as Id<"documents"> } : "skip"
-    );
+    useEffect(() => {
+        if (!isImage) return;
+        let cancelled = false;
+        (async () => {
+            const token = await getToken({ template: "convex" });
+            if (!token || cancelled) return;
+            const res = await fetch(`/api/documents/view-url?documentId=${encodeURIComponent(docId)}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok || cancelled) return;
+            const data = await res.json() as { url?: string };
+            if (!cancelled) setThumbnailUrl(data.url ?? null);
+        })();
+        return () => { cancelled = true; };
+    }, [docId, isImage]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>
@@ -38,10 +50,10 @@ export function DocAttachmentPreview({ docId, name, mimeType }: DocAttachmentPre
                 title={`Click to view ${name}`}
             >
                 {isImage ? (
-                    url ? (
+                    thumbnailUrl ? (
                         <>
                             <img
-                                src={url}
+                                src={thumbnailUrl}
                                 alt={name}
                                 className="max-h-48 w-auto object-cover"
                             />

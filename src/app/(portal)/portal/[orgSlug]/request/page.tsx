@@ -180,7 +180,9 @@ export default function AppointmentRequestPage() {
     }
   }, [form, orgSlug]);
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  // Use the browser's local date (not UTC) so the minimum selectable date
+  // is correct for prospects in all timezones (e.g. UTC+6 at 1AM local = UTC yesterday).
+  const todayStr = new Date().toLocaleDateString("en-CA"); // en-CA produces YYYY-MM-DD in local time
 
   // ── Loading ────────────────────────────────────────────────────────────────
 

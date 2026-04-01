@@ -61,6 +61,8 @@ export default defineSchema({
     googleConnectedAt: v.optional(v.number()),
     // IANA timezone string (e.g. "America/New_York") — set from the user's browser, used for availability slot generation
     timezone: v.optional(v.string()),
+    // Founder onboarding wizard — set when the founder completes all post-signup wizard steps
+    wizardCompletedAt: v.optional(v.number()),
   })
     .index("by_token", ["tokenIdentifier"])
     .index("by_org", ["organisationId"])
@@ -173,16 +175,27 @@ export default defineSchema({
     caseId: v.optional(v.id("cases")),
     name: v.string(),
     type: v.optional(v.string()),
-    storageId: v.id("_storage"),
-    fileSize: v.number(),
     mimeType: v.string(),
+    fileSize: v.number(),
+    s3Key: v.string(),                         // "orgs/{organisationId}/{documentId}"
+    uploadStatus: v.union(
+      v.literal("pending"),                    // awaiting direct S3 PUT
+      v.literal("active")                      // confirmed, visible
+    ),
+    visibility: v.union(
+      v.literal("internal"),                   // staff/admin only
+      v.literal("client")                      // visible in client portal
+    ),
     // Verified = default on upload; Expired = set when the linked case completes
     status: v.union(v.literal("Verified"), v.literal("Expired")),
+    deletedAt: v.optional(v.number()),         // epoch ms; set on soft-delete
     uploadedBy: v.id("users"),
   })
     .index("by_org", ["organisationId"])
     .index("by_client", ["clientId"])
-    .index("by_case", ["caseId"]),
+    .index("by_case", ["caseId"])
+    .index("by_deleted_at", ["deletedAt"])
+    .index("by_org_and_upload_status", ["organisationId", "uploadStatus"]),
 
   // ─── Appointments ─────────────────────────────────────────────────────────────
   appointments: defineTable({
@@ -594,6 +607,8 @@ export default defineSchema({
     // Encrypted with STRIPE_MASTER_KEY Convex env var. Preferred over plaintext.
     stripeSecretKeyEnc: v.optional(v.string()),
     stripeWebhookSecretEnc: v.optional(v.string()),
+    // Set when the founder skips Stripe setup during the onboarding wizard
+    stripeWizardSkipped: v.optional(v.boolean()),
   }).index("by_org", ["organisationId"]),
 
   // ─── Stripe Disputes / Chargebacks ────────────────────────────────────────────

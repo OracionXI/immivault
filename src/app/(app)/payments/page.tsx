@@ -51,6 +51,8 @@ export default function PaymentsPage() {
     const clients = useQuery(api.clients.queries.listAll) ?? [];
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const org = useQuery(api.organisations.queries.mine);
+    const orgSettings = useQuery(api.organisations.queries.getSettings);
+    const stripeReady = !!(orgSettings?.stripeEnabled);
     const bankAccounts = useQuery(api.bankAccounts.queries.list) ?? [];
     const allBankTxns = useQuery(api.bankTransactions.queries.listAll) ?? [];
     const createPaymentLink = useMutation(api.billing.mutations.createPaymentLink);
@@ -619,7 +621,14 @@ export default function PaymentsPage() {
                             ],
                         }}
                         headerAction={
-                            <Button size="sm" onClick={() => setLinkModalOpen(true)}>Create Payment Link</Button>
+                            <Button
+                                size="sm"
+                                onClick={() => setLinkModalOpen(true)}
+                                disabled={!stripeReady}
+                                title={!stripeReady ? "Configure Stripe in Payment Settings before creating payment links" : undefined}
+                            >
+                                Create Payment Link
+                            </Button>
                         }
                     />
                 </TabsContent>

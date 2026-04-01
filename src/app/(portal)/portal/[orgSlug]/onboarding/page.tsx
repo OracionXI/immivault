@@ -152,7 +152,7 @@ export default function PortalOnboardingPage() {
         setError(data.error ?? "Something went wrong. Please try again.");
         return;
       }
-      router.push(`/portal/${orgSlug}/dashboard`);
+      router.push(`/portal/${orgSlug}/welcome`);
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -191,7 +191,7 @@ export default function PortalOnboardingPage() {
         return;
       }
 
-      router.push(`/portal/${orgSlug}/dashboard`);
+      router.push(`/portal/${orgSlug}/welcome`);
     } catch {
       setError("Network error. Please try again.");
     } finally {

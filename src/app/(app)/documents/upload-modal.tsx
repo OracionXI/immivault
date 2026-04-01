@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -21,19 +22,24 @@ interface UploadModalProps {
 
 const DEFAULT_DOC_TYPES = ["Identity", "Employment", "Immigration", "Education", "Financial", "Supporting"];
 
-const ALLOWED_EXTENSIONS = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_EXTENSIONS = /\.(pdf|doc|docx|odt|jpg|jpeg|png|webp|xls|xlsx|csv)$/i;
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
 export function UploadModal({ open, onOpenChange }: UploadModalProps) {
+    const { getToken } = useAuth();
     // listAll is RBAC-scoped: case managers only see their assigned cases
     const cases = useQuery(api.cases.queries.listAll) ?? [];
     const settings = useQuery(api.organisations.queries.getSettings);
     const docTypes = settings?.documentTypes ?? DEFAULT_DOC_TYPES;
-    const generateUploadUrl = useMutation(api.documents.mutations.generateUploadUrl);
-    const createDocument = useMutation(api.documents.mutations.create);
+    const confirmUpload = useMutation(api.documents.mutations.confirmUpload);
 
-    const [form, setForm] = useState<{ name: string; type: string; caseId: string }>({
-        name: "", type: "", caseId: "",
+    const [form, setForm] = useState<{
+        name: string;
+        type: string;
+        caseId: string;
+        visibility: "internal" | "client";
+    }>({
+        name: "", type: "", caseId: "", visibility: "internal",
     });
     const [file, setFile] = useState<File | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -44,7 +50,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
 
     useEffect(() => {
         if (open) {
-            setForm({ name: "", type: "", caseId: "" });
+            setForm({ name: "", type: "", caseId: "", visibility: "internal" });
             setFile(null);
             setErrors({});
             setUploading(false);
@@ -55,11 +61,11 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
 
     const acceptFile = (f: File) => {
         if (!ALLOWED_EXTENSIONS.test(f.name)) {
-            setErrors((e) => ({ ...e, file: "Only PDF, DOC, JPG, PNG files are allowed." }));
+            setErrors((e) => ({ ...e, file: "Only PDF, DOC, DOCX, ODT, JPG, PNG, WEBP, XLS, XLSX, CSV files are allowed." }));
             return;
         }
         if (f.size > MAX_FILE_SIZE) {
-            setErrors((e) => ({ ...e, file: "File must be 10 MB or smaller." }));
+            setErrors((e) => ({ ...e, file: "File must be 20 MB or smaller." }));
             return;
         }
         setFile(f);
@@ -85,31 +91,65 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
         return Object.keys(errs).length === 0;
     };
 
+    // Derive clientId from the selected case
+    const selectedCase = cases.find((c) => c._id === form.caseId);
+
     const handleSubmit = async () => {
-        if (!validate() || !file) return;
+        if (!validate() || !file || !selectedCase) return;
         setUploading(true);
         try {
-            const uploadUrl = await generateUploadUrl();
-            const result = await fetch(uploadUrl, {
+            const token = await getToken({ template: "convex" });
+            if (!token) throw new Error("Not authenticated");
+
+            // ── Step 1: request pre-signed PUT URL ──────────────────────────────
+            const requestRes = await fetch("/api/documents/request-upload", {
                 method: "POST",
-                headers: { "Content-Type": file.type || "application/octet-stream" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    clientId: selectedCase.clientId,
+                    caseId: form.caseId,
+                    filename: file.name,
+                    mimeType: file.type || "application/octet-stream",
+                    fileSize: file.size,
+                    visibility: form.visibility,
+                    type: form.type || undefined,
+                }),
+            });
+
+            if (!requestRes.ok) {
+                const err = await requestRes.json().catch(() => ({}));
+                throw new Error(err.error || "Failed to request upload URL");
+            }
+
+            const { uploadUrl, documentId } = await requestRes.json() as {
+                uploadUrl: string;
+                documentId: Id<"documents">;
+            };
+
+            // ── Step 2: PUT file directly to S3 ────────────────────────────────
+            const putRes = await fetch(uploadUrl, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": file.type || "application/octet-stream",
+                    "x-amz-server-side-encryption": "aws:kms",
+                },
                 body: file,
             });
-            if (!result.ok) throw new Error("Storage upload failed");
-            const { storageId } = await result.json() as { storageId: Id<"_storage"> };
 
-            await createDocument({
-                caseId: form.caseId as Id<"cases">,
-                name: form.name.trim(),
-                type: form.type,
-                storageId,
-                fileSize: file.size,
-                mimeType: file.type || "application/octet-stream",
-            });
+            if (!putRes.ok) throw new Error("S3 upload failed");
+
+            // ── Step 3: confirm upload (marks document active) ──────────────────
+            await confirmUpload({ id: documentId });
 
             onOpenChange(false);
-        } catch {
-            setErrors((e) => ({ ...e, file: "Upload failed. Please try again." }));
+        } catch (err) {
+            setErrors((e) => ({
+                ...e,
+                file: err instanceof Error ? err.message : "Upload failed. Please try again.",
+            }));
         } finally {
             setUploading(false);
         }
@@ -136,7 +176,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
                             ref={fileInputRef}
                             type="file"
                             className="hidden"
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                            accept=".pdf,.doc,.docx,.odt,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv"
                             onChange={(e) => { const f = e.target.files?.[0]; if (f) acceptFile(f); }}
                         />
                         {file ? (
@@ -154,7 +194,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
                             <>
                                 <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                                 <p className="text-sm text-muted-foreground">Click to upload or drag &amp; drop</p>
-                                <p className="text-xs text-muted-foreground mt-1">PDF, DOC, JPG, PNG up to 10 MB</p>
+                                <p className="text-xs text-muted-foreground mt-1">PDF, DOC, ODT, JPG, PNG, WEBP, XLS, CSV — up to 20 MB</p>
                             </>
                         )}
                     </div>
@@ -179,45 +219,58 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
                                     {docTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                                 </SelectContent>
                             </Select>
-                            {errors.type && <p className="text-xs text-destructive">{errors.type}</p>}
                         </div>
                         <div className="grid gap-2">
-                            <Label>Case *</Label>
-                            <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        aria-expanded={casePopoverOpen}
-                                        className="w-full justify-between font-normal truncate"
-                                    >
-                                        <span className="truncate">{selectedCaseTitle}</span>
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[220px] p-0" align="start" side="bottom">
-                                    <Command>
-                                        <CommandInput placeholder="Search cases..." />
-                                        <CommandList>
-                                            <CommandEmpty>No cases found.</CommandEmpty>
-                                            <CommandGroup>
-                                                {cases.map((c) => (
-                                                    <CommandItem
-                                                        key={c._id}
-                                                        value={c.title}
-                                                        onSelect={() => { setForm({ ...form, caseId: c._id }); setCasePopoverOpen(false); }}
-                                                    >
-                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c._id ? "opacity-100" : "opacity-0")} />
-                                                        <span className="truncate">{c.title}</span>
-                                                    </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
-                            {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
+                            <Label>Visibility</Label>
+                            <Select
+                                value={form.visibility}
+                                onValueChange={(v) => setForm({ ...form, visibility: v as "internal" | "client" })}
+                            >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="internal">Internal (staff only)</SelectItem>
+                                    <SelectItem value="client">Client (visible in portal)</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label>Case *</Label>
+                        <Popover open={casePopoverOpen} onOpenChange={setCasePopoverOpen}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={casePopoverOpen}
+                                    className="w-full justify-between font-normal truncate"
+                                >
+                                    <span className="truncate">{selectedCaseTitle}</span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[300px] p-0" align="start" side="bottom">
+                                <Command>
+                                    <CommandInput placeholder="Search cases..." />
+                                    <CommandList>
+                                        <CommandEmpty>No cases found.</CommandEmpty>
+                                        <CommandGroup>
+                                            {cases.map((c) => (
+                                                <CommandItem
+                                                    key={c._id}
+                                                    value={c.title}
+                                                    onSelect={() => { setForm({ ...form, caseId: c._id }); setCasePopoverOpen(false); }}
+                                                >
+                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", form.caseId === c._id ? "opacity-100" : "opacity-0")} />
+                                                    <span className="truncate">{c.title}</span>
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
+                        {errors.caseId && <p className="text-xs text-destructive">{errors.caseId}</p>}
                     </div>
                 </div>
                 <DialogFooter>

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,11 +17,27 @@ interface DocumentViewerProps {
 
 export function DocumentViewer({ open, onOpenChange, docId, name, mimeType }: DocumentViewerProps) {
     const [zoom, setZoom] = useState(1);
+    const [url, setUrl] = useState<string | null>(null);
+    const { getToken } = useAuth();
 
-    const url = useQuery(
-        api.documents.queries.getViewUrl,
-        open && docId ? { id: docId } : "skip"
-    );
+    useEffect(() => {
+        if (!open || !docId) {
+            setUrl(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            const token = await getToken({ template: "convex" });
+            if (!token || cancelled) return;
+            const res = await fetch(`/api/documents/view-url?documentId=${encodeURIComponent(docId)}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok || cancelled) return;
+            const data = await res.json() as { url?: string };
+            if (!cancelled) setUrl(data.url ?? null);
+        })();
+        return () => { cancelled = true; };
+    }, [open, docId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const isImage = mimeType.startsWith("image/");
     const isPdf = mimeType === "application/pdf";
