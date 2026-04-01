@@ -452,6 +452,74 @@ export const acceptAsClient = authenticatedMutation({
 });
 
 /**
+ * Admin-only: resend the payment link email to a prospect whose request is
+ * still in awaiting_payment status.
+ *
+ * Enforces a 5-minute server-side cooldown using lastPaymentEmailSentAt so
+ * the button cannot be spammed even if the UI is bypassed.
+ */
+export const resendPaymentEmail = authenticatedMutation({
+  args: { requestId: v.id("appointmentRequests") },
+  handler: async (ctx, args) => {
+    requireAdmin(ctx);
+
+    const req = await ctx.db.get(args.requestId);
+    if (!req || req.organisationId !== ctx.user.organisationId) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Request not found." });
+    }
+    if (req.status !== "awaiting_payment") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Payment email can only be resent for requests awaiting payment.",
+      });
+    }
+
+    // Server-side 5-minute cooldown
+    const COOLDOWN_MS = 5 * 60 * 1000;
+    if (req.lastPaymentEmailSentAt && Date.now() - req.lastPaymentEmailSentAt < COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil(
+        (COOLDOWN_MS - (Date.now() - req.lastPaymentEmailSentAt)) / 1000
+      );
+      throw new ConvexError({
+        code: "RATE_LIMITED",
+        message: `Please wait ${remainingSeconds} seconds before resending.`,
+      });
+    }
+
+    const org = await ctx.db.get(ctx.user.organisationId);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const orgSlug = org?.portalSlug ?? "";
+
+    if (!orgSlug) {
+      throw new ConvexError({
+        code: "CONFIGURATION_ERROR",
+        message: "Cannot resend: portal slug is not configured for this organisation.",
+      });
+    }
+
+    const payUrl = `${appUrl}/portal/${orgSlug}/pay/${args.requestId}`;
+
+    // Stamp the resend time before scheduling so a second click in the same
+    // JS tick (unlikely, but possible) is still blocked.
+    await ctx.db.patch(args.requestId, { lastPaymentEmailSentAt: Date.now() });
+
+    await ctx.scheduler.runAfter(0, internal.notifications.actions.sendProspectConfirmation, {
+      clientEmail: req.email,
+      clientFirstName: req.firstName,
+      orgName: org?.name ?? "your legal team",
+      founderName: ctx.user.fullName,
+      appointmentType: req.appointmentType,
+      preferredDate: req.preferredDate,
+      preferredTime: req.preferredTime,
+      clientTimezone: req.clientTimezone,
+      meetingMode: req.meetingMode ?? "in_person",
+      payUrl,
+      paymentDeadline: req.paymentDeadline,
+    });
+  },
+});
+
+/**
  * Admin-only: decline a prospect after the meeting (no email sent).
  * Marks the request as declined_after_meeting.
  */

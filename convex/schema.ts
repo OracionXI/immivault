@@ -672,6 +672,7 @@ export default defineSchema({
     paymentCurrency: v.optional(v.string()),
     paymentDeadline: v.optional(v.number()),       // epoch ms — 48h after confirmation
     paidAt: v.optional(v.number()),                // epoch ms — when payment succeeded
+    lastPaymentEmailSentAt: v.optional(v.number()), // epoch ms — last time payment link email was (re)sent; used to enforce 5-min resend cooldown
     createdAt: v.number(),
   })
     .index("by_org", ["organisationId"])

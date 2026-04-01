@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
     CalendarDays, Clock, Mail, Phone, MessageSquare,
-    CheckCircle2, XCircle, Video, MapPin, CreditCard,
+    CheckCircle2, XCircle, Video, MapPin, CreditCard, Send,
 } from "lucide-react";
 
 export type ProspectRequest = {
@@ -46,6 +46,7 @@ export type ProspectRequest = {
     paymentAmountCents?: number;
     paymentCurrency?: string;
     paymentDeadline?: number;
+    lastPaymentEmailSentAt?: number;
 };
 
 type Props = {
@@ -86,13 +87,73 @@ const STATUS_CONFIG: Record<ProspectRequest["status"], { label: string; classNam
     declined_after_meeting:{ label: "Declined",           className: "text-slate-500 border-slate-400" },
 };
 
+const RESEND_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes — must match server-side value
+
+function formatCountdown(ms: number): string {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function ProspectReviewModal({ request, open, onOpenChange }: Props) {
-    const confirmRequest = useMutation(api.appointmentRequests.mutations.confirm);
-    const rejectRequest  = useMutation(api.appointmentRequests.mutations.reject);
+    const confirmRequest    = useMutation(api.appointmentRequests.mutations.confirm);
+    const rejectRequest     = useMutation(api.appointmentRequests.mutations.reject);
+    const resendPaymentEmail = useMutation(api.appointmentRequests.mutations.resendPaymentEmail);
 
     const [mode, setMode] = useState<"view" | "reject">("view");
     const [rejectReason, setRejectReason] = useState("");
     const [saving, setSaving] = useState(false);
+    const [resending, setResending] = useState(false);
+
+    // Cooldown countdown — initialised from the server-stamped lastPaymentEmailSentAt
+    // so the state survives page refresh and reflects resends by other admins.
+    const [remainingMs, setRemainingMs] = useState<number>(0);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Recompute remaining cooldown whenever the modal opens or the request changes
+    useEffect(() => {
+        if (!open || !request?.lastPaymentEmailSentAt) {
+            setRemainingMs(0);
+            return;
+        }
+        const elapsed = Date.now() - request.lastPaymentEmailSentAt;
+        const remaining = RESEND_COOLDOWN_MS - elapsed;
+        setRemainingMs(remaining > 0 ? remaining : 0);
+    }, [open, request?.lastPaymentEmailSentAt]);
+
+    // Tick down every second while cooldown is active
+    useEffect(() => {
+        if (remainingMs <= 0) {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            return;
+        }
+        intervalRef.current = setInterval(() => {
+            setRemainingMs((prev) => {
+                const next = prev - 1000;
+                if (next <= 0) {
+                    if (intervalRef.current) clearInterval(intervalRef.current);
+                    return 0;
+                }
+                return next;
+            });
+        }, 1000);
+        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    }, [remainingMs > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleResendPaymentEmail = async () => {
+        if (!request) return;
+        setResending(true);
+        try {
+            await resendPaymentEmail({ requestId: request._id });
+            toast.success("Payment link resent to prospect.");
+            setRemainingMs(RESEND_COOLDOWN_MS);
+        } catch (err) {
+            toast.error(getErrorMessage(err));
+        } finally {
+            setResending(false);
+        }
+    };
 
     const handleClose = () => {
         onOpenChange(false);
@@ -182,9 +243,9 @@ export function ProspectReviewModal({ request, open, onOpenChange }: Props) {
                         {/* Payment info for awaiting_payment / paid */}
                         {(request.status === "awaiting_payment" || request.status === "paid") &&
                             request.paymentAmountCents !== undefined && (
-                            <div className="rounded-lg border border-amber-100 bg-amber-50/60 dark:border-amber-900/30 dark:bg-amber-950/20 p-3 flex items-center gap-3">
-                                <CreditCard className="h-4 w-4 text-amber-600 shrink-0" />
-                                <div>
+                            <div className="rounded-lg border border-amber-100 bg-amber-50/60 dark:border-amber-900/30 dark:bg-amber-950/20 p-3 flex items-start gap-3">
+                                <CreditCard className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
                                     <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Consultation fee</p>
                                     <p className="text-sm text-amber-800 dark:text-amber-300">
                                         {(request.paymentAmountCents / 100).toLocaleString(undefined, {
@@ -193,6 +254,13 @@ export function ProspectReviewModal({ request, open, onOpenChange }: Props) {
                                         })}{" "}
                                         — {request.status === "paid" ? "Payment received" : "Awaiting payment"}
                                     </p>
+                                    {request.paymentDeadline && request.status === "awaiting_payment" && (
+                                        <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                                            Deadline: {new Date(request.paymentDeadline).toLocaleDateString(undefined, {
+                                                month: "short", day: "numeric", year: "numeric",
+                                            })}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -257,8 +325,40 @@ export function ProspectReviewModal({ request, open, onOpenChange }: Props) {
                     </DialogFooter>
                 )}
 
-                {/* ── Footer: all other (non-pending) statuses ── */}
-                {request.status !== "pending" && (
+                {/* ── Footer: awaiting_payment — resend button + close ── */}
+                {request.status === "awaiting_payment" && (
+                    <DialogFooter className="flex-col sm:flex-row gap-2">
+                        <Button variant="outline" onClick={handleClose} className="sm:mr-auto">
+                            Close
+                        </Button>
+                        <Button
+                            onClick={handleResendPaymentEmail}
+                            disabled={resending || remainingMs > 0}
+                            variant="outline"
+                            className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 disabled:opacity-60 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/40 min-w-[200px]"
+                        >
+                            {resending ? (
+                                <span className="flex items-center gap-2">
+                                    <span className="h-3.5 w-3.5 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
+                                    Sending…
+                                </span>
+                            ) : remainingMs > 0 ? (
+                                <span className="flex items-center gap-2">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    Resend in {formatCountdown(remainingMs)}
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-2">
+                                    <Send className="h-3.5 w-3.5" />
+                                    Resend Payment Email
+                                </span>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                )}
+
+                {/* ── Footer: all other (non-pending, non-awaiting_payment) statuses ── */}
+                {request.status !== "pending" && request.status !== "awaiting_payment" && (
                     <DialogFooter>
                         <Button variant="outline" onClick={handleClose}>Close</Button>
                     </DialogFooter>
