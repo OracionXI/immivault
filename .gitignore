@@ -20,5 +20,6 @@ desktop.ini
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 
-# ── Claude Code local settings (machine-specific, not for sharing) ────────────
-.claude/settings.local.json
+# ── Claude Code (machine-specific, not for sharing) ──────────────────────────
+.claude/
+.github/
